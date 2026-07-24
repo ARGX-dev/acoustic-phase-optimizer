@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import os
 import numpy as np
 from numpy.typing import NDArray
 from typing import Callable, Dict, List, Optional, Tuple
 from dataclasses import dataclass, field
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from acoustic_phase_optimizer.optimization.objectives import (
     ObjectiveFunction, ObjectiveWeights,
 )
@@ -15,6 +17,10 @@ from acoustic_phase_optimizer.optimization.genetic import GeneticOptimizer
 from acoustic_phase_optimizer.optimization.annealing import AnnealingOptimizer
 from acoustic_phase_optimizer.optimization.bayesian import BayesianOptimizer
 from acoustic_phase_optimizer.utils.logging import get_logger
+
+os.environ.setdefault("OMP_NUM_THREADS", str(os.cpu_count() or 4))
+os.environ.setdefault("MKL_NUM_THREADS", str(os.cpu_count() or 4))
+os.environ.setdefault("NUMBA_NUM_THREADS", str(os.cpu_count() or 4))
 
 logger = get_logger(__name__)
 
@@ -97,20 +103,29 @@ class OptimizationEngine:
         objective_fn: Callable[[NDArray[np.float64]], float],
         initial_params: NDArray[np.float64],
         algorithms: Optional[List[str]] = None,
+        cancel_check: Optional[Callable[[], None]] = None,
     ) -> Dict[str, OptimizationResult]:
         if algorithms is None:
             algorithms = list(self._algorithms.keys())
 
         results = {}
-        for algo in algorithms:
-            logger.info(f"Running {algo} optimization...")
-            result = self.optimize(algo, objective_fn, initial_params)
-            results[algo] = result
-            logger.info(
-                f"  {algo}: best = {result.best_value:.6f}, "
-                f"iterations = {result.iterations}, "
-                f"time = {result.computation_time:.2f}s"
-            )
+        n_workers = min(len(algorithms), os.cpu_count() or 4)
+        with ThreadPoolExecutor(max_workers=n_workers) as pool:
+            futures = {
+                pool.submit(self.optimize, algo, objective_fn, initial_params): algo
+                for algo in algorithms
+            }
+            for future in as_completed(futures):
+                if cancel_check:
+                    cancel_check()
+                algo = futures[future]
+                result = future.result()
+                results[algo] = result
+                logger.info(
+                    f"  {algo}: best = {result.best_value:.6f}, "
+                    f"iterations = {result.iterations}, "
+                    f"time = {result.computation_time:.2f}s"
+                )
 
         return results
 
@@ -165,6 +180,6 @@ class OptimizationEngine:
     def _create_bayesian_optimizer(self) -> BayesianOptimizer:
         return BayesianOptimizer(
             n_initial_points=10,
-            max_iterations=self.config.get("max_iterations", 500),
+            max_iterations=self.config.get("max_iterations", 200),
             convergence_threshold=self.config.get("convergence_threshold", 1e-6),
         )

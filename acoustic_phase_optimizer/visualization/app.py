@@ -3,13 +3,15 @@
 from __future__ import annotations
 
 import sys
+import time
+import threading
 import numpy as np
 from typing import Dict, List, Optional, Tuple
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QSplitter,
-    QVBoxLayout, QHBoxLayout, QTabWidget, QMessageBox,
+    QVBoxLayout, QHBoxLayout, QTabWidget, QMessageBox, QProgressDialog,
 )
-from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtCore import Qt, QTimer, QThread, QObject, pyqtSignal
 
 from acoustic_phase_optimizer.config import Config
 from acoustic_phase_optimizer.acoustic.room_model import RoomModel
@@ -28,6 +30,58 @@ from acoustic_phase_optimizer.visualization.controls import ControlPanel
 from acoustic_phase_optimizer.utils.logging import get_logger
 
 logger = get_logger(__name__)
+
+
+class OptimizationWorker(QObject):
+    finished = pyqtSignal(object)
+    progress = pyqtSignal(str)
+
+    def __init__(self, speakers, room_model, params):
+        super().__init__()
+        self.speakers = speakers
+        self.room_model = room_model
+        self.params = params
+        self._cancel_event = threading.Event()
+
+    def cancel(self) -> None:
+        self._cancel_event.set()
+
+    def _check_cancel(self) -> None:
+        if self._cancel_event.is_set():
+            raise InterruptedError("Optimization canceled")
+
+    def run(self) -> None:
+        engine = OptimizationEngine(self.params)
+        objective = ObjectiveFunction()
+        n_speakers = len(self.speakers)
+
+        def objective_wrapper(p: np.ndarray) -> float:
+            self._check_cancel()
+            for i, spk in enumerate(self.speakers):
+                if i * 3 < len(p):
+                    spk.delay_ms = float(p[i * 3])
+                    spk.gain_db = float(p[i * 3 + 1])
+            data = {
+                "phase": [],
+                "magnitude_db": [],
+                "cancellation_zones": [],
+                "delays_ms": [s.delay_ms for s in self.speakers],
+                "rt60": {"broadband": self.room_model.estimate_rt60_eyring()},
+            }
+            return objective.compute(p, data)
+
+        bounds, initial = engine.setup_speaker_optimization(n_speakers)
+
+        try:
+            if self.params["algorithm"] == "compare_all":
+                results = engine.compare_algorithms(objective_wrapper, initial, cancel_check=self._check_cancel)
+                self.finished.emit(results)
+            else:
+                self.progress.emit(f"Running {self.params['algorithm']} optimization...")
+                result = engine.optimize(self.params["algorithm"], objective_wrapper, initial)
+                self.finished.emit(result)
+        except InterruptedError:
+            self.finished.emit(None)
 
 
 class VisualizationApp(QMainWindow):
@@ -136,31 +190,55 @@ class VisualizationApp(QMainWindow):
                     )
 
     def _on_optimization_start(self, params: dict) -> None:
-        self.control_panel.log(f"Starting optimization: {params['algorithm']}")
-        engine = OptimizationEngine(params)
-        objective = ObjectiveFunction()
+        algorithm = params.get("algorithm", "compare_all")
+        self.control_panel.log(f"Starting optimization: {algorithm}")
+        self.control_panel.setEnabled(False)
 
-        def objective_wrapper(p: np.ndarray) -> float:
-            for i, spk in enumerate(self.speakers):
-                if i * 3 < len(p):
-                    spk.delay_ms = float(p[i * 3])
-                    spk.gain_db = float(p[i * 3 + 1])
-            data = self._gather_measurement_data()
-            return objective.compute(p, data)
+        self._progress = QProgressDialog("Optimizing...", "Cancel", 0, 0, self)
+        self._progress.setWindowTitle("Acoustic Phase Optimizer")
+        self._progress.setMinimumDuration(0)
+        self._progress.setValue(0)
+        self._progress.canceled.connect(self._on_optimization_canceled)
 
-        bounds, initial = engine.setup_speaker_optimization(len(self.speakers))
+        self._opt_thread = QThread()
+        self._opt_worker = OptimizationWorker(self.speakers, self.room_model, params)
+        self._opt_worker.moveToThread(self._opt_thread)
+        self._opt_thread.started.connect(self._opt_worker.run)
+        self._opt_worker.finished.connect(self._on_optimization_finished)
+        self._opt_worker.progress.connect(self._progress.setLabelText)
+        self._opt_worker.finished.connect(self._opt_thread.quit)
+        self._opt_worker.finished.connect(self._opt_worker.deleteLater)
+        self._opt_thread.finished.connect(self._opt_thread.deleteLater)
+        self._progress.canceled.connect(self._opt_worker.cancel)
+        self._opt_thread.start()
 
-        if params["algorithm"] == "compare_all":
-            results = engine.compare_algorithms(objective_wrapper, initial)
-            best_algo, best_result = engine.get_best_result(results)
+    def _on_optimization_finished(self, result) -> None:
+        self._progress.close()
+        self.control_panel.setEnabled(True)
+
+        if result is None:
+            self.control_panel.log("Optimization canceled")
+            return
+
+        if isinstance(result, dict):
+            engine = OptimizationEngine()
+            best_algo, best_result = engine.get_best_result(result)
             self.control_panel.log(f"Best algorithm: {best_algo} ({best_result.best_value:.4f})")
-            for name, result in results.items():
-                self.control_panel.log(f"  {name}: {result.best_value:.4f} ({result.iterations} it, {result.computation_time:.1f}s)")
+            for name, r in result.items():
+                self.control_panel.log(f"  {name}: {r.best_value:.4f} ({r.iterations} it, {r.computation_time:.1f}s)")
         else:
-            result = engine.optimize(params["algorithm"], objective_wrapper, initial)
             self.control_panel.log(f"Optimization complete: {result.best_value:.4f}")
 
         self._update_views()
+
+    def _on_optimization_canceled(self) -> None:
+        if hasattr(self, '_opt_worker'):
+            self._opt_worker.cancel()
+        if hasattr(self, '_opt_thread') and self._opt_thread.isRunning():
+            self._opt_thread.quit()
+            self._opt_thread.wait(2000)
+        self.control_panel.setEnabled(True)
+        self.control_panel.log("Optimization canceled")
 
     def _on_speaker_update(self, speaker_name: str, params: dict) -> None:
         for spk in self.speakers:
