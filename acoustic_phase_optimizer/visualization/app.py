@@ -29,6 +29,11 @@ from acoustic_phase_optimizer.visualization.frequency_view import (
 from acoustic_phase_optimizer.visualization.controls import ControlPanel
 from acoustic_phase_optimizer.weather.api import fetch_location_coords, fetch_yearly_averages
 from acoustic_phase_optimizer.weather.acoustic_mapping import weather_to_acoustic_params
+from acoustic_phase_optimizer.room.lidar_import import import_lidar, fit_room_from_points
+from acoustic_phase_optimizer.room.mic_placer import optimize_mic_positions
+from acoustic_phase_optimizer.acoustic.microphone import Microphone
+from acoustic_phase_optimizer.dsp.peq import PEQConfig, PEQBand
+from acoustic_phase_optimizer.dsp.geq import GEQConfig
 from acoustic_phase_optimizer.utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -57,6 +62,10 @@ class OptimizationWorker(QObject):
         objective = ObjectiveFunction()
         n_speakers = len(self.speakers)
 
+        if self.params.get("algorithm") == "dsp_only":
+            self._run_dsp_optimization(engine, objective, n_speakers)
+            return
+
         def objective_wrapper(p: np.ndarray) -> float:
             self._check_cancel()
             for i, spk in enumerate(self.speakers):
@@ -82,6 +91,56 @@ class OptimizationWorker(QObject):
                 self.progress.emit(f"Running {self.params['algorithm']} optimization...")
                 result = engine.optimize(self.params["algorithm"], objective_wrapper, initial)
                 self.finished.emit(result)
+        except InterruptedError:
+            self.finished.emit(None)
+
+    def _run_dsp_optimization(self, engine, objective, n_speakers) -> None:
+        virtual_room = VirtualRoom(self.room_model, sample_rate=48000)
+        for s in self.speakers:
+            virtual_room.add_speaker(s)
+        for m in self.microphones if self.microphones else []:
+            virtual_room.add_microphone(m)
+
+        def dsp_objective_wrapper(p: np.ndarray) -> float:
+            self._check_cancel()
+            idx = 0
+            for spk in self.speakers:
+                for band in spk.peq.bands:
+                    band.freq_hz = float(p[idx]); idx += 1
+                    band.gain_db = float(p[idx]); idx += 1
+                    band.q = float(p[idx]); idx += 1
+                for j in range(31):
+                    spk.geq.gains_db[j] = float(p[idx]); idx += 1
+                spk.delay_ms = float(p[idx]); idx += 1
+                spk.polarity = SpeakerPolarity.NORMAL if p[idx] >= 0 else SpeakerPolarity.INVERTED; idx += 1
+
+            phases = []
+            magnitudes = []
+            delays = []
+            for spk in self.speakers:
+                if not spk.enabled:
+                    continue
+                for mic in (self.microphones if self.microphones else []):
+                    freqs, mag, phase = virtual_room.compute_dsp_corrected_transfer(spk, mic)
+                    phases.append(phase)
+                    magnitudes.append(mag)
+                delays.append(spk.delay_ms)
+
+            data = {
+                "phase": phases,
+                "magnitude_db": magnitudes,
+                "cancellation_zones": [],
+                "delays_ms": delays,
+                "rt60": {"broadband": self.room_model.estimate_rt60_eyring()},
+            }
+            return objective.compute(np.zeros(1), data)
+
+        bounds, initial = engine.setup_dsp_optimization(n_speakers)
+        self.progress.emit("Running DSP-only optimization (PEQ + GEQ + delay + polarity)...")
+
+        try:
+            result = engine.optimize("genetic", dsp_objective_wrapper, initial)
+            self.finished.emit(result)
         except InterruptedError:
             self.finished.emit(None)
 
@@ -179,6 +238,9 @@ class VisualizationApp(QMainWindow):
         self.control_panel.optimization_started.connect(self._on_optimization_start)
         self.control_panel.speaker_updated.connect(self._on_speaker_update)
         self.control_panel.weather_controls.fetch_button.clicked.connect(self._on_weather_fetch)
+        self.control_panel.lidar_imported.connect(self._on_lidar_import)
+        self.control_panel.dimensions_changed.connect(self._on_dimensions_changed)
+        self.control_panel.mic_placement_requested.connect(self._on_mic_placement)
 
     def _on_measurement_start(self, params: dict) -> None:
         self.control_panel.log(f"Starting measurement: {params}")
@@ -282,6 +344,59 @@ class VisualizationApp(QMainWindow):
             f"(was 343.0 m/s)"
         )
 
+    def _on_lidar_import(self, path: str) -> None:
+        self.control_panel.log(f"Importing LIDAR: {path}")
+        scan = import_lidar(path)
+        if scan is None:
+            self.control_panel.log("Failed to import LIDAR scan", "ERROR")
+            return
+        self.control_panel.log(f"Loaded {len(scan.points)} points")
+
+        room = fit_room_from_points(scan)
+        if room is None:
+            self.control_panel.log("Could not fit room from points", "ERROR")
+            return
+        self.room_model = room
+        L, W, H = room.get_dimensions_array()
+        self.control_panel.room_controls.room_length.setValue(L)
+        self.control_panel.room_controls.room_width.setValue(W)
+        self.control_panel.room_controls.room_height.setValue(H)
+        self.control_panel.log(f"Room fitted: {L:.1f} x {W:.1f} x {H:.1f}m")
+        self._reinit_virtual_room()
+
+    def _on_dimensions_changed(self, length: float, width: float, height: float) -> None:
+        self.room_model.set_dimensions(length, width, height)
+        self.control_panel.log(f"Room dimensions set: {length:.1f} x {width:.1f} x {height:.1f}m")
+        self._reinit_virtual_room()
+
+    def _reinit_virtual_room(self) -> None:
+        old_speakers = self.speakers if self.speakers else []
+        old_mics = self.microphones if self.microphones else []
+        self.virtual_room = VirtualRoom(self.room_model)
+        for s in old_speakers:
+            self.virtual_room.add_speaker(s)
+        for m in old_mics:
+            self.virtual_room.add_microphone(m)
+        self._update_views()
+
+    def _on_mic_placement(self, max_mics: int) -> None:
+        if not self.speakers:
+            self.control_panel.log("Place speakers first before optimizing mic positions", "WARN")
+            return
+        self.control_panel.log(f"Optimizing {max_mics} mic positions...")
+        result = optimize_mic_positions(
+            self.room_model, self.speakers, max_mics=max_mics
+        )
+        self.microphones = [
+            Microphone(name, pos, zone="auto")
+            for name, pos in zip(result.names, result.positions)
+        ]
+        self._reinit_virtual_room()
+        self.control_panel.log(
+            f"Placed {len(self.microphones)} mics "
+            f"(coverage={result.coverage_score:.3f}, diversity={result.diversity_score:.3f})"
+        )
+
     def _on_speaker_update(self, speaker_name: str, params: dict) -> None:
         for spk in self.speakers:
             if spk.name == speaker_name:
@@ -291,6 +406,15 @@ class VisualizationApp(QMainWindow):
                     spk.polarity = SpeakerPolarity.INVERTED
                 else:
                     spk.polarity = SpeakerPolarity.NORMAL
+                peq_bands = params.get("peq_bands")
+                if peq_bands:
+                    spk.peq = PEQConfig(bands=[
+                        PEQBand(freq_hz=b["freq"], gain_db=b["gain"], q=b["q"])
+                        for b in peq_bands
+                    ])
+                geq_gains = params.get("geq_gains")
+                if geq_gains:
+                    spk.geq = GEQConfig(gains_db=list(geq_gains))
                 self.control_panel.log(f"Updated {speaker_name}: delay={spk.delay_ms}ms, gain={spk.gain_db}dB")
                 self._update_views()
                 break
