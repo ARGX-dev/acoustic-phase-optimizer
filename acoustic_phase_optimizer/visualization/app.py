@@ -13,7 +13,7 @@ from PyQt6.QtCore import Qt, QTimer
 
 from acoustic_phase_optimizer.config import Config
 from acoustic_phase_optimizer.acoustic.room_model import RoomModel
-from acoustic_phase_optimizer.acoustic.speaker import Speaker
+from acoustic_phase_optimizer.acoustic.speaker import Speaker, SpeakerType, SpeakerPolarity
 from acoustic_phase_optimizer.acoustic.microphone import Microphone
 from acoustic_phase_optimizer.acoustic.comb_filter import CombFilterDetector
 from acoustic_phase_optimizer.simulation.virtual_room import VirtualRoom
@@ -91,11 +91,11 @@ class VisualizationApp(QMainWindow):
 
     def _setup_default_data(self) -> None:
         self.speakers = [
-            Speaker("Left Main", "left_main", np.array([-8.0, 1.0, 2.0])),
-            Speaker("Right Main", "right_main", np.array([8.0, 1.0, 2.0])),
-            Speaker("Subwoofer", "subwoofer", np.array([0.0, 2.5, 0.0])),
-            Speaker("Delay Left", "delay", np.array([-12.0, 15.0, 3.0])),
-            Speaker("Delay Right", "delay", np.array([12.0, 15.0, 3.0])),
+            Speaker("Left Main", SpeakerType.MAIN_LEFT, np.array([-8.0, 1.0, 2.0])),
+            Speaker("Right Main", SpeakerType.MAIN_RIGHT, np.array([8.0, 1.0, 2.0])),
+            Speaker("Subwoofer", SpeakerType.SUBWOOFER, np.array([0.0, 2.5, 0.0])),
+            Speaker("Delay Left", SpeakerType.DELAY, np.array([-12.0, 15.0, 3.0])),
+            Speaker("Delay Right", SpeakerType.DELAY, np.array([12.0, 15.0, 3.0])),
         ]
         for s in self.speakers:
             s.enabled = True
@@ -168,7 +168,9 @@ class VisualizationApp(QMainWindow):
                 spk.delay_ms = params.get("delay_ms", spk.delay_ms)
                 spk.gain_db = params.get("gain_db", spk.gain_db)
                 if params.get("polarity_inverted"):
-                    spk.polarity = "inverted"
+                    spk.polarity = SpeakerPolarity.INVERTED
+                else:
+                    spk.polarity = SpeakerPolarity.NORMAL
                 self.control_panel.log(f"Updated {speaker_name}: delay={spk.delay_ms}ms, gain={spk.gain_db}dB")
                 self._update_views()
                 break
