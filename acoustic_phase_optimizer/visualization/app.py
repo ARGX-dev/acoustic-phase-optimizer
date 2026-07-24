@@ -26,6 +26,8 @@ from acoustic_phase_optimizer.visualization.heatmap import HeatmapWidget, MultiH
 from acoustic_phase_optimizer.visualization.frequency_view import (
     FrequencyResponseWidget, GroupDelayWidget, SpectrogramWidget,
 )
+from PyQt6.QtWidgets import QMenu
+from PyQt6.QtGui import QAction
 from acoustic_phase_optimizer.visualization.controls import ControlPanel
 from acoustic_phase_optimizer.weather.api import fetch_location_coords, fetch_yearly_averages
 from acoustic_phase_optimizer.weather.acoustic_mapping import weather_to_acoustic_params
@@ -43,10 +45,11 @@ class OptimizationWorker(QObject):
     finished = pyqtSignal(object)
     progress = pyqtSignal(str)
 
-    def __init__(self, speakers, room_model, params):
+    def __init__(self, speakers, room_model, microphones, params):
         super().__init__()
         self.speakers = speakers
         self.room_model = room_model
+        self.microphones = microphones
         self.params = params
         self._cancel_event = threading.Event()
 
@@ -163,6 +166,8 @@ class VisualizationApp(QMainWindow):
         self._setup_default_data()
         self._connect_signals()
         self.room_view.set_on_speaker_placed(self._on_room_click_place_speaker)
+        self.room_view.set_on_speaker_right_click(self._on_room_speaker_right_click)
+        self.room_view.set_on_stage_changed(self._on_room_stage_changed)
 
         self._refresh_timer = QTimer()
         self._refresh_timer.timeout.connect(self._periodic_refresh)
@@ -175,6 +180,11 @@ class VisualizationApp(QMainWindow):
 
         self.control_panel = ControlPanel()
         main_layout.addWidget(self.control_panel, 1)
+
+        right_side = QVBoxLayout()
+
+        self.speaker_palette = self._create_speaker_palette()
+        right_side.addWidget(self.speaker_palette)
 
         view_splitter = QSplitter(Qt.Orientation.Vertical)
 
@@ -201,9 +211,48 @@ class VisualizationApp(QMainWindow):
         bottom_tabs.addTab(self.spectrogram_view, "Spectrogram")
 
         view_splitter.addWidget(bottom_tabs)
-        main_layout.addWidget(view_splitter, 3)
+        right_side.addWidget(view_splitter, 3)
+
+        main_layout.addLayout(right_side, 3)
 
         central.setLayout(main_layout)
+
+    def _create_speaker_palette(self) -> QWidget:
+        from PyQt6.QtWidgets import QToolBar, QToolButton
+        toolbar = QWidget()
+        layout = QHBoxLayout()
+        layout.setContentsMargins(0, 0, 0, 0)
+        label = QLabel("Place: ")
+        layout.addWidget(label)
+
+        self._palette_buttons = []
+        for st in SpeakerType:
+            btn = QToolButton()
+            btn.setText(st.value.replace("_", " ").title())
+            btn.setCheckable(True)
+            btn.setToolTip(f"Click then click in Room 2D to place a {st.value}")
+            btn.clicked.connect(lambda checked, t=st: self._on_palette_select(t))
+            layout.addWidget(btn)
+            self._palette_buttons.append(btn)
+
+        cancel_btn = QToolButton()
+        cancel_btn.setText("Cancel")
+        cancel_btn.clicked.connect(self._on_palette_clear)
+        layout.addWidget(cancel_btn)
+
+        toolbar.setLayout(layout)
+        return toolbar
+
+    def _on_palette_select(self, speaker_type: SpeakerType) -> None:
+        for btn in self._palette_buttons:
+            btn.setChecked(False)
+        self.sender().setChecked(True)
+        self.room_view.set_pending_type(speaker_type)
+
+    def _on_palette_clear(self) -> None:
+        for btn in self._palette_buttons:
+            btn.setChecked(False)
+        self.room_view.set_pending_type(None)
 
     def _setup_default_data(self) -> None:
         self.speakers = [
@@ -267,7 +316,7 @@ class VisualizationApp(QMainWindow):
         self._progress.canceled.connect(self._on_optimization_canceled)
 
         self._opt_thread = QThread()
-        self._opt_worker = OptimizationWorker(self.speakers, self.room_model, params)
+        self._opt_worker = OptimizationWorker(self.speakers, self.room_model, self.microphones, params)
         self._opt_worker.moveToThread(self._opt_thread)
         self._opt_thread.started.connect(self._opt_worker.run)
         self._opt_worker.finished.connect(self._on_optimization_finished)
@@ -403,23 +452,59 @@ class VisualizationApp(QMainWindow):
             f"(coverage={result.coverage_score:.3f}, diversity={result.diversity_score:.3f})"
         )
 
-    def _on_room_click_place_speaker(self, x: float, y: float) -> None:
-        z = 2.0
-        speaker_type = SpeakerType.DELAY if len(self.speakers) >= 2 else (
-            SpeakerType.MAIN_LEFT if not self.speakers else SpeakerType.MAIN_RIGHT
-        )
-        count = len([s for s in self.speakers if s.speaker_type == speaker_type])
-        name = f"{speaker_type.value.replace('_', ' ').title()} {count + 1}"
+    def _on_room_click_place_speaker(
+        self, name_hint: str, speaker_type: SpeakerType, x: float, y: float, z: float
+    ) -> None:
+        count = len([s for s in self.speakers if s.speaker_type == speaker_type]) + 1
+        name = name_hint or f"{speaker_type.value.replace('_', ' ').title()} {count}"
         spk = Speaker(name, speaker_type, np.array([x, y, z]))
         self.speakers.append(spk)
         self.virtual_room.add_speaker(spk)
         self.control_panel.set_speaker_names([s.name for s in self.speakers])
-        self.control_panel.log(f"Placed speaker '{name}' at ({x:.1f}, {y:.1f}, {z:.1f})")
+        self.control_panel.log(f"Placed '{name}' ({speaker_type.value}) at ({x:.1f}, {y:.1f}, z={z:.1f})")
         self._update_views()
+        self._on_palette_clear()
+
+    def _on_room_speaker_right_click(self, speaker_name: str, x: float, y: float) -> None:
+        for spk in self.speakers:
+            if spk.name == speaker_name:
+                from PyQt6.QtWidgets import QInputDialog, QDialog, QVBoxLayout, QFormLayout, QDialogButtonBox, QDoubleSpinBox
+                dialog = QDialog(self)
+                dialog.setWindowTitle(f"Edit {speaker_name}")
+                layout = QVBoxLayout()
+                form = QFormLayout()
+                sx = QDoubleSpinBox(); sx.setRange(-100, 100); sx.setValue(spk.x); sx.setSuffix(" m"); form.addRow("X:", sx)
+                sy = QDoubleSpinBox(); sy.setRange(-100, 100); sy.setValue(spk.y); sy.setSuffix(" m"); form.addRow("Y:", sy)
+                sz = QDoubleSpinBox(); sz.setRange(0, 50); sz.setValue(spk.z); sz.setSuffix(" m"); form.addRow("Height:", sz)
+                layout.addLayout(form)
+                buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+                delete_btn = buttons.addButton("Delete", QDialogButtonBox.ButtonRole.DestructiveRole)
+                layout.addWidget(buttons)
+                dialog.setLayout(layout)
+                buttons.accepted.connect(dialog.accept)
+                buttons.rejected.connect(dialog.reject)
+                delete_btn.clicked.connect(lambda: self._delete_speaker(speaker_name) or dialog.accept())
+                if dialog.exec() == QDialog.DialogCode.Accepted:
+                    spk.position = np.array([sx.value(), sy.value(), sz.value()])
+                    self.control_panel.log(f"Updated {speaker_name} position: ({sx.value():.1f}, {sy.value():.1f}, {sz.value():.1f})")
+                    self._update_views()
+                break
+
+    def _delete_speaker(self, speaker_name: str) -> None:
+        self.speakers = [s for s in self.speakers if s.name != speaker_name]
+        self.control_panel.set_speaker_names([s.name for s in self.speakers])
+        self.control_panel.log(f"Deleted {speaker_name}")
+        self._reinit_virtual_room()
+
+    def _on_room_stage_changed(self, x: float, y: float, w: float, d: float, h: float) -> None:
+        self.control_panel.log(f"Stage: ({x:.1f}, {y:.1f}) {w:.1f}x{d:.1f}m, height={h:.1f}m")
 
     def _on_speaker_update(self, speaker_name: str, params: dict) -> None:
         for spk in self.speakers:
             if spk.name == speaker_name:
+                height = params.get("height")
+                if height is not None:
+                    spk.position[2] = height
                 spk.delay_ms = params.get("delay_ms", spk.delay_ms)
                 spk.gain_db = params.get("gain_db", spk.gain_db)
                 if params.get("polarity_inverted"):

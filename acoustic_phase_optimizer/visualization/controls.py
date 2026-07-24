@@ -161,17 +161,23 @@ class SpeakerControls(QGroupBox):
         self.delay.setValue(0.0)
         self.delay.setSuffix(" ms")
         top_grid.addWidget(self.delay, 1, 1)
-        top_grid.addWidget(QLabel("Gain (dB):"), 2, 0)
+        top_grid.addWidget(QLabel("Height (m):"), 2, 0)
+        self.height = QDoubleSpinBox()
+        self.height.setRange(0.0, 50.0)
+        self.height.setValue(2.0)
+        self.height.setSuffix(" m")
+        top_grid.addWidget(self.height, 2, 1)
+        top_grid.addWidget(QLabel("Gain (dB):"), 3, 0)
         self.gain = QDoubleSpinBox()
         self.gain.setRange(-60.0, 20.0)
         self.gain.setValue(0.0)
         self.gain.setSuffix(" dB")
-        top_grid.addWidget(self.gain, 2, 1)
+        top_grid.addWidget(self.gain, 3, 1)
         self.polarity_invert = QCheckBox("Invert Polarity")
-        top_grid.addWidget(self.polarity_invert, 3, 0, 1, 2)
+        top_grid.addWidget(self.polarity_invert, 4, 0, 1, 2)
         self.apply_button = QPushButton("Apply")
         self.apply_button.setStyleSheet("background-color: #FF9800; color: white; padding: 6px;")
-        top_grid.addWidget(self.apply_button, 4, 0, 1, 2)
+        top_grid.addWidget(self.apply_button, 5, 0, 1, 2)
         layout.addLayout(top_grid)
 
         self.peq_group = QGroupBox("PEQ (6 Bands)")
@@ -289,6 +295,7 @@ class ControlPanel(QWidget):
             peq_bands.append({"freq": bw.freq.value(), "gain": bw.gain.value(), "q": bw.q.value()})
         geq_gains = [s.value() for s in self.speaker_controls.geq_sliders]
         params = {
+            "height": self.speaker_controls.height.value(),
             "delay_ms": self.speaker_controls.delay.value(),
             "gain_db": self.speaker_controls.gain.value(),
             "polarity_inverted": self.speaker_controls.polarity_invert.isChecked(),
