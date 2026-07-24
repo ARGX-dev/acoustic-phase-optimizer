@@ -47,10 +47,10 @@ class HeatmapWidget(FigureCanvas):
         vmin: Optional[float] = None,
         vmax: Optional[float] = None,
     ) -> None:
-        self.ax.clear()
         if self._colorbar is not None:
             self._colorbar.remove()
             self._colorbar = None
+        self.ax.clear()
 
         if self._data is not None and self._X is not None and self._Y is not None:
             contour = self.ax.contourf(
