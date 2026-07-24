@@ -162,6 +162,7 @@ class VisualizationApp(QMainWindow):
         self._init_ui()
         self._setup_default_data()
         self._connect_signals()
+        self.room_view.set_on_speaker_placed(self._on_room_click_place_speaker)
 
         self._refresh_timer = QTimer()
         self._refresh_timer.timeout.connect(self._periodic_refresh)
@@ -352,6 +353,9 @@ class VisualizationApp(QMainWindow):
             return
         self.control_panel.log(f"Loaded {len(scan.points)} points")
 
+        self.room_view.set_lidar_points(scan.points)
+        self.room_3d_view.set_lidar_points(scan.points)
+
         room = fit_room_from_points(scan)
         if room is None:
             self.control_panel.log("Could not fit room from points", "ERROR")
@@ -366,6 +370,8 @@ class VisualizationApp(QMainWindow):
 
     def _on_dimensions_changed(self, length: float, width: float, height: float) -> None:
         self.room_model.set_dimensions(length, width, height)
+        self.room_view.set_lidar_points(None)
+        self.room_3d_view.set_lidar_points(None)
         self.control_panel.log(f"Room dimensions set: {length:.1f} x {width:.1f} x {height:.1f}m")
         self._reinit_virtual_room()
 
@@ -396,6 +402,20 @@ class VisualizationApp(QMainWindow):
             f"Placed {len(self.microphones)} mics "
             f"(coverage={result.coverage_score:.3f}, diversity={result.diversity_score:.3f})"
         )
+
+    def _on_room_click_place_speaker(self, x: float, y: float) -> None:
+        z = 2.0
+        speaker_type = SpeakerType.DELAY if len(self.speakers) >= 2 else (
+            SpeakerType.MAIN_LEFT if not self.speakers else SpeakerType.MAIN_RIGHT
+        )
+        count = len([s for s in self.speakers if s.speaker_type == speaker_type])
+        name = f"{speaker_type.value.replace('_', ' ').title()} {count + 1}"
+        spk = Speaker(name, speaker_type, np.array([x, y, z]))
+        self.speakers.append(spk)
+        self.virtual_room.add_speaker(spk)
+        self.control_panel.set_speaker_names([s.name for s in self.speakers])
+        self.control_panel.log(f"Placed speaker '{name}' at ({x:.1f}, {y:.1f}, {z:.1f})")
+        self._update_views()
 
     def _on_speaker_update(self, speaker_name: str, params: dict) -> None:
         for spk in self.speakers:

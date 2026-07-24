@@ -1,21 +1,21 @@
-"""Room layout visualization widget."""
+"""Room layout visualization widget with click-to-place and LIDAR overlay."""
 
 from __future__ import annotations
 
 import numpy as np
-from typing import List, Optional, Tuple
+from typing import Callable, List, Optional, Tuple
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 from matplotlib.patches import Rectangle, Circle
 import matplotlib.pyplot as plt
 
 from acoustic_phase_optimizer.acoustic.room_model import RoomModel
-from acoustic_phase_optimizer.acoustic.speaker import Speaker
+from acoustic_phase_optimizer.acoustic.speaker import Speaker, SpeakerType
 from acoustic_phase_optimizer.acoustic.microphone import Microphone
 
 
 class RoomViewWidget(FigureCanvas):
-    """2D top-down view of the room with speakers and microphones."""
+    """2D top-down view of the room with click-to-place speakers and LIDAR overlay."""
 
     def __init__(self, parent=None, width: int = 6, height: int = 5, dpi: int = 100):
         self.fig = Figure(figsize=(width, height), dpi=dpi)
@@ -27,8 +27,23 @@ class RoomViewWidget(FigureCanvas):
         self.speakers: List[Speaker] = []
         self.microphones: List[Microphone] = []
         self.cancellation_data: Optional[Tuple] = None
+        self.lidar_points: Optional[np.ndarray] = None
+        self._on_speaker_placed: Optional[Callable[[float, float], None]] = None
 
         self.fig.tight_layout()
+
+        self.mpl_connect("button_press_event", self._on_click)
+
+    def set_on_speaker_placed(self, callback: Callable[[float, float], None]) -> None:
+        self._on_speaker_placed = callback
+
+    def _on_click(self, event) -> None:
+        if event.dblclick and event.inaxes == self.ax and self._on_speaker_placed:
+            self._on_speaker_placed(event.xdata, event.ydata)
+
+    def set_lidar_points(self, points: Optional[np.ndarray]) -> None:
+        self.lidar_points = points
+        self._draw()
 
     def update_data(
         self,
@@ -55,6 +70,12 @@ class RoomViewWidget(FigureCanvas):
 
     def _draw(self) -> None:
         self.ax.clear()
+
+        if self.lidar_points is not None and len(self.lidar_points) > 0:
+            self.ax.scatter(
+                self.lidar_points[:, 0], self.lidar_points[:, 1],
+                s=0.5, c="#888888", alpha=0.3, zorder=1,
+            )
 
         if self.room_model is not None:
             L, W, _ = self.room_model.get_dimensions_array()
@@ -147,6 +168,11 @@ class Room3DViewWidget(FigureCanvas):
         self.room_model: Optional[RoomModel] = None
         self.speakers: List[Speaker] = []
         self.microphones: List[Microphone] = []
+        self.lidar_points: Optional[np.ndarray] = None
+
+    def set_lidar_points(self, points: Optional[np.ndarray]) -> None:
+        self.lidar_points = points
+        self._draw()
 
     def update_data(
         self,
@@ -164,6 +190,15 @@ class Room3DViewWidget(FigureCanvas):
 
     def _draw(self) -> None:
         self.ax.clear()
+
+        if self.lidar_points is not None and len(self.lidar_points) > 0:
+            step = max(1, len(self.lidar_points) // 10000)
+            self.ax.scatter(
+                self.lidar_points[::step, 0],
+                self.lidar_points[::step, 1],
+                self.lidar_points[::step, 2],
+                s=0.5, c="#888888", alpha=0.2, zorder=1,
+            )
 
         if self.room_model is not None:
             L, W, H = self.room_model.get_dimensions_array()
