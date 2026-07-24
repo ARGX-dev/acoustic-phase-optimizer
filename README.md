@@ -6,36 +6,42 @@ Optimizes phase response, frequency response, delay, and speaker interaction acr
 
 ---
 
-## Quick Install
+## Quick Install (Fresh Windows Machine)
 
-### Prerequisites
+### One-Click Setup
 
-- **Python 3.10+** — [Download from python.org](https://www.python.org/downloads/)
-- **Git** — [Download from git-scm.com](https://git-scm.com/downloads) (or download the ZIP)
+Double-click `install.bat` — it handles everything:
 
-### Step-by-Step
+1. Checks if Python is installed (prompts to download if missing)
+2. Creates a virtual environment
+3. Installs all dependencies (NumPy, SciPy, PyQt6, etc.)
+4. Installs the Acoustic Phase Optimizer package
+
+After it finishes, run:
+
+```
+venv\Scripts\python -m acoustic_phase_optimizer.main --gui
+```
+
+### Manual Setup
+
+If the automated script doesn't work for your environment:
 
 ```bash
-# 1. Clone or download the project
+# 1. Get the code
 git clone https://github.com/ARGX-dev/acoustic-phase-optimizer.git
 cd acoustic-phase-optimizer
 
-# 2. (Recommended) Create a virtual environment
+# 2. Create and activate a virtual environment
 python -m venv venv
-venv\Scripts\activate    # Windows
-# source venv/bin/activate  # Linux/Mac
+venv\Scripts\activate
 
-# 3. Install dependencies
-pip install numpy scipy sounddevice soundfile pyyaml matplotlib
-
-# 4. Install the package
+# 3. Install everything
+pip install numpy scipy sounddevice soundfile pyyaml matplotlib PyQt6 pyqtgraph
 pip install -e .
-
-# 5. Install GUI dependencies (optional, for the visual interface)
-pip install PyQt6 pyqtgraph
 ```
 
-### Verify Installation
+### Verify
 
 ```bash
 python -c "from acoustic_phase_optimizer import AcousticPhaseOptimizer; print('OK')"
