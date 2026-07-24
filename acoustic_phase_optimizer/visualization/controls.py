@@ -84,7 +84,7 @@ class OptimizationControls(QGroupBox):
         layout.addWidget(QLabel("Max Iterations:"), 1, 0)
         self.max_iterations = QSpinBox()
         self.max_iterations.setRange(10, 10000)
-        self.max_iterations.setValue(1000)
+        self.max_iterations.setValue(200)
         self.max_iterations.setSingleStep(100)
         layout.addWidget(self.max_iterations, 1, 1)
 

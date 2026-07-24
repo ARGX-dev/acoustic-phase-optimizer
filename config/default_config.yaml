@@ -27,7 +27,7 @@ acoustic:
 
 optimization:
   default_algorithm: genetic
-  max_iterations: 1000
+  max_iterations: 200
   population_size: 100
   mutation_rate: 0.15
   crossover_rate: 0.8

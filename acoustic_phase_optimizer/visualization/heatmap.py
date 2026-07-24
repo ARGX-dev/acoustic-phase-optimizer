@@ -23,6 +23,7 @@ class HeatmapWidget(FigureCanvas):
         self._Y: Optional[np.ndarray] = None
         self._title: str = "Heatmap"
         self._colormap: str = "inferno"
+        self._colorbar = None
 
     def update_data(
         self,
@@ -47,6 +48,9 @@ class HeatmapWidget(FigureCanvas):
         vmax: Optional[float] = None,
     ) -> None:
         self.ax.clear()
+        if self._colorbar is not None:
+            self._colorbar.remove()
+            self._colorbar = None
 
         if self._data is not None and self._X is not None and self._Y is not None:
             contour = self.ax.contourf(
@@ -54,7 +58,7 @@ class HeatmapWidget(FigureCanvas):
                 levels=50, cmap=self._colormap,
                 vmin=vmin, vmax=vmax,
             )
-            self.fig.colorbar(contour, ax=self.ax, shrink=0.8)
+            self._colorbar = self.fig.colorbar(contour, ax=self.ax, shrink=0.8)
 
         self.ax.set_xlabel("Width (m)")
         self.ax.set_ylabel("Depth (m)")
@@ -133,9 +137,14 @@ class MultiHeatmapWidget(FigureCanvas):
             self.fig.add_subplot(2, 3, 6),
         ]
 
+        self._colorbars: List = []
+
         self._clear_axes()
 
     def _clear_axes(self) -> None:
+        for cb in self._colorbars:
+            cb.remove()
+        self._colorbars.clear()
         for ax in self.axes:
             ax.clear()
 
@@ -160,7 +169,7 @@ class MultiHeatmapWidget(FigureCanvas):
             if data is not None:
                 X, Y, Z = data
                 contour = ax.contourf(X, Y, Z, levels=50, cmap=cmap)
-                self.fig.colorbar(contour, ax=ax, shrink=0.7)
+                self._colorbars.append(self.fig.colorbar(contour, ax=ax, shrink=0.7))
             ax.set_title(title)
             ax.set_xlabel("Width (m)")
             ax.set_ylabel("Depth (m)")
