@@ -10,6 +10,7 @@ from typing import Dict, List, Optional, Tuple
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QSplitter,
     QVBoxLayout, QHBoxLayout, QTabWidget, QMessageBox, QProgressDialog,
+    QLabel, QToolButton,
 )
 from PyQt6.QtCore import Qt, QTimer, QThread, QObject, pyqtSignal
 
@@ -27,7 +28,7 @@ from acoustic_phase_optimizer.visualization.frequency_view import (
     FrequencyResponseWidget, GroupDelayWidget, SpectrogramWidget,
 )
 from PyQt6.QtWidgets import QMenu
-from PyQt6.QtGui import QAction
+from PyQt6.QtGui import QAction, QIcon
 from acoustic_phase_optimizer.visualization.controls import ControlPanel
 from acoustic_phase_optimizer.weather.api import fetch_location_coords, fetch_yearly_averages
 from acoustic_phase_optimizer.weather.acoustic_mapping import weather_to_acoustic_params
