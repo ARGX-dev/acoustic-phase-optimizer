@@ -1,0 +1,17 @@
+# Core dependencies
+numpy>=1.24
+scipy>=1.10
+sounddevice>=0.4
+soundfile>=0.12
+pyyaml>=6.0
+matplotlib>=3.7
+numba>=0.57
+
+# GUI dependencies (optional, install with: pip install -e .[gui])
+# PyQt6>=6.5
+# pyqtgraph>=0.13
+# pyopengl>=3.1
+
+# Full install: pip install -e .[full]
+# librosa>=0.10
+# scikit-learn>=1.3

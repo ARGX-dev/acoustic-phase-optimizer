@@ -1,0 +1,87 @@
+# Example measurement session configuration
+# This file demonstrates a typical venue optimization session.
+
+session:
+  name: "Grand Ballroom Optimization"
+  venue: "Grand Ballroom"
+  date: "2026-07-25"
+  engineer: "Audio Team"
+
+venue:
+  length: 35.0
+  width: 25.0
+  height: 10.0
+  stage_depth: 6.0
+  stage_width: 18.0
+  stage_height: 1.0
+
+measurement_positions:
+  - name: FOH_Left
+    position: [-8.0, 15.0, 1.2]
+    zone: foh
+  - name: FOH_Center
+    position: [0.0, 18.0, 1.2]
+    zone: foh
+  - name: FOH_Right
+    position: [8.0, 15.0, 1.2]
+    zone: foh
+  - name: Balcony_Left
+    position: [-10.0, 28.0, 5.0]
+    zone: balcony
+  - name: Balcony_Right
+    position: [10.0, 28.0, 5.0]
+    zone: balcony
+
+speaker_zones:
+  - name: Left_Main
+    type: left_main
+    position: [-8.0, 1.0, 2.5]
+    enabled: true
+  - name: Right_Main
+    type: right_main
+    position: [8.0, 1.0, 2.5]
+    enabled: true
+  - name: Center_Cluster
+    type: center
+    position: [0.0, 0.5, 4.0]
+    enabled: false
+  - name: Sub_Left
+    type: subwoofer
+    position: [-6.0, 2.0, 0.0]
+    enabled: true
+  - name: Sub_Right
+    type: subwoofer
+    position: [6.0, 2.0, 0.0]
+    enabled: true
+  - name: Front_Fill_Left
+    type: front_fill
+    position: [-5.0, 6.0, 0.3]
+    enabled: true
+  - name: Front_Fill_Right
+    type: front_fill
+    position: [5.0, 6.0, 0.3]
+    enabled: true
+  - name: Delay_Left
+    type: delay
+    position: [-12.0, 22.0, 4.0]
+    enabled: true
+  - name: Delay_Right
+    type: delay
+    position: [12.0, 22.0, 4.0]
+    enabled: true
+
+optimization:
+  algorithm: compare_all
+  objective_weights:
+    phase_coherence: 1.0
+    magnitude_flatness: 0.5
+    destructive_interference: 1.5
+    delay_alignment: 1.0
+    rt60_deviation: 0.3
+  max_iterations: 500
+  population_size: 100
+  mutation_rate: 0.15
+
+system:
+  sample_rate: 48000
+  bit_depth: 24

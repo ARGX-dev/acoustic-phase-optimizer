@@ -1,0 +1,40 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+
+# Environment
+venv/
+.env/
+.virtualenvs/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Audio files
+*.wav
+*.aiff
+*.flac
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Testing
+.pytest_cache/
+coverage/
+htmlcov/
+.coverage
+
+# Logs
+*.log
+
+# Config overrides (keep default_config.yaml but allow local overrides)
+config/local_*.yaml

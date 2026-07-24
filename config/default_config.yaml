@@ -1,0 +1,109 @@
+# Acoustic Phase Optimizer - Default Configuration
+
+system:
+  sample_rate: 48000
+  bit_depth: 24
+  buffer_size: 1024
+  asio_driver: null
+
+measurement:
+  sweep_type: log
+  sweep_duration: 5.0
+  sweep_start_freq: 20.0
+  sweep_end_freq: 20000.0
+  mls_order: 15
+  mls_sequence_length: 32767
+  averaging: 3
+  pre_delay: 0.1
+  post_delay: 0.2
+  output_level_db: -12.0
+
+acoustic:
+  speed_of_sound: 343.0
+  max_reflection_order: 3
+  absorption_model: eyring
+  temperature: 20.0
+  humidity: 50.0
+
+optimization:
+  default_algorithm: genetic
+  max_iterations: 1000
+  population_size: 100
+  mutation_rate: 0.15
+  crossover_rate: 0.8
+  initial_temperature: 100.0
+  cooling_rate: 0.95
+  learning_rate: 0.01
+  convergence_threshold: 1.0e-6
+  objective_weights:
+    phase_coherence: 1.0
+    magnitude_flatness: 0.5
+    destructive_interference: 1.5
+    delay_alignment: 1.0
+    rt60_deviation: 0.3
+
+filters:
+  fir_length: 512
+  iir_order: 4
+  crossover_slope_db_per_octave: 24
+  eq_bands: 31
+  min_phase_fir: true
+
+visualization:
+  fft_size: 16384
+  colormap: inferno
+  resolution_3d: 64
+  refresh_rate_hz: 10
+
+hardware:
+  mixer:
+    type: allen_heath_qu16
+    channels: 16
+    control_protocol: tcp
+    address: 192.168.1.100
+    port: 51325
+  dsp:
+    type: dbx_venus360
+    address: 192.168.1.101
+    control_port: 23
+  microphone:
+    type: usb_measurement
+    calibration_file: null
+    sensitivity_db: 0.0
+
+zones:
+  left_main:
+    enabled: true
+    x: -10.0
+    y: 0.0
+    z: 2.0
+  right_main:
+    enabled: true
+    x: 10.0
+    y: 0.0
+    z: 2.0
+  center:
+    enabled: false
+    x: 0.0
+    y: -1.0
+    z: 1.5
+  subwoofer:
+    enabled: true
+    x: 0.0
+    y: 2.0
+    z: 0.0
+  front_fill:
+    enabled: false
+    x: 0.0
+    y: 8.0
+    z: 0.3
+  delay_left:
+    enabled: false
+    x: -15.0
+    y: 20.0
+    z: 4.0
+  delay_right:
+    enabled: false
+    x: 15.0
+    y: 20.0
+    z: 4.0
