@@ -181,7 +181,7 @@ class VisualizationApp(QMainWindow):
             "magnitude_db": [],
             "cancellation_zones": [],
             "delays_ms": [s.delay_ms for s in self.speakers],
-            "rt60": self.room_model.estimate_rt60_eyring(),
+            "rt60": {"broadband": self.room_model.estimate_rt60_eyring()},
         }
 
     def _update_views(self) -> None:
