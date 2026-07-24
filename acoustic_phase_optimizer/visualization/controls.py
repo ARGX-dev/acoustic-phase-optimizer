@@ -241,6 +241,7 @@ class ControlPanel(QWidget):
     lidar_imported = pyqtSignal(str)
     dimensions_changed = pyqtSignal(float, float, float)
     mic_placement_requested = pyqtSignal(int)
+    stage_changed = pyqtSignal(float, float, float, float, float)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -287,6 +288,7 @@ class ControlPanel(QWidget):
         self.room_controls.place_mics_button.clicked.connect(
             lambda: self.mic_placement_requested.emit(self.room_controls.max_mics.value())
         )
+        self.room_controls.apply_stage_button.clicked.connect(self._on_stage_apply)
 
     def _on_speaker_update(self) -> None:
         speaker_name = self.speaker_controls.speaker_selector.currentText()
@@ -313,6 +315,15 @@ class ControlPanel(QWidget):
         if path:
             self.room_controls.lidar_path_label.setText(path.split("/")[-1].split("\\")[-1])
             self.lidar_imported.emit(path)
+
+    def _on_stage_apply(self) -> None:
+        self.stage_changed.emit(
+            self.room_controls.stage_x.value(),
+            self.room_controls.stage_y.value(),
+            self.room_controls.stage_w.value(),
+            self.room_controls.stage_d.value(),
+            self.room_controls.stage_elev.value(),
+        )
 
     def _on_apply_dimensions(self) -> None:
         L = self.room_controls.room_length.value()

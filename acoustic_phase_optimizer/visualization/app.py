@@ -292,6 +292,7 @@ class VisualizationApp(QMainWindow):
         self.control_panel.lidar_imported.connect(self._on_lidar_import)
         self.control_panel.dimensions_changed.connect(self._on_dimensions_changed)
         self.control_panel.mic_placement_requested.connect(self._on_mic_placement)
+        self.control_panel.stage_changed.connect(self._on_stage_control_changed)
 
     def _on_measurement_start(self, params: dict) -> None:
         self.control_panel.log(f"Starting measurement: {params}")
@@ -498,7 +499,27 @@ class VisualizationApp(QMainWindow):
         self._reinit_virtual_room()
 
     def _on_room_stage_changed(self, x: float, y: float, w: float, d: float, h: float) -> None:
-        self.control_panel.log(f"Stage: ({x:.1f}, {y:.1f}) {w:.1f}x{d:.1f}m, height={h:.1f}m")
+        self.room_view.stage_x = x
+        self.room_view.stage_y = y
+        self.room_view.stage_w = w
+        self.room_view.stage_d = d
+        self.room_view.stage_height = h
+        self.control_panel.room_controls.stage_x.setValue(x)
+        self.control_panel.room_controls.stage_y.setValue(y)
+        self.control_panel.room_controls.stage_w.setValue(w)
+        self.control_panel.room_controls.stage_d.setValue(d)
+        self.control_panel.room_controls.stage_elev.setValue(h)
+        self.control_panel.log(f"Stage: ({x:.1f}, {y:.1f}) {w:.1f}x{d:.1f}m, elevation={h:.1f}m")
+        self._update_views()
+
+    def _on_stage_control_changed(self, x: float, y: float, w: float, d: float, h: float) -> None:
+        self.room_view.stage_x = x
+        self.room_view.stage_y = y
+        self.room_view.stage_w = w
+        self.room_view.stage_d = d
+        self.room_view.stage_height = h
+        self.control_panel.log(f"Stage set: ({x:.1f}, {y:.1f}) {w:.1f}x{d:.1f}m, elevation={h:.1f}m")
+        self._update_views()
 
     def _on_speaker_update(self, speaker_name: str, params: dict) -> None:
         for spk in self.speakers:

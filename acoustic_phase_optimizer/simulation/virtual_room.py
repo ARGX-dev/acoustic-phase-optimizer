@@ -9,6 +9,8 @@ from acoustic_phase_optimizer.acoustic.room_model import RoomModel
 from acoustic_phase_optimizer.acoustic.speaker import Speaker
 from acoustic_phase_optimizer.acoustic.microphone import Microphone
 from acoustic_phase_optimizer.acoustic.reflection import ReflectionEngine
+from acoustic_phase_optimizer.dsp.peq import PEQFilter
+from acoustic_phase_optimizer.dsp.geq import GEQFilter
 from acoustic_phase_optimizer.utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -89,8 +91,11 @@ class VirtualRoom:
         if delay_samples < n_fft:
             ir[delay_samples] = 1.0
 
-        ir = speaker.peq.apply(ir)
-        ir = speaker.geq.apply(ir)
+        peq_filter = PEQFilter(speaker.peq, self.sample_rate)
+        geq_filter = GEQFilter(speaker.geq)
+        ir = peq_filter.apply(ir)
+        geq_filter.config.sample_rate = self.sample_rate
+        ir = geq_filter.apply(ir)
 
         ir *= speaker.polarity.value
 
