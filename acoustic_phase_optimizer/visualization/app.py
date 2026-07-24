@@ -27,6 +27,8 @@ from acoustic_phase_optimizer.visualization.frequency_view import (
     FrequencyResponseWidget, GroupDelayWidget, SpectrogramWidget,
 )
 from acoustic_phase_optimizer.visualization.controls import ControlPanel
+from acoustic_phase_optimizer.weather.api import fetch_location_coords, fetch_yearly_averages
+from acoustic_phase_optimizer.weather.acoustic_mapping import weather_to_acoustic_params
 from acoustic_phase_optimizer.utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -176,6 +178,7 @@ class VisualizationApp(QMainWindow):
         self.control_panel.measurement_started.connect(self._on_measurement_start)
         self.control_panel.optimization_started.connect(self._on_optimization_start)
         self.control_panel.speaker_updated.connect(self._on_speaker_update)
+        self.control_panel.weather_controls.fetch_button.clicked.connect(self._on_weather_fetch)
 
     def _on_measurement_start(self, params: dict) -> None:
         self.control_panel.log(f"Starting measurement: {params}")
@@ -239,6 +242,45 @@ class VisualizationApp(QMainWindow):
             self._opt_thread.wait(2000)
         self.control_panel.setEnabled(True)
         self.control_panel.log("Optimization canceled")
+
+    def _on_weather_fetch(self) -> None:
+        location_name = self.control_panel.weather_controls.location_input.text().strip()
+        if not location_name:
+            self.control_panel.weather_controls.set_status("Please enter a location name")
+            return
+
+        self.control_panel.weather_controls.set_status(f"Resolving {location_name}...")
+        QApplication.processEvents()
+
+        location = fetch_location_coords(location_name)
+        if location is None:
+            self.control_panel.weather_controls.set_status(f"Could not find location: {location_name}")
+            return
+
+        self.control_panel.weather_controls.set_status(
+            f"Fetching yearly weather data for {location.name}..."
+        )
+        QApplication.processEvents()
+
+        averages = fetch_yearly_averages(location)
+        if averages is None:
+            self.control_panel.weather_controls.set_status("Failed to fetch weather data")
+            return
+
+        self.control_panel.weather_controls.set_results(averages)
+        self.control_panel.log(
+            f"Weather: {averages.location.name} — "
+            f"{averages.temperature_mean:.1f}°C, "
+            f"{averages.humidity_mean:.1f}%RH, "
+            f"{averages.pressure_mean:.1f}hPa"
+        )
+
+        acoustic = weather_to_acoustic_params(averages)
+        self.room_model.speed_of_sound = acoustic.speed_of_sound
+        self.control_panel.log(
+            f"Speed of sound adjusted to {acoustic.speed_of_sound:.1f} m/s "
+            f"(was 343.0 m/s)"
+        )
 
     def _on_speaker_update(self, speaker_name: str, params: dict) -> None:
         for spk in self.speakers:

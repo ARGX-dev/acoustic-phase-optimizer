@@ -51,6 +51,12 @@ class Config:
                 "temperature": 20.0,
                 "humidity": 50.0,
             },
+            "weather": {
+                "location": "",
+                "latitude": 0.0,
+                "longitude": 0.0,
+                "enabled": False,
+            },
             "optimization": {
                 "default_algorithm": "genetic",
                 "max_iterations": 1000,

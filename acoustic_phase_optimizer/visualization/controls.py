@@ -9,6 +9,7 @@ from PyQt6.QtWidgets import (
     QCheckBox, QTabWidget, QTextEdit, QGridLayout, QFrame,
 )
 from PyQt6.QtCore import Qt, pyqtSignal
+from acoustic_phase_optimizer.weather.weather_controls import WeatherControls
 
 
 class MeasurementControls(QGroupBox):
@@ -183,10 +184,12 @@ class ControlPanel(QWidget):
         self.measurement_controls = MeasurementControls()
         self.optimization_controls = OptimizationControls()
         self.speaker_controls = SpeakerControls()
+        self.weather_controls = WeatherControls()
 
         self.tabs.addTab(self.measurement_controls, "Measurement")
         self.tabs.addTab(self.optimization_controls, "Optimization")
         self.tabs.addTab(self.speaker_controls, "Speakers")
+        self.tabs.addTab(self.weather_controls, "Weather")
 
         layout.addWidget(self.tabs)
 
