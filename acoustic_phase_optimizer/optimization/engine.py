@@ -153,6 +153,43 @@ class OptimizationEngine:
 
         return bounds, initial_params
 
+    def setup_dsp_optimization(
+        self,
+        n_speakers: int,
+    ) -> Tuple[Bounds, NDArray[np.float64]]:
+        bounds = self.constraints.dsp_parameter_bounds(n_speakers)
+        n_peq = n_speakers * 6
+        n_geq = n_speakers * 31
+        n_common = n_speakers * 2
+        total = n_peq * 3 + n_geq + n_common
+
+        initial = np.zeros(total)
+        idx = 0
+
+        for _ in range(n_speakers):
+            for _ in range(6):
+                initial[idx] = 1000.0
+                idx += 1
+                initial[idx] = 0.0
+                idx += 1
+                initial[idx] = 0.707
+                idx += 1
+
+        for _ in range(n_speakers):
+            for _ in range(31):
+                initial[idx] = 0.0
+                idx += 1
+
+        for _ in range(n_speakers):
+            initial[idx] = 0.0
+            idx += 1
+
+        for _ in range(n_speakers):
+            initial[idx] = 0.0
+            idx += 1
+
+        return bounds, initial
+
     def _create_gradient_optimizer(self) -> GradientOptimizer:
         return GradientOptimizer(
             learning_rate=self.config.get("learning_rate", 0.01),

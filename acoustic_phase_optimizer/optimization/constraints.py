@@ -130,3 +130,43 @@ class Constraints:
             upper[i * 3 + 2] = 1.0
 
         return Bounds(lower=lower, upper=upper)
+
+    def dsp_parameter_bounds(self, n_speakers: int) -> Bounds:
+        n_peq = n_speakers * 6
+        n_geq = n_speakers * 31
+        n_common = n_speakers * 2
+        total = n_peq * 3 + n_geq + n_common
+
+        lower = np.zeros(total)
+        upper = np.zeros(total)
+        idx = 0
+
+        for _ in range(n_speakers):
+            for _ in range(6):
+                lower[idx] = 20.0
+                upper[idx] = 20000.0
+                idx += 1
+                lower[idx] = -15.0
+                upper[idx] = 15.0
+                idx += 1
+                lower[idx] = 0.1
+                upper[idx] = 20.0
+                idx += 1
+
+        for _ in range(n_speakers):
+            for _ in range(31):
+                lower[idx] = -15.0
+                upper[idx] = 15.0
+                idx += 1
+
+        for _ in range(n_speakers):
+            lower[idx] = 0.0
+            upper[idx] = 500.0
+            idx += 1
+
+        for _ in range(n_speakers):
+            lower[idx] = -1.0
+            upper[idx] = 1.0
+            idx += 1
+
+        return Bounds(lower=lower, upper=upper)

@@ -7,6 +7,8 @@ from numpy.typing import NDArray
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
 from enum import Enum
+from acoustic_phase_optimizer.dsp.peq import PEQConfig
+from acoustic_phase_optimizer.dsp.geq import GEQConfig
 
 
 class SpeakerType(Enum):
@@ -45,6 +47,9 @@ class Speaker:
 
     sensitivity_db: float = 95.0
     impedance_ohms: float = 8.0
+
+    peq: PEQConfig = field(default_factory=PEQConfig)
+    geq: GEQConfig = field(default_factory=GEQConfig)
 
     fir_coefficients: Optional[NDArray[np.float64]] = None
     iir_eq: List[dict] = field(default_factory=list)
@@ -120,11 +125,20 @@ class Speaker:
             "crossover_freq_high": self.crossover_freq_high,
             "horizontal_coverage": self.horizontal_coverage,
             "vertical_coverage": self.vertical_coverage,
+            "peq_bands": [(b.freq_hz, b.gain_db, b.q) for b in self.peq.bands],
+            "geq_gains": list(self.geq.gains_db),
             "enabled": self.enabled,
         }
 
     @classmethod
     def from_dict(cls, data: dict) -> "Speaker":
+        peq_bands_data = data.get("peq_bands", [])
+        from acoustic_phase_optimizer.dsp.peq import PEQBand
+        peq = PEQConfig(bands=[PEQBand(freq_hz=f, gain_db=g, q=q) for f, g, q in peq_bands_data]) if peq_bands_data else PEQConfig()
+
+        geq_gains = data.get("geq_gains", None)
+        geq = GEQConfig(gains_db=list(geq_gains)) if geq_gains else GEQConfig()
+
         return cls(
             name=data["name"],
             speaker_type=SpeakerType(data["type"]),
@@ -132,6 +146,8 @@ class Speaker:
             polarity=SpeakerPolarity(data.get("polarity", 1)),
             delay_ms=data.get("delay_ms", 0.0),
             gain_db=data.get("gain_db", 0.0),
+            peq=peq,
+            geq=geq,
             crossover_freq_low=data.get("crossover_freq_low"),
             crossover_freq_high=data.get("crossover_freq_high"),
             horizontal_coverage=data.get("horizontal_coverage", 90.0),

@@ -76,6 +76,30 @@ class VirtualRoom:
 
         return freqs, magnitude_db
 
+    def compute_dsp_corrected_transfer(
+        self,
+        speaker: Speaker,
+        microphone: Microphone,
+    ) -> Tuple[NDArray[np.float64], NDArray[np.float64], NDArray[np.float64]]:
+        freqs, mag_db = self.compute_transfer_function(speaker, microphone)
+        n_fft = 2 * len(freqs) - 2
+        ir = np.zeros(n_fft)
+
+        delay_samples = int(speaker.delay_ms * self.sample_rate / 1000.0)
+        if delay_samples < n_fft:
+            ir[delay_samples] = 1.0
+
+        ir = speaker.peq.apply(ir)
+        ir = speaker.geq.apply(ir)
+
+        ir *= speaker.polarity.value
+
+        corrected_fft = np.fft.rfft(ir)
+        corrected_mag = 20.0 * np.log10(np.abs(corrected_fft) + 1e-12)
+        corrected_phase = np.angle(corrected_fft)
+
+        return freqs, corrected_mag, corrected_phase
+
     def simulate_measurement(
         self,
         signal: NDArray[np.float64],
