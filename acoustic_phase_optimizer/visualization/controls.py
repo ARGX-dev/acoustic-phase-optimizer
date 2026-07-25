@@ -326,8 +326,12 @@ class ControlPanel(QWidget):
     def _on_lidar_import(self) -> None:
         from PyQt6.QtWidgets import QFileDialog
         path, _ = QFileDialog.getOpenFileName(
-            self, "Import LIDAR Scan", "",
-            "Point Cloud Files (*.ply *.pcd *.las *.laz);;All Files (*.*)"
+            self, "Import 3D Scan", "",
+            "All 3D Formats (*.ply *.pcd *.las *.laz *.obj *.stl *.xyz *.pts *.off *.asc *.mvr *.glb *.gltf *.e57 *.3mf);;"
+            "Point Cloud (*.ply *.pcd *.las *.laz *.xyz *.pts);;"
+            "Mesh (*.obj *.stl *.off *.glb *.gltf *.3mf);;"
+            "MVR Rig File (*.mvr *.mvr.zip *.zip);;"
+            "All Files (*.*)"
         )
         if path:
             self.room_controls.lidar_path_label.setText(path.split("/")[-1].split("\\")[-1])

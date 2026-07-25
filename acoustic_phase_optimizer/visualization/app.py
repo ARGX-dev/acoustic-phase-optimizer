@@ -633,6 +633,8 @@ class VisualizationApp(QMainWindow):
             self.control_panel.log(f"Unknown preset: {preset_name}", "WARN")
             return
 
+        self.speakers.clear()
+        self.microphones.clear()
         room, speakers = loader()
         self.room_model = room
         self.speakers = speakers
