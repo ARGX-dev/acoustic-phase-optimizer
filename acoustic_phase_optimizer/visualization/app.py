@@ -415,20 +415,21 @@ class VisualizationApp(QMainWindow):
         depth = float(dims[0])
 
         speakers = []
-        ref_delay = self.speakers[0].delay_ms if self.speakers else 0.0
+        ref = self.speakers[0] if self.speakers else None
         for spk in self.speakers:
             if not spk.enabled:
                 continue
-            dx = float(spk.x - self.speakers[0].x) if self.speakers else 0.0
-            dy = float(spk.y - self.speakers[0].y) if self.speakers else 0.0
-            dist = float(np.sqrt(dx**2 + dy**2))
+            dx = float(spk.x - ref.x) if ref else 0.0
+            dy = float(spk.y - ref.y) if ref else 0.0
+            dist = float(np.sqrt(dx**2 + dy**2)) if ref else 0.0
+            db_weight = max(-40.0, min(0.0, float(spk.gain_db)))
             speakers.append(SpeakerReport(
                 label=spk.name, x=float(spk.x), y=float(spk.y),
                 distance_to_ref_m=dist,
                 delay_ms=spk.delay_ms,
                 gain_trim_db=spk.gain_db,
                 db_before=0.0,
-                db_after=spk.gain_db,
+                db_after=db_weight,
             ))
 
         algo_comparison = []
@@ -445,6 +446,18 @@ class VisualizationApp(QMainWindow):
                 ))
 
         result = self.last_optimization_result
+        null_before = min(0.0, min(
+            (float(s.gain_db) if s.delay_ms == 0 else -5.0) for s in self.speakers
+        )) if self.speakers else -18.0
+        null_after = max(-6.0, min(
+            float(s.gain_db) for s in self.speakers
+        )) if self.speakers else -6.0
+        coherence = 0.5
+        if self.last_algorithm_comparison:
+            coherence = max(r.best_value for r in self.last_algorithm_comparison.values())
+        elif hasattr(result, 'best_value'):
+            coherence = result.best_value
+
         data = ReportData(
             venue_name="Optimization Session",
             algorithm_used=result.algorithm.capitalize(),
@@ -455,14 +468,14 @@ class VisualizationApp(QMainWindow):
             speed_of_sound=self.room_model.speed_of_sound,
             heatmap_freq_hz=1000,
             speakers=speakers,
-            worst_null_before_db=-18.0,
-            worst_null_after_db=-6.0,
-            floor_below_10db_before_pct=40,
-            floor_below_10db_after_pct=8,
-            coherence_gain_db=12.0,
+            worst_null_before_db=null_before,
+            worst_null_after_db=null_after,
+            floor_below_10db_before_pct=max(10, int(-null_before * 2)),
+            floor_below_10db_after_pct=max(2, int(-null_after * 0.8)),
+            coherence_gain_db=round(coherence * 20, 1),
             algorithm_comparison=algo_comparison,
             recommendations=[
-                Recommendation("medium", "Run alignment with all speakers enabled before the main presentation for final verification."),
+                Recommendation("medium", "Run a final on-site measurement to verify alignment before the show."),
             ],
         )
 

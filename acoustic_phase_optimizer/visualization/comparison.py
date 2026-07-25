@@ -64,7 +64,7 @@ class BeforeAfterWidget(FigureCanvas):
         self._colorbar = self.fig.colorbar(c1, ax=[self.ax_before, self.ax_after, self.ax_diff],
                                            shrink=0.6, pad=0.05)
         self._colorbar.set_label("SPL (dB)")
-        self.fig.tight_layout()
+        self.fig.subplots_adjust(left=0.06, right=0.88, wspace=0.25)
         self.draw()
 
 
@@ -113,5 +113,5 @@ class AlgorithmComparisonWidget(FigureCanvas):
             self.ax_bar.text(v + 0.01 * max(scores or [1]), i, f"{v:.4f}",
                              va="center", fontsize=8)
 
-        self.fig.tight_layout()
+        self.fig.subplots_adjust(left=0.08, right=0.95, wspace=0.35)
         self.draw()

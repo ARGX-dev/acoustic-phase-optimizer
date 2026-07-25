@@ -82,10 +82,12 @@ def render_report(
     template_text = Path(template_path).read_text(encoding="utf-8")
 
     def _spk_json(spk: SpeakerReport, use_after: bool) -> dict:
+        hw = data.room_width_m / 2.0
+        hd = data.room_depth_m / 2.0
         return {
             "label": spk.label,
-            "x": spk.x,
-            "y": spk.y,
+            "x": round(spk.y + hw, 2),
+            "y": round(spk.x + hd, 2),
             "db": spk.db_after if use_after else spk.db_before,
             "delayMs": spk.delay_ms if use_after else 0.0,
         }
