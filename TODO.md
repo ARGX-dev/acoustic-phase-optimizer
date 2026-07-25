@@ -3,10 +3,11 @@
 ## Short Term
 
 - [ ] Implement real hardware playback/recording with sounddevice
-- [ ] Complete Venue360 telnet control protocol
 - [ ] Add calibration file support for measurement microphones
 - [ ] Implement multi-channel simultaneous measurement
 - [ ] Add real-time FFT monitoring during measurement
+- [ ] Derive VENU360 control protocol via packet capture (no public spec — see dsp/venus360.py)
+- [ ] Polish session report export (before/after coverage maps, algorithm comparison, recommendations)
 
 ## Medium Term
 

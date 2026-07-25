@@ -58,19 +58,19 @@
   <div class="topbar">
     <div>
       <h1>Optimization Report — Optimization Session</h1>
-      <div class="meta">Session 2026-07-26_00-58 &middot; Gradient &middot; 2 iterations &middot; 1m 26s</div>
+      <div class="meta">Session 2026-07-26_01-15 &middot; Gradient &middot; 2 iterations &middot; 2m 29s</div>
     </div>
     <div style="display:flex;gap:16px;align-items:flex-start;">
-      <div class="score"><div class="num">+12.0 dB</div><div class="lbl">Coherence gain</div></div>
+      <div class="score"><div class="num">+44.8 dB</div><div class="lbl">Coherence gain</div></div>
       <button class="printbtn" onclick="window.print()">Print / Save PDF</button>
     </div>
   </div>
 
   <div class="cards">
-    <div class="card"><div class="v bad">-18.0 dB</div><div class="l">Worst null, before</div></div>
-    <div class="card"><div class="v good">-6.0 dB</div><div class="l">Worst null, after</div></div>
-    <div class="card"><div class="v bad">40%</div><div class="l">Floor &lt; -10dB, before</div></div>
-    <div class="card"><div class="v good">8%</div><div class="l">Floor &lt; -10dB, after</div></div>
+    <div class="card"><div class="v bad">0.0 dB</div><div class="l">Worst null, before</div></div>
+    <div class="card"><div class="v good">0.0 dB</div><div class="l">Worst null, after</div></div>
+    <div class="card"><div class="v bad">10%</div><div class="l">Floor &lt; -10dB, before</div></div>
+    <div class="card"><div class="v good">2%</div><div class="l">Floor &lt; -10dB, after</div></div>
   </div>
 
   <section>
@@ -98,13 +98,15 @@
 <tr><td>Surround L</td><td>13.9</td><td>0.00</td><td>+0.0</td></tr>
 <tr><td>Surround R</td><td>13.9</td><td>0.00</td><td>+0.0</td></tr>
 <tr><td>Fill</td><td>8.0</td><td>0.00</td><td>+0.0</td></tr>
+<tr><td>Subwoofer 1</td><td>4.5</td><td>0.00</td><td>+0.0</td></tr>
+<tr><td>Subwoofer 2</td><td>2.8</td><td>0.00</td><td>+0.0</td></tr>
       </tbody>
     </table>
   </section>
 
   <section>
     <h2>Recommendations</h2>
-    <div class="rec"><span class="tag med">Medium</span><span>Run alignment with all speakers enabled before the main presentation for final verification.</span></div>
+    <div class="rec"><span class="tag med">Medium</span><span>Run a final on-site measurement to verify alignment before the show.</span></div>
   </section>
 
   <footer>
@@ -158,9 +160,9 @@ function renderHeatmap(canvasId, speakers, W, D, f, c){
     ctx.fillStyle='#0b0e11'; ctx.fill(); ctx.strokeStyle='#ffb020'; ctx.lineWidth=1.3; ctx.stroke();
   });
 }
-const W=12.0, D=22.0, c=343.0, f=1000;
-const speakersBefore = [{"label": "Center", "x": -8.0, "y": 0.0, "db": 0.0, "delayMs": 0.0}, {"label": "Left", "x": -8.0, "y": -4.0, "db": 0.0, "delayMs": 0.0}, {"label": "Right", "x": -8.0, "y": 4.0, "db": 0.0, "delayMs": 0.0}, {"label": "Surround L", "x": 5.0, "y": -5.0, "db": 0.0, "delayMs": 0.0}, {"label": "Surround R", "x": 5.0, "y": 5.0, "db": 0.0, "delayMs": 0.0}, {"label": "Fill", "x": 0.0, "y": 0.0, "db": 0.0, "delayMs": 0.0}];
-const speakersAfter  = [{"label": "Center", "x": -8.0, "y": 0.0, "db": 0.0, "delayMs": 0.0}, {"label": "Left", "x": -8.0, "y": -4.0, "db": 0.0, "delayMs": 0.0}, {"label": "Right", "x": -8.0, "y": 4.0, "db": 0.0, "delayMs": 0.0}, {"label": "Surround L", "x": 5.0, "y": -5.0, "db": 0.0, "delayMs": 0.0}, {"label": "Surround R", "x": 5.0, "y": 5.0, "db": 0.0, "delayMs": 0.0}, {"label": "Fill", "x": 0.0, "y": 0.0, "db": 0.0, "delayMs": 0.0}];
+const W=12.0, D=22.0, c=341.0601480433504, f=1000;
+const speakersBefore = [{"label": "Center", "x": 6.0, "y": 3.0, "db": 0.0, "delayMs": 0.0}, {"label": "Left", "x": 2.0, "y": 3.0, "db": 0.0, "delayMs": 0.0}, {"label": "Right", "x": 10.0, "y": 3.0, "db": 0.0, "delayMs": 0.0}, {"label": "Surround L", "x": 1.0, "y": 16.0, "db": 0.0, "delayMs": 0.0}, {"label": "Surround R", "x": 11.0, "y": 16.0, "db": 0.0, "delayMs": 0.0}, {"label": "Fill", "x": 6.0, "y": 11.0, "db": 0.0, "delayMs": 0.0}, {"label": "Subwoofer 1", "x": 9.99, "y": 0.99, "db": 0.0, "delayMs": 0.0}, {"label": "Subwoofer 2", "x": 4.03, "y": 0.99, "db": 0.0, "delayMs": 0.0}];
+const speakersAfter  = [{"label": "Center", "x": 6.0, "y": 3.0, "db": 0.0, "delayMs": 0.0}, {"label": "Left", "x": 2.0, "y": 3.0, "db": 0.0, "delayMs": 0.0}, {"label": "Right", "x": 10.0, "y": 3.0, "db": 0.0, "delayMs": 0.0}, {"label": "Surround L", "x": 1.0, "y": 16.0, "db": 0.0, "delayMs": 0.0}, {"label": "Surround R", "x": 11.0, "y": 16.0, "db": 0.0, "delayMs": 0.0}, {"label": "Fill", "x": 6.0, "y": 11.0, "db": 0.0, "delayMs": 0.0}, {"label": "Subwoofer 1", "x": 9.99, "y": 0.99, "db": 0.0, "delayMs": 0.0}, {"label": "Subwoofer 2", "x": 4.03, "y": 0.99, "db": 0.0, "delayMs": 0.0}];
 renderHeatmap('hmBefore', speakersBefore, W, D, f, c);
 renderHeatmap('hmAfter',  speakersAfter,  W, D, f, c);
 
