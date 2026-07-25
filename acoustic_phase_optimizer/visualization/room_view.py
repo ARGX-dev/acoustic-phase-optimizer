@@ -191,8 +191,8 @@ class RoomViewWidget(FigureCanvas):
 
         if drag_type == "speaker":
             spk = self._drag_data["speaker"]
-            spk.x = float(event.xdata)
-            spk.y = float(event.ydata)
+            spk.position[0] = float(event.xdata)
+            spk.position[1] = float(event.ydata)
         elif drag_type == "stage_inside":
             self.stage_x = self._drag_data["orig_x"] + dx
             self.stage_y = self._drag_data["orig_y"] + dy

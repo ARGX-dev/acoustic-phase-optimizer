@@ -52,6 +52,9 @@ class FrequencyResponseWidget(FigureCanvas):
         self.ax_mag.clear()
         self.ax_phase.clear()
 
+        self.ax_mag.set_xlim(20, 20000)
+        self.ax_phase.set_xlim(20, 20000)
+
         colors = ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd",
                   "#8c564b", "#e377c2", "#7f7f7f", "#bcbd22", "#17becf"]
 
@@ -60,7 +63,9 @@ class FrequencyResponseWidget(FigureCanvas):
             freqs = trace["freqs"]
             magnitude_db = trace["magnitude_db"]
 
-            valid = freqs > 0
+            valid = (freqs >= 20) & np.isfinite(magnitude_db)
+            if not np.any(valid):
+                continue
             self.ax_mag.semilogx(
                 freqs[valid], magnitude_db[valid],
                 color=color, linestyle=trace["linestyle"],
@@ -69,11 +74,13 @@ class FrequencyResponseWidget(FigureCanvas):
 
             if trace["phase_rad"] is not None:
                 phase = trace["phase_rad"]
-                self.ax_phase.semilogx(
-                    freqs[valid], phase[valid],
-                    color=color, linestyle=trace["linestyle"],
-                    label=name, linewidth=1.5, alpha=0.7,
-                )
+                valid_p = (freqs >= 20) & np.isfinite(phase)
+                if np.any(valid_p):
+                    self.ax_phase.semilogx(
+                        freqs[valid_p], phase[valid_p],
+                        color=color, linestyle=trace["linestyle"],
+                        label=name, linewidth=1.5, alpha=0.7,
+                    )
 
         self.ax_mag.set_ylabel("Magnitude (dB)")
         self.ax_mag.set_title("Frequency Response")
@@ -84,7 +91,6 @@ class FrequencyResponseWidget(FigureCanvas):
         self.ax_phase.set_xlabel("Frequency (Hz)")
         self.ax_phase.set_ylabel("Phase (rad)")
         self.ax_phase.grid(True, alpha=0.3, which="both")
-        self.ax_phase.set_xlim(20, 20000)
         self.ax_phase.set_ylim(-np.pi, np.pi)
 
         self.fig.tight_layout()

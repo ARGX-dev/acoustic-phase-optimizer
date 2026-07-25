@@ -302,7 +302,7 @@ class VisualizationApp(QMainWindow):
         self.control_panel.dimensions_changed.connect(self._on_dimensions_changed)
         self.control_panel.mic_placement_requested.connect(self._on_mic_placement)
         self.control_panel.stage_changed.connect(self._on_stage_control_changed)
-        self.control_panel.stage_toggled.connect(self._on_stage_toggled)
+        self.control_panel.room_controls.stage_toggled.connect(self._on_stage_toggled)
         self.room_view.set_on_speaker_placed(self._on_room_click_place_speaker)
         self.room_view.set_on_speaker_right_click(self._on_room_speaker_right_click)
         self.room_view.set_on_speaker_moved(self._on_room_speaker_moved)
@@ -519,8 +519,8 @@ class VisualizationApp(QMainWindow):
     def _on_room_speaker_moved(self, name: str, x: float, y: float) -> None:
         for spk in self.speakers:
             if spk.name == name:
-                spk.x = x
-                spk.y = y
+                spk.position[0] = x
+                spk.position[1] = y
                 if self.virtual_room:
                     self.virtual_room.add_speaker(spk)
                 self.control_panel.log(f"Moved {name} to ({x:.1f}, {y:.1f})")
