@@ -20,6 +20,7 @@ class FrequencyResponseWidget(FigureCanvas):
         self.ax = self.fig.add_subplot(111)
         self.ax.set_xlim(20, 20000)
         self.ax.set_ylim(-60, 10)
+        self._phase_ax = None
         self._traces: Dict[str, dict] = {}
         self._show_legend = False
 
@@ -54,14 +55,20 @@ class FrequencyResponseWidget(FigureCanvas):
         self._draw()
 
     def _draw(self) -> None:
-        self.ax.set_xscale("linear")
         self.ax.clear()
 
         colors = ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd",
                   "#8c564b", "#e377c2", "#7f7f7f", "#bcbd22", "#17becf"]
 
         has_phase = any(t["phase_rad"] is not None for t in self._traces.values())
-        ax2 = self.ax.twinx() if has_phase else None
+
+        if has_phase and self._phase_ax is None:
+            self._phase_ax = self.ax.twinx()
+        elif not has_phase and self._phase_ax is not None:
+            self._phase_ax.remove()
+            self._phase_ax = None
+        elif has_phase and self._phase_ax is not None:
+            self._phase_ax.clear()
 
         for i, (name, trace) in enumerate(self._traces.items()):
             color = trace["color"] or colors[i % len(colors)]
@@ -77,11 +84,11 @@ class FrequencyResponseWidget(FigureCanvas):
                 label=name, linewidth=1.5,
             )
 
-            if trace["phase_rad"] is not None and ax2 is not None:
+            if trace["phase_rad"] is not None and self._phase_ax is not None:
                 phase = trace["phase_rad"]
                 valid_p = (freqs >= 20) & np.isfinite(phase)
                 if np.any(valid_p):
-                    ax2.semilogx(
+                    self._phase_ax.semilogx(
                         freqs[valid_p], phase[valid_p],
                         color=color, linestyle="--", linewidth=0.8, alpha=0.5,
                     )
@@ -94,10 +101,10 @@ class FrequencyResponseWidget(FigureCanvas):
         self.ax.set_xlabel("Frequency (Hz)")
         self.ax.tick_params(labelsize=7)
 
-        if ax2 is not None:
-            ax2.set_ylabel("Phase (rad)", fontsize=8)
-            ax2.set_ylim(-np.pi, np.pi)
-            ax2.tick_params(labelsize=7)
+        if self._phase_ax is not None:
+            self._phase_ax.set_ylabel("Phase (rad)", fontsize=8)
+            self._phase_ax.set_ylim(-np.pi, np.pi)
+            self._phase_ax.tick_params(labelsize=7)
 
         if self._show_legend and self._traces:
             self.ax.legend(loc="best", fontsize=6)
