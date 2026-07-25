@@ -99,23 +99,42 @@ class OptimizationWorker(QObject):
             self.finished.emit(None)
 
     def _run_dsp_optimization(self, engine, objective, n_speakers) -> None:
-        virtual_room = VirtualRoom(self.room_model, sample_rate=48000)
+        engine.config["max_iterations"] = 100
+        engine.config["learning_rate"] = 0.05
+        dsp_algo = "gradient"
+        vr = VirtualRoom(self.room_model, sample_rate=48000)
         for s in self.speakers:
-            virtual_room.add_speaker(s)
+            vr.add_speaker(s)
         for m in self.microphones if self.microphones else []:
-            virtual_room.add_microphone(m)
+            vr.add_microphone(m)
+
+        raw_irs = {}
+        freqs_cache = None
+        for spk in self.speakers:
+            if not spk.enabled:
+                continue
+            for mic in (self.microphones if self.microphones else []):
+                key = (spk.name, mic.name)
+                freqs, mag_db = vr.compute_transfer_function(spk, mic)
+                n_fft = 2 * len(freqs) - 2
+                ir = vr.compute_impulse_response(spk, mic)
+                raw_irs[key] = ir
+                if freqs_cache is None:
+                    freqs_cache = freqs
 
         def dsp_objective_wrapper(p: np.ndarray) -> float:
             self._check_cancel()
             idx = 0
             for spk in self.speakers:
+                if not spk.enabled:
+                    continue
                 for band in spk.peq.bands:
-                    band.freq_hz = float(p[idx]); idx += 1
-                    band.gain_db = float(p[idx]); idx += 1
-                    band.q = float(p[idx]); idx += 1
+                    band.freq_hz = float(max(20.0, min(20000.0, p[idx]))); idx += 1
+                    band.gain_db = float(max(-15.0, min(15.0, p[idx]))); idx += 1
+                    band.q = float(max(0.1, min(20.0, p[idx]))); idx += 1
                 for j in range(31):
-                    spk.geq.gains_db[j] = float(p[idx]); idx += 1
-                spk.delay_ms = float(p[idx]); idx += 1
+                    spk.geq.gains_db[j] = float(max(-15.0, min(15.0, p[idx]))); idx += 1
+                spk.delay_ms = float(max(0.0, min(500.0, p[idx]))); idx += 1
                 spk.polarity = SpeakerPolarity.NORMAL if p[idx] >= 0 else SpeakerPolarity.INVERTED; idx += 1
 
             phases = []
@@ -125,7 +144,22 @@ class OptimizationWorker(QObject):
                 if not spk.enabled:
                     continue
                 for mic in (self.microphones if self.microphones else []):
-                    freqs, mag, phase = virtual_room.compute_dsp_corrected_transfer(spk, mic)
+                    key = (spk.name, mic.name)
+                    ir = raw_irs[key].copy()
+                    delay_s = spk.delay_ms / 1000.0
+                    delay_samples = int(delay_s * 48000)
+                    if 0 < delay_samples < len(ir):
+                        ir = np.roll(ir, delay_samples)
+                        ir[:delay_samples] = 0.0
+                    ir *= spk.polarity.value
+                    peq_filter = PEQFilter(spk.peq, 48000)
+                    ir = peq_filter.apply(ir)
+                    geq_filter = GEQFilter(spk.geq)
+                    geq_filter.config.sample_rate = 48000
+                    ir = geq_filter.apply(ir)
+                    spec = np.fft.rfft(ir)
+                    mag = 20.0 * np.log10(np.abs(spec) + 1e-12)
+                    phase = np.angle(spec)
                     phases.append(phase)
                     magnitudes.append(mag)
                 delays.append(spk.delay_ms)
@@ -140,10 +174,10 @@ class OptimizationWorker(QObject):
             return objective.compute(np.zeros(1), data)
 
         bounds, initial = engine.setup_dsp_optimization(n_speakers)
-        self.progress.emit("Running DSP-only optimization (PEQ + GEQ + delay + polarity)...")
+        self.progress.emit("Running DSP-only optimization...")
 
         try:
-            result = engine.optimize("genetic", dsp_objective_wrapper, initial)
+            result = engine.optimize(dsp_algo, dsp_objective_wrapper, initial)
             self.finished.emit(result)
         except InterruptedError:
             self.finished.emit(None)

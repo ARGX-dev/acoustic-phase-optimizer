@@ -24,9 +24,14 @@ class PEQConfig:
 
 
 def biquad_coefficients(peq: PEQBand, sample_rate: float) -> np.ndarray:
-    w0 = 2.0 * np.pi * peq.freq_hz / sample_rate
-    alpha = np.sin(w0) / (2.0 * peq.q)
-    A = 10.0 ** (peq.gain_db / 40.0)
+    freq = max(20.0, min(sample_rate / 2.0 - 1.0, peq.freq_hz))
+    q = max(0.1, peq.q)
+    w0 = 2.0 * np.pi * freq / sample_rate
+    if w0 <= 0 or w0 >= np.pi:
+        w0 = 0.01
+    sin_w0 = np.sin(w0)
+    alpha = sin_w0 / (2.0 * q) if q > 0 else sin_w0
+    A = 10.0 ** (max(-40.0, min(40.0, peq.gain_db)) / 40.0)
 
     cos_w0 = np.cos(w0)
 
@@ -37,7 +42,7 @@ def biquad_coefficients(peq: PEQBand, sample_rate: float) -> np.ndarray:
     a1 = -2.0 * cos_w0
     a2 = 1.0 - alpha / A
 
-    norm = 1.0 / a0
+    norm = 1.0 / a0 if abs(a0) > 1e-12 else 1.0
     return np.array([b0 * norm, b1 * norm, b2 * norm, a1 * norm, a2 * norm])
 
 
