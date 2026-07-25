@@ -107,6 +107,10 @@ class DSPInterface(ABC):
     def reset_to_defaults(self) -> bool:
         ...
 
+    def supports_live_control(self) -> bool:
+        """Override and return False for backends that can only export config."""
+        return True
+
     def validate_sample_rate(self, rate: int) -> bool:
         valid_rates = [44100, 48000, 96000, 192000]
         return rate in valid_rates
