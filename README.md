@@ -20,7 +20,7 @@ Double-click `install.bat` — it handles everything:
 After it finishes, run:
 
 ```
-venv\Scripts\python -m acoustic_phase_optimizer.main --gui
+venv\Scripts\python -m acoustic_phase_optimizer --gui
 ```
 
 ### Manual Setup
@@ -36,9 +36,8 @@ cd acoustic-phase-optimizer
 python -m venv venv
 venv\Scripts\activate
 
-# 3. Install everything
-pip install numpy scipy sounddevice soundfile pyyaml matplotlib PyQt6 pyqtgraph
-pip install -e .
+# 3. Install with GUI and dev extras
+pip install -e ".[gui,dev]"
 ```
 
 ### Verify
@@ -54,7 +53,7 @@ python -c "from acoustic_phase_optimizer import AcousticPhaseOptimizer; print('O
 ### GUI Mode (recommended for first use)
 
 ```bash
-python -m acoustic_phase_optimizer.main --gui
+python -m acoustic_phase_optimizer --gui
 ```
 
 This opens an interactive window showing:
@@ -77,7 +76,7 @@ This opens an interactive window showing:
 ### Headless Mode (scripting / automation)
 
 ```bash
-python -m acoustic_phase_optimizer.main --headless
+python -m acoustic_phase_optimizer --headless
 ```
 
 Outputs JSON with the best-found parameters. Useful for batch processing or CI pipelines.
@@ -85,7 +84,7 @@ Outputs JSON with the best-found parameters. Useful for batch processing or CI p
 ### Generate Test Signals
 
 ```bash
-python -m acoustic_phase_optimizer.main --measure
+python -m acoustic_phase_optimizer --measure
 ```
 
 Creates `measurement_signal.wav` with a log-sweep for use with external measurement systems.
@@ -134,7 +133,7 @@ zones:
 Use your config:
 
 ```bash
-python -m acoustic_phase_optimizer.main --gui -c my_venue.yaml
+python -m acoustic_phase_optimizer --gui -c my_venue.yaml
 ```
 
 ---
@@ -210,9 +209,10 @@ acoustic_phase_optimizer/
 ## Running Tests
 
 ```bash
-pip install pytest
 pytest tests/ -v
 ```
+
+Requires the `dev` extras: `pip install -e ".[dev]"`
 
 All 210 tests should pass.
 
@@ -222,11 +222,10 @@ All 210 tests should pass.
 
 | Problem | Solution |
 |---------|----------|
-| `ModuleNotFoundError: No module named 'PyQt6'` | `pip install PyQt6 pyqtgraph` (GUI only) |
-| `ModuleNotFoundError: No module named 'sounddevice'` | `pip install sounddevice soundfile` |
+| `ModuleNotFoundError: No module named 'PyQt6'` | `pip install -e ".[gui]"`  |
+| GUI won't open | You installed without `[gui]`; re-run `pip install -e ".[gui]"` or use `--headless` |
 | `No audio device found` | Plug in a USB audio interface or microphone |
-| GUI won't open | Run headless mode instead: `--headless` |
-| `pip install -e .` fails | Run `pip install numpy scipy sounddevice soundfile pyyaml matplotlib` first, then retry |
+| Test failures on `gradient` tests | Gradient optimizer is sensitive to learning rate; use `genetic` or `annealing` for real work |
 | Test failures on `gradient` tests | Gradient optimizer is sensitive to learning rate; use `genetic` or `annealing` for real work |
 
 ---

@@ -38,6 +38,12 @@ gui = [
     "pyqtgraph>=0.13",
     "pyopengl>=3.1",
 ]
+dev = [
+    "pytest>=7.4",
+    "pytest-cov>=4.1",
+    "ruff>=0.4",
+    "mypy>=1.8",
+]
 full = [
     "acoustic-phase-optimizer[gui]",
     "librosa>=0.10",
@@ -45,8 +51,8 @@ full = [
 ]
 
 [project.urls]
-"Source" = "https://github.com/anomalyco/acoustic-phase-optimizer"
-"Documentation" = "https://github.com/anomalyco/acoustic-phase-optimizer/docs"
+"Source" = "https://github.com/ARGX-dev/acoustic-phase-optimizer"
+"Documentation" = "https://github.com/ARGX-dev/acoustic-phase-optimizer/docs"
 
 [tool.setuptools.packages.find]
 include = ["acoustic_phase_optimizer*"]

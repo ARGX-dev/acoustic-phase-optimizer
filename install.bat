@@ -54,30 +54,16 @@ echo [STEP 3/5] Upgrading pip...
 call venv\Scripts\pip install --upgrade pip >nul 2>&1
 echo  [OK] pip upgraded.
 
-:: ---- Install dependencies ----
+:: ---- Install package with extras ----
 echo.
-echo [STEP 4/5] Installing dependencies...
+echo [STEP 4/5] Installing Acoustic Phase Optimizer with GUI + dev extras...
 echo  (this may take a few minutes on first run)
 echo.
 
-call venv\Scripts\pip install numpy scipy sounddevice soundfile pyyaml matplotlib
+call venv\Scripts\pip install -e ".[gui,dev]"
 if %errorlevel% neq 0 (
-    echo [WARN] Some core dependencies failed. Check the error above.
-)
-
-call venv\Scripts\pip install PyQt6 pyqtgraph
-if %errorlevel% neq 0 (
-    echo [WARN] GUI dependencies failed. The program can still run in headless mode.
-)
-
-:: ---- Install the package ----
-echo.
-echo [STEP 5/5] Installing Acoustic Phase Optimizer...
-call venv\Scripts\pip install -e .
-if %errorlevel% neq 0 (
-    echo [ERROR] Package install failed.
-    pause
-    exit /b 1
+    echo [WARN] Some dependencies failed. Retrying without GUI extras...
+    call venv\Scripts\pip install -e ".[dev]"
 )
 
 echo.
@@ -88,13 +74,13 @@ echo.
 echo  To run the program:
 echo.
 echo      venv\Scripts\activate
-echo      python -m acoustic_phase_optimizer.main --gui
+echo      python -m acoustic_phase_optimizer --gui
 echo.
 echo  Or run from anywhere with this shortcut:
 echo.
-echo      venv\Scripts\python -m acoustic_phase_optimizer.main --gui
+echo      venv\Scripts\python -m acoustic_phase_optimizer --gui
 echo.
 echo  Headless (no GUI):
-echo      venv\Scripts\python -m acoustic_phase_optimizer.main --headless
+echo      venv\Scripts\python -m acoustic_phase_optimizer --headless
 echo.
 pause
