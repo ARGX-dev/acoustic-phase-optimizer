@@ -18,6 +18,8 @@ class FrequencyResponseWidget(FigureCanvas):
         self.setParent(parent)
 
         self.ax = self.fig.add_subplot(111)
+        self.ax.set_xlim(20, 20000)
+        self.ax.set_ylim(-60, 10)
         self._traces: Dict[str, dict] = {}
         self._show_legend = False
 
@@ -53,10 +55,12 @@ class FrequencyResponseWidget(FigureCanvas):
 
     def _draw(self) -> None:
         self.ax.clear()
-        self.ax.set_xlim(20, 20000)
 
         colors = ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd",
                   "#8c564b", "#e377c2", "#7f7f7f", "#bcbd22", "#17becf"]
+
+        has_phase = any(t["phase_rad"] is not None for t in self._traces.values())
+        ax2 = self.ax.twinx() if has_phase else None
 
         for i, (name, trace) in enumerate(self._traces.items()):
             color = trace["color"] or colors[i % len(colors)]
@@ -72,19 +76,16 @@ class FrequencyResponseWidget(FigureCanvas):
                 label=name, linewidth=1.5,
             )
 
-            if trace["phase_rad"] is not None:
+            if trace["phase_rad"] is not None and ax2 is not None:
                 phase = trace["phase_rad"]
                 valid_p = (freqs >= 20) & np.isfinite(phase)
                 if np.any(valid_p):
-                    ax2 = self.ax.twinx()
                     ax2.semilogx(
                         freqs[valid_p], phase[valid_p],
                         color=color, linestyle="--", linewidth=0.8, alpha=0.5,
                     )
-                    ax2.set_ylabel("Phase (rad)", fontsize=8)
-                    ax2.set_ylim(-np.pi, np.pi)
-                    ax2.tick_params(labelsize=7)
 
+        self.ax.set_xlim(20, 20000)
         self.ax.set_ylabel("Magnitude (dB)")
         self.ax.set_title("Frequency Response")
         self.ax.grid(True, alpha=0.3, which="both")
@@ -92,10 +93,15 @@ class FrequencyResponseWidget(FigureCanvas):
         self.ax.set_xlabel("Frequency (Hz)")
         self.ax.tick_params(labelsize=7)
 
+        if ax2 is not None:
+            ax2.set_ylabel("Phase (rad)", fontsize=8)
+            ax2.set_ylim(-np.pi, np.pi)
+            ax2.tick_params(labelsize=7)
+
         if self._show_legend and self._traces:
             self.ax.legend(loc="best", fontsize=6)
 
-        self.fig.tight_layout()
+        self.fig.subplots_adjust(left=0.12, right=0.88, top=0.92, bottom=0.12)
         self.draw()
 
 
