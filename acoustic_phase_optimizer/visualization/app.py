@@ -27,6 +27,9 @@ from acoustic_phase_optimizer.visualization.heatmap import HeatmapWidget, MultiH
 from acoustic_phase_optimizer.visualization.frequency_view import (
     FrequencyResponseWidget, GroupDelayWidget, SpectrogramWidget,
 )
+from acoustic_phase_optimizer.visualization.comparison import (
+    BeforeAfterWidget, AlgorithmComparisonWidget,
+)
 from PyQt6.QtWidgets import QMenu
 from PyQt6.QtGui import QAction, QIcon
 from acoustic_phase_optimizer.visualization.controls import ControlPanel
@@ -231,6 +234,8 @@ class VisualizationApp(QMainWindow):
         top_tabs.addTab(self.room_3d_view, "Room 3D")
         top_tabs.addTab(self.heatmap_view, "Heatmap")
         top_tabs.addTab(self.multi_heatmap, "All Maps")
+        self.before_after = BeforeAfterWidget()
+        top_tabs.addTab(self.before_after, "Before/After")
 
         view_splitter.addWidget(top_tabs)
 
@@ -242,6 +247,8 @@ class VisualizationApp(QMainWindow):
         bottom_tabs.addTab(self.freq_view, "Frequency Response")
         bottom_tabs.addTab(self.group_delay_view, "Group Delay")
         bottom_tabs.addTab(self.spectrogram_view, "Spectrogram")
+        self.algo_comparison = AlgorithmComparisonWidget()
+        bottom_tabs.addTab(self.algo_comparison, "Algo Comparison")
 
         bottom_wrapper = QVBoxLayout()
         legend_btn = QPushButton("Toggle Legend")
@@ -318,6 +325,7 @@ class VisualizationApp(QMainWindow):
         self.room_view.set_on_speaker_moved(self._on_room_speaker_moved)
         self.room_view.set_on_stage_changed(self._on_room_stage_changed)
         self.control_panel.report_requested.connect(self._on_generate_report)
+        self.control_panel.preset_requested.connect(self._on_load_preset)
 
     def _on_measurement_start(self, params: dict) -> None:
         self.control_panel.log(f"Starting measurement: {params}")
@@ -368,8 +376,16 @@ class VisualizationApp(QMainWindow):
             best_algo, best_result = engine.get_best_result(result)
             self.last_optimization_result = best_result
             self.control_panel.log(f"Best algorithm: {best_algo} ({best_result.best_value:.4f})")
+            comparison_data = {}
             for name, r in result.items():
                 self.control_panel.log(f"  {name}: {r.best_value:.4f} ({r.iterations} it, {r.computation_time:.1f}s)")
+                comparison_data[name] = {
+                    "best_value": r.best_value,
+                    "history": r.history,
+                    "iterations": r.iterations,
+                    "computation_time": r.computation_time,
+                }
+            self.algo_comparison.update_results(comparison_data)
         else:
             self.last_optimization_result = result
             self.last_algorithm_comparison = None
@@ -596,6 +612,25 @@ class VisualizationApp(QMainWindow):
         self.control_panel.log(f"Deleted {speaker_name}")
         self._reinit_virtual_room()
 
+    def _on_load_preset(self, preset_name: str) -> None:
+        from acoustic_phase_optimizer.simulation.presets import gymnasium, theater, conference_room
+        presets = {"Gymnasium": gymnasium, "Theater": theater, "Conference Room": conference_room}
+        loader = presets.get(preset_name)
+        if loader is None:
+            self.control_panel.log(f"Unknown preset: {preset_name}", "WARN")
+            return
+
+        room, speakers = loader()
+        self.room_model = room
+        self.speakers = speakers
+        L, W, H = room.get_dimensions_array()
+        self.control_panel.room_controls.room_length.setValue(L)
+        self.control_panel.room_controls.room_width.setValue(W)
+        self.control_panel.room_controls.room_height.setValue(H)
+        self.control_panel.set_speaker_names([s.name for s in speakers])
+        self.control_panel.log(f"Loaded '{preset_name}' — {L:.0f}x{W:.0f}x{H:.0f}m, {len(speakers)} speakers")
+        self._reinit_virtual_room()
+
     def _on_stage_toggled(self, visible: bool) -> None:
         self.room_view.set_stage_visible(visible)
         self.control_panel.log(f"Stage {'added' if visible else 'removed'}")
@@ -672,9 +707,14 @@ class VisualizationApp(QMainWindow):
         self.room_view.update_data(self.room_model, self.speakers, self.microphones)
         self.room_3d_view.update_data(self.room_model, self.speakers, self.microphones)
 
-        if self.virtual_room:
+        if self.virtual_room and self.speakers:
             X, Y = self.virtual_room.get_listening_area_mesh(30)
+            c = self.room_model.speed_of_sound
+
             Z_spl = np.zeros_like(X)
+            Z_before = np.zeros_like(X)
+            Z_after = np.zeros_like(X)
+
             for spk in self.speakers:
                 if not spk.enabled:
                     continue
@@ -682,6 +722,24 @@ class VisualizationApp(QMainWindow):
                     for j in range(X.shape[1]):
                         pt = np.array([X[i, j], Y[i, j], 1.2])
                         Z_spl[i, j] += spk.spl_at_distance(pt)
+
+                        dist = float(np.linalg.norm(spk.position - pt))
+                        if dist < 0.01:
+                            continue
+                        freq = 1000.0
+                        wavenum = 2.0 * np.pi * freq / c
+
+                        phase_before = wavenum * dist
+                        amp_before = 1.0 / dist
+                        Z_before[i, j] += amp_before * np.cos(phase_before)
+
+                        phase_after = wavenum * dist - 2.0 * np.pi * freq * (spk.delay_ms / 1000.0)
+                        amp_after = 1.0 / dist * (10.0 ** (spk.gain_db / 20.0))
+                        Z_after[i, j] += amp_after * np.cos(phase_after)
+
+            Z_before_db = 20.0 * np.log10(np.abs(Z_before) + 1e-12)
+            Z_after_db = 20.0 * np.log10(np.abs(Z_after) + 1e-12)
+            self.before_after.update_data(X, Y, Z_before_db, Z_after_db)
             self.heatmap_view.set_spl_heatmap(X, Y, Z_spl)
 
         for i, spk in enumerate(self.speakers):

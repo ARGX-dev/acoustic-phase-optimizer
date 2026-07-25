@@ -253,6 +253,7 @@ class ControlPanel(QWidget):
     mic_placement_requested = pyqtSignal(int)
     stage_changed = pyqtSignal(float, float, float, float, float)
     report_requested = pyqtSignal()
+    preset_requested = pyqtSignal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -301,6 +302,8 @@ class ControlPanel(QWidget):
         )
         self.optimization_controls.report_button.clicked.connect(
             self.report_requested.emit
+        )
+        self.room_controls.preset_selected.connect(self.preset_requested.emit
         )
         self.room_controls.apply_stage_button.clicked.connect(self._on_stage_apply)
 

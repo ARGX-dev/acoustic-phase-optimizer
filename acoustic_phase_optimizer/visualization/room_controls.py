@@ -4,7 +4,7 @@ from typing import Optional
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QLineEdit, QGroupBox, QFormLayout, QDoubleSpinBox, QSpinBox,
-    QFileDialog,
+    QComboBox, QFileDialog,
 )
 from PyQt6.QtCore import Qt, pyqtSignal
 
@@ -17,6 +17,7 @@ class RoomControls(QGroupBox):
     mic_placement_requested = pyqtSignal(int)
     stage_changed = pyqtSignal(float, float, float, float, float)
     stage_toggled = pyqtSignal(bool)
+    preset_selected = pyqtSignal(str)
 
     def __init__(self, parent=None):
         super().__init__("Room Setup", parent)
@@ -30,6 +31,16 @@ class RoomControls(QGroupBox):
         lidar_layout.addWidget(self.import_button)
         lidar_group.setLayout(lidar_layout)
         layout.addWidget(lidar_group)
+
+        preset_group = QGroupBox("Demo Venues")
+        preset_layout = QVBoxLayout()
+        self.preset_selector = QComboBox()
+        self.preset_selector.addItems(["Gymnasium", "Theater", "Conference Room"])
+        preset_layout.addWidget(self.preset_selector)
+        self.load_preset_button = QPushButton("Load Venue")
+        preset_layout.addWidget(self.load_preset_button)
+        preset_group.setLayout(preset_layout)
+        layout.addWidget(preset_group)
 
         manual_group = QGroupBox("Manual Dimensions")
         form = QFormLayout()
@@ -103,6 +114,7 @@ class RoomControls(QGroupBox):
         layout.addWidget(mic_group)
 
         self.stage_toggle_button.clicked.connect(self._on_stage_toggle)
+        self.load_preset_button.clicked.connect(lambda: self.preset_selected.emit(self.preset_selector.currentText()))
         self.setLayout(layout)
 
     def _set_stage_controls_enabled(self, enabled: bool) -> None:
