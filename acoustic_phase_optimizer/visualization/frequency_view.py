@@ -54,6 +54,7 @@ class FrequencyResponseWidget(FigureCanvas):
         self._draw()
 
     def _draw(self) -> None:
+        self.ax.set_xscale("linear")
         self.ax.clear()
 
         colors = ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd",
