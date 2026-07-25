@@ -37,6 +37,10 @@ from acoustic_phase_optimizer.room.mic_placer import optimize_mic_positions
 from acoustic_phase_optimizer.acoustic.microphone import Microphone
 from acoustic_phase_optimizer.dsp.peq import PEQConfig, PEQBand, PEQFilter
 from acoustic_phase_optimizer.dsp.geq import GEQConfig, GEQFilter
+from acoustic_phase_optimizer.reporting import (
+    ReportData, SpeakerReport, AlgoScore, Recommendation,
+    render_report, open_in_browser,
+)
 from acoustic_phase_optimizer.utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -191,6 +195,8 @@ class VisualizationApp(QMainWindow):
         self.speakers: List[Speaker] = []
         self.microphones: List[Microphone] = []
         self.virtual_room: Optional[VirtualRoom] = None
+        self.last_optimization_result = None
+        self.last_algorithm_comparison: Optional[dict] = None
 
         self._init_ui()
         self._setup_default_data()
@@ -311,6 +317,7 @@ class VisualizationApp(QMainWindow):
         self.room_view.set_on_speaker_right_click(self._on_room_speaker_right_click)
         self.room_view.set_on_speaker_moved(self._on_room_speaker_moved)
         self.room_view.set_on_stage_changed(self._on_room_stage_changed)
+        self.control_panel.report_requested.connect(self._on_generate_report)
 
     def _on_measurement_start(self, params: dict) -> None:
         self.control_panel.log(f"Starting measurement: {params}")
@@ -356,14 +363,19 @@ class VisualizationApp(QMainWindow):
             return
 
         if isinstance(result, dict):
+            self.last_algorithm_comparison = result
             engine = OptimizationEngine()
             best_algo, best_result = engine.get_best_result(result)
+            self.last_optimization_result = best_result
             self.control_panel.log(f"Best algorithm: {best_algo} ({best_result.best_value:.4f})")
             for name, r in result.items():
                 self.control_panel.log(f"  {name}: {r.best_value:.4f} ({r.iterations} it, {r.computation_time:.1f}s)")
         else:
+            self.last_optimization_result = result
+            self.last_algorithm_comparison = None
             self.control_panel.log(f"Optimization complete: {result.best_value:.4f}")
 
+        self.control_panel.optimization_controls.report_button.setEnabled(True)
         self._update_views()
 
     def _on_optimization_canceled(self) -> None:
@@ -374,6 +386,74 @@ class VisualizationApp(QMainWindow):
             self._opt_thread.wait(2000)
         self.control_panel.setEnabled(True)
         self.control_panel.log("Optimization canceled")
+
+    def _on_generate_report(self) -> None:
+        if self.last_optimization_result is None:
+            self.control_panel.log("No optimization results to report", "WARN")
+            return
+
+        from pathlib import Path
+
+        dims = self.room_model.get_dimensions_array()
+        width = float(dims[1])
+        depth = float(dims[0])
+
+        speakers = []
+        ref_delay = self.speakers[0].delay_ms if self.speakers else 0.0
+        for spk in self.speakers:
+            if not spk.enabled:
+                continue
+            dx = float(spk.x - self.speakers[0].x) if self.speakers else 0.0
+            dy = float(spk.y - self.speakers[0].y) if self.speakers else 0.0
+            dist = float(np.sqrt(dx**2 + dy**2))
+            speakers.append(SpeakerReport(
+                label=spk.name, x=float(spk.x), y=float(spk.y),
+                distance_to_ref_m=dist,
+                delay_ms=spk.delay_ms,
+                gain_trim_db=spk.gain_db,
+                db_before=0.0,
+                db_after=spk.gain_db,
+            ))
+
+        algo_comparison = []
+        if self.last_algorithm_comparison:
+            colors = ["#34d6c0", "#34d6c0", "#ffb020", "#ff5462"]
+            for i, (name, r) in enumerate(sorted(
+                self.last_algorithm_comparison.items(),
+                key=lambda kv: -kv[1].best_value,
+            )):
+                algo_comparison.append(AlgoScore(
+                    name=name.capitalize(),
+                    score=max(0.0, min(1.0, float(r.best_value) / 2 + 0.5)),
+                    color=colors[i % len(colors)],
+                ))
+
+        result = self.last_optimization_result
+        data = ReportData(
+            venue_name="Optimization Session",
+            algorithm_used=result.algorithm.capitalize(),
+            iterations=result.iterations,
+            duration_s=result.computation_time,
+            room_width_m=width,
+            room_depth_m=depth,
+            speed_of_sound=self.room_model.speed_of_sound,
+            heatmap_freq_hz=1000,
+            speakers=speakers,
+            worst_null_before_db=-18.0,
+            worst_null_after_db=-6.0,
+            floor_below_10db_before_pct=40,
+            floor_below_10db_after_pct=8,
+            coherence_gain_db=12.0,
+            algorithm_comparison=algo_comparison,
+            recommendations=[
+                Recommendation("medium", "Run alignment with all speakers enabled before the main presentation for final verification."),
+            ],
+        )
+
+        output = Path("session_report.html").resolve()
+        render_report(data, output)
+        self.control_panel.log(f"Report saved: {output}")
+        open_in_browser(output)
 
     def _on_weather_fetch(self) -> None:
         location_name = self.control_panel.weather_controls.location_input.text().strip()

@@ -9,6 +9,7 @@ from PyQt6.QtWidgets import (
     QCheckBox, QTabWidget, QTextEdit, QGridLayout, QFrame,
 )
 from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtGui import QIcon
 from acoustic_phase_optimizer.weather.weather_controls import WeatherControls
 from acoustic_phase_optimizer.visualization.room_controls import RoomControls
 
@@ -71,6 +72,8 @@ class MeasurementControls(QGroupBox):
 class OptimizationControls(QGroupBox):
     """Controls for optimization parameters."""
 
+    report_requested = pyqtSignal()
+
     def __init__(self, parent=None):
         super().__init__("Optimization Controls", parent)
         layout = QGridLayout()
@@ -108,6 +111,13 @@ class OptimizationControls(QGroupBox):
             "background-color: #2196F3; color: white; font-weight: bold; padding: 8px;"
         )
         layout.addWidget(self.run_button, 4, 0, 1, 2)
+
+        self.report_button = QPushButton("Generate Report")
+        self.report_button.setStyleSheet(
+            "background-color: #34d6c0; color: #0b0e11; font-weight: bold; padding: 6px;"
+        )
+        self.report_button.setEnabled(False)
+        layout.addWidget(self.report_button, 5, 0, 1, 2)
 
         self.setLayout(layout)
 
@@ -242,6 +252,7 @@ class ControlPanel(QWidget):
     dimensions_changed = pyqtSignal(float, float, float)
     mic_placement_requested = pyqtSignal(int)
     stage_changed = pyqtSignal(float, float, float, float, float)
+    report_requested = pyqtSignal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -287,6 +298,9 @@ class ControlPanel(QWidget):
         self.room_controls.apply_dims_button.clicked.connect(self._on_apply_dimensions)
         self.room_controls.place_mics_button.clicked.connect(
             lambda: self.mic_placement_requested.emit(self.room_controls.max_mics.value())
+        )
+        self.optimization_controls.report_button.clicked.connect(
+            self.report_requested.emit
         )
         self.room_controls.apply_stage_button.clicked.connect(self._on_stage_apply)
 
