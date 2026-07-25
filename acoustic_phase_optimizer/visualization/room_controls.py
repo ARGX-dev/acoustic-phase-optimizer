@@ -16,6 +16,7 @@ class RoomControls(QGroupBox):
     dimensions_changed = pyqtSignal(float, float, float)
     mic_placement_requested = pyqtSignal(int)
     stage_changed = pyqtSignal(float, float, float, float, float)
+    stage_toggled = pyqtSignal(bool)
 
     def __init__(self, parent=None):
         super().__init__("Room Setup", parent)
@@ -57,6 +58,8 @@ class RoomControls(QGroupBox):
 
         stage_group = QGroupBox("Stage")
         stage_form = QFormLayout()
+        self.stage_toggle_button = QPushButton("Add Stage")
+        stage_form.addRow(self.stage_toggle_button)
         self.stage_x = QDoubleSpinBox()
         self.stage_x.setRange(-100, 100)
         self.stage_x.setValue(0.0)
@@ -84,6 +87,7 @@ class RoomControls(QGroupBox):
         stage_form.addRow("Elevation:", self.stage_elev)
         self.apply_stage_button = QPushButton("Apply Stage")
         stage_form.addRow(self.apply_stage_button)
+        self._set_stage_controls_enabled(False)
         stage_group.setLayout(stage_form)
         layout.addWidget(stage_group)
 
@@ -98,4 +102,23 @@ class RoomControls(QGroupBox):
         mic_group.setLayout(mic_layout)
         layout.addWidget(mic_group)
 
+        self.stage_toggle_button.clicked.connect(self._on_stage_toggle)
         self.setLayout(layout)
+
+    def _set_stage_controls_enabled(self, enabled: bool) -> None:
+        self.stage_x.setEnabled(enabled)
+        self.stage_y.setEnabled(enabled)
+        self.stage_w.setEnabled(enabled)
+        self.stage_d.setEnabled(enabled)
+        self.stage_elev.setEnabled(enabled)
+        self.apply_stage_button.setEnabled(enabled)
+
+    def _on_stage_toggle(self) -> None:
+        visible = self.stage_toggle_button.text() == "Add Stage"
+        if visible:
+            self.stage_toggle_button.setText("Remove Stage")
+            self._set_stage_controls_enabled(True)
+        else:
+            self.stage_toggle_button.setText("Add Stage")
+            self._set_stage_controls_enabled(False)
+        self.stage_toggled.emit(visible)

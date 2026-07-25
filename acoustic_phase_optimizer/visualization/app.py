@@ -35,8 +35,8 @@ from acoustic_phase_optimizer.weather.acoustic_mapping import weather_to_acousti
 from acoustic_phase_optimizer.room.lidar_import import import_lidar, fit_room_from_points
 from acoustic_phase_optimizer.room.mic_placer import optimize_mic_positions
 from acoustic_phase_optimizer.acoustic.microphone import Microphone
-from acoustic_phase_optimizer.dsp.peq import PEQConfig, PEQBand
-from acoustic_phase_optimizer.dsp.geq import GEQConfig
+from acoustic_phase_optimizer.dsp.peq import PEQConfig, PEQBand, PEQFilter
+from acoustic_phase_optimizer.dsp.geq import GEQConfig, GEQFilter
 from acoustic_phase_optimizer.utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -200,9 +200,6 @@ class VisualizationApp(QMainWindow):
         self._init_ui()
         self._setup_default_data()
         self._connect_signals()
-        self.room_view.set_on_speaker_placed(self._on_room_click_place_speaker)
-        self.room_view.set_on_speaker_right_click(self._on_room_speaker_right_click)
-        self.room_view.set_on_stage_changed(self._on_room_stage_changed)
 
         self._refresh_timer = QTimer()
         self._refresh_timer.timeout.connect(self._periodic_refresh)
@@ -290,33 +287,11 @@ class VisualizationApp(QMainWindow):
         self.room_view.set_pending_type(None)
 
     def _setup_default_data(self) -> None:
-        self.speakers = [
-            Speaker("Left Main", SpeakerType.MAIN_LEFT, np.array([-8.0, 1.0, 2.0])),
-            Speaker("Right Main", SpeakerType.MAIN_RIGHT, np.array([8.0, 1.0, 2.0])),
-            Speaker("Subwoofer", SpeakerType.SUBWOOFER, np.array([0.0, 2.5, 0.0])),
-            Speaker("Delay Left", SpeakerType.DELAY, np.array([-12.0, 15.0, 3.0])),
-            Speaker("Delay Right", SpeakerType.DELAY, np.array([12.0, 15.0, 3.0])),
-        ]
-        for s in self.speakers:
-            s.enabled = True
-
-        self.microphones = [
-            Microphone("Mic FOH", np.array([0.0, 12.0, 1.2]), zone="foh"),
-            Microphone("Mic Left", np.array([-6.0, 8.0, 1.2]), zone="left"),
-            Microphone("Mic Right", np.array([6.0, 8.0, 1.2]), zone="right"),
-            Microphone("Mic Center", np.array([0.0, 6.0, 1.2]), zone="center"),
-            Microphone("Mic Balcony", np.array([0.0, 18.0, 3.0]), zone="balcony"),
-        ]
-
+        self.speakers = []
+        self.microphones = []
         self.virtual_room = VirtualRoom(self.room_model)
-        for s in self.speakers:
-            self.virtual_room.add_speaker(s)
-        for m in self.microphones:
-            self.virtual_room.add_microphone(m)
-
-        self._update_views()
-        self.control_panel.set_speaker_names([s.name for s in self.speakers])
-        self.control_panel.log("Application initialized with default venue")
+        self.control_panel.set_speaker_names([])
+        self.control_panel.log("Application initialized — use the Room tab to set dimensions, place speakers and stage")
 
     def _connect_signals(self) -> None:
         self.control_panel.measurement_started.connect(self._on_measurement_start)
@@ -327,6 +302,11 @@ class VisualizationApp(QMainWindow):
         self.control_panel.dimensions_changed.connect(self._on_dimensions_changed)
         self.control_panel.mic_placement_requested.connect(self._on_mic_placement)
         self.control_panel.stage_changed.connect(self._on_stage_control_changed)
+        self.control_panel.stage_toggled.connect(self._on_stage_toggled)
+        self.room_view.set_on_speaker_placed(self._on_room_click_place_speaker)
+        self.room_view.set_on_speaker_right_click(self._on_room_speaker_right_click)
+        self.room_view.set_on_speaker_moved(self._on_room_speaker_moved)
+        self.room_view.set_on_stage_changed(self._on_room_stage_changed)
 
     def _on_measurement_start(self, params: dict) -> None:
         self.control_panel.log(f"Starting measurement: {params}")
@@ -531,6 +511,21 @@ class VisualizationApp(QMainWindow):
         self.control_panel.set_speaker_names([s.name for s in self.speakers])
         self.control_panel.log(f"Deleted {speaker_name}")
         self._reinit_virtual_room()
+
+    def _on_stage_toggled(self, visible: bool) -> None:
+        self.room_view.set_stage_visible(visible)
+        self.control_panel.log(f"Stage {'added' if visible else 'removed'}")
+
+    def _on_room_speaker_moved(self, name: str, x: float, y: float) -> None:
+        for spk in self.speakers:
+            if spk.name == name:
+                spk.x = x
+                spk.y = y
+                if self.virtual_room:
+                    self.virtual_room.add_speaker(spk)
+                self.control_panel.log(f"Moved {name} to ({x:.1f}, {y:.1f})")
+                self._update_views()
+                break
 
     def _on_room_stage_changed(self, x: float, y: float, w: float, d: float, h: float) -> None:
         self.room_view.stage_x = x

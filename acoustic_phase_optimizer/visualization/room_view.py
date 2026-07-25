@@ -52,11 +52,13 @@ class RoomViewWidget(FigureCanvas):
         self.stage_w = 24.0
         self.stage_d = 4.0
         self.stage_height = 1.0
+        self.stage_visible = False
 
         self._pending_type: Optional[SpeakerType] = None
         self._drag_data: dict = {}
         self._on_speaker_placed: Optional[Callable[[str, SpeakerType, float, float, float], None]] = None
         self._on_speaker_right_click: Optional[Callable[[str, float, float], None]] = None
+        self._on_speaker_moved: Optional[Callable[[str, float, float], None]] = None
         self._on_stage_changed: Optional[Callable[[float, float, float, float, float], None]] = None
 
         self.fig.tight_layout()
@@ -65,11 +67,18 @@ class RoomViewWidget(FigureCanvas):
         self.mpl_connect("button_release_event", self._on_mouse_up)
         self.mpl_connect("motion_notify_event", self._on_mouse_move)
 
+    def set_stage_visible(self, visible: bool) -> None:
+        self.stage_visible = visible
+        self._draw()
+
     def set_on_speaker_placed(self, callback: Callable) -> None:
         self._on_speaker_placed = callback
 
     def set_on_speaker_right_click(self, callback: Callable) -> None:
         self._on_speaker_right_click = callback
+
+    def set_on_speaker_moved(self, callback: Callable) -> None:
+        self._on_speaker_moved = callback
 
     def set_on_stage_changed(self, callback: Callable) -> None:
         self._on_stage_changed = callback
@@ -131,6 +140,16 @@ class RoomViewWidget(FigureCanvas):
         if event.button != 1:
             return
 
+        spk = self._find_speaker_at(event.xdata, event.ydata)
+        if spk:
+            self._drag_data = {
+                "type": "speaker",
+                "speaker": spk,
+                "start_x": event.xdata,
+                "start_y": event.ydata,
+            }
+            return
+
         edge = self._is_on_stage_edge(event.xdata, event.ydata)
         if edge:
             self._drag_data = {
@@ -151,7 +170,13 @@ class RoomViewWidget(FigureCanvas):
             return
 
     def _on_mouse_up(self, event) -> None:
-        if self._drag_data and self._on_stage_changed:
+        if not self._drag_data:
+            return
+        if self._drag_data["type"] == "speaker":
+            spk = self._drag_data["speaker"]
+            if self._on_speaker_moved:
+                self._on_speaker_moved(spk.name, spk.x, spk.y)
+        elif self._on_stage_changed:
             self._on_stage_changed(
                 self.stage_x, self.stage_y, self.stage_w, self.stage_d, self.stage_height
             )
@@ -164,7 +189,11 @@ class RoomViewWidget(FigureCanvas):
         dy = event.ydata - self._drag_data["start_y"]
         drag_type = self._drag_data["type"]
 
-        if drag_type == "stage_inside":
+        if drag_type == "speaker":
+            spk = self._drag_data["speaker"]
+            spk.x = float(event.xdata)
+            spk.y = float(event.ydata)
+        elif drag_type == "stage_inside":
             self.stage_x = self._drag_data["orig_x"] + dx
             self.stage_y = self._drag_data["orig_y"] + dy
         elif drag_type == "stage_left":
@@ -202,18 +231,19 @@ class RoomViewWidget(FigureCanvas):
             self.ax.set_xlim(-17, 17)
             self.ax.set_ylim(-12, 12)
 
-        stage_rect = Rectangle(
-            (self.stage_x, self.stage_y - self.stage_d / 2),
-            self.stage_w, self.stage_d,
-            linewidth=2, edgecolor="#8B4513", facecolor="#D2B48C", alpha=0.6,
-            linestyle="-", zorder=2,
-        )
-        self.ax.add_patch(stage_rect)
-        self.ax.text(
-            self.stage_x + self.stage_w / 2, self.stage_y,
-            f"STAGE\n{self.stage_height:.1f}m", ha="center", va="center",
-            fontsize=9, color="#8B4513", alpha=0.8, fontweight="bold",
-        )
+        if self.stage_visible:
+            stage_rect = Rectangle(
+                (self.stage_x, self.stage_y - self.stage_d / 2),
+                self.stage_w, self.stage_d,
+                linewidth=2, edgecolor="#8B4513", facecolor="#D2B48C", alpha=0.6,
+                linestyle="-", zorder=2,
+            )
+            self.ax.add_patch(stage_rect)
+            self.ax.text(
+                self.stage_x + self.stage_w / 2, self.stage_y,
+                f"STAGE\n{self.stage_height:.1f}m", ha="center", va="center",
+                fontsize=9, color="#8B4513", alpha=0.8, fontweight="bold",
+            )
 
         if self.cancellation_data is not None:
             X, Y, Z = self.cancellation_data
