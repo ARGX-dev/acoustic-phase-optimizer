@@ -42,3 +42,17 @@ class GEQFilter:
         new_spec = magnitude * np.exp(1j * phase)
         filtered = np.fft.irfft(new_spec, n=n)
         return filtered.astype(np.float64)
+
+    @staticmethod
+    def magnitude_response(gains_db: List[float], freqs: np.ndarray) -> np.ndarray:
+        result = np.ones(len(freqs), dtype=np.float64)
+        for band_freq, gain_db in zip(ISO_BANDS_31, gains_db):
+            gain_linear = 10.0 ** (gain_db / 20.0)
+            if abs(gain_linear - 1.0) < 1e-9:
+                continue
+            bw = band_freq * (2.0 ** (1.0 / 6.0) - 2.0 ** (-1.0 / 6.0))
+            lo = max(band_freq - bw / 2, 0.0)
+            hi = band_freq + bw / 2
+            mask = (freqs >= lo) & (freqs < hi)
+            result[mask] *= gain_linear
+        return result

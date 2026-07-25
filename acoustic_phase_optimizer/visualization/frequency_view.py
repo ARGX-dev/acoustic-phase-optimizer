@@ -10,17 +10,20 @@ import matplotlib.pyplot as plt
 
 
 class FrequencyResponseWidget(FigureCanvas):
-    """Frequency response magnitude and phase plot."""
+    """Single-axis frequency response with phase overlay and toggleable legend."""
 
-    def __init__(self, parent=None, width: int = 6, height: int = 5, dpi: int = 100):
+    def __init__(self, parent=None, width: int = 6, height: int = 4, dpi: int = 100):
         self.fig = Figure(figsize=(width, height), dpi=dpi)
         super().__init__(self.fig)
         self.setParent(parent)
 
-        self.ax_mag = self.fig.add_subplot(211)
-        self.ax_phase = self.fig.add_subplot(212, sharex=self.ax_mag)
-
+        self.ax = self.fig.add_subplot(111)
         self._traces: Dict[str, dict] = {}
+        self._show_legend = False
+
+    def toggle_legend(self) -> None:
+        self._show_legend = not self._show_legend
+        self._draw()
 
     def update_data(
         self,
@@ -49,11 +52,8 @@ class FrequencyResponseWidget(FigureCanvas):
         self._draw()
 
     def _draw(self) -> None:
-        self.ax_mag.clear()
-        self.ax_phase.clear()
-
-        self.ax_mag.set_xlim(20, 20000)
-        self.ax_phase.set_xlim(20, 20000)
+        self.ax.clear()
+        self.ax.set_xlim(20, 20000)
 
         colors = ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd",
                   "#8c564b", "#e377c2", "#7f7f7f", "#bcbd22", "#17becf"]
@@ -66,7 +66,7 @@ class FrequencyResponseWidget(FigureCanvas):
             valid = (freqs >= 20) & np.isfinite(magnitude_db)
             if not np.any(valid):
                 continue
-            self.ax_mag.semilogx(
+            self.ax.semilogx(
                 freqs[valid], magnitude_db[valid],
                 color=color, linestyle=trace["linestyle"],
                 label=name, linewidth=1.5,
@@ -76,22 +76,24 @@ class FrequencyResponseWidget(FigureCanvas):
                 phase = trace["phase_rad"]
                 valid_p = (freqs >= 20) & np.isfinite(phase)
                 if np.any(valid_p):
-                    self.ax_phase.semilogx(
+                    ax2 = self.ax.twinx()
+                    ax2.semilogx(
                         freqs[valid_p], phase[valid_p],
-                        color=color, linestyle=trace["linestyle"],
-                        label=name, linewidth=1.5, alpha=0.7,
+                        color=color, linestyle="--", linewidth=0.8, alpha=0.5,
                     )
+                    ax2.set_ylabel("Phase (rad)", fontsize=8)
+                    ax2.set_ylim(-np.pi, np.pi)
+                    ax2.tick_params(labelsize=7)
 
-        self.ax_mag.set_ylabel("Magnitude (dB)")
-        self.ax_mag.set_title("Frequency Response")
-        self.ax_mag.grid(True, alpha=0.3, which="both")
-        self.ax_mag.legend(loc="best", fontsize=8)
-        self.ax_mag.set_ylim(-60, 10)
+        self.ax.set_ylabel("Magnitude (dB)")
+        self.ax.set_title("Frequency Response")
+        self.ax.grid(True, alpha=0.3, which="both")
+        self.ax.set_ylim(-60, 10)
+        self.ax.set_xlabel("Frequency (Hz)")
+        self.ax.tick_params(labelsize=7)
 
-        self.ax_phase.set_xlabel("Frequency (Hz)")
-        self.ax_phase.set_ylabel("Phase (rad)")
-        self.ax_phase.grid(True, alpha=0.3, which="both")
-        self.ax_phase.set_ylim(-np.pi, np.pi)
+        if self._show_legend and self._traces:
+            self.ax.legend(loc="best", fontsize=6)
 
         self.fig.tight_layout()
         self.draw()

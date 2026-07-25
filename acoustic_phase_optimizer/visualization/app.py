@@ -10,7 +10,7 @@ from typing import Dict, List, Optional, Tuple
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QSplitter,
     QVBoxLayout, QHBoxLayout, QTabWidget, QMessageBox, QProgressDialog,
-    QLabel, QToolButton,
+    QLabel, QToolButton, QPushButton,
 )
 from PyQt6.QtCore import Qt, QTimer, QThread, QObject, pyqtSignal
 
@@ -99,28 +99,28 @@ class OptimizationWorker(QObject):
             self.finished.emit(None)
 
     def _run_dsp_optimization(self, engine, objective, n_speakers) -> None:
-        engine.config["max_iterations"] = 100
+        engine.config["max_iterations"] = 30
         engine.config["learning_rate"] = 0.05
         dsp_algo = "gradient"
+
         vr = VirtualRoom(self.room_model, sample_rate=48000)
         for s in self.speakers:
             vr.add_speaker(s)
         for m in self.microphones if self.microphones else []:
             vr.add_microphone(m)
 
-        raw_irs = {}
-        freqs_cache = None
+        raw_ffts: dict = {}
+        freqs_cache: Optional[np.ndarray] = None
         for spk in self.speakers:
             if not spk.enabled:
                 continue
             for mic in (self.microphones if self.microphones else []):
                 key = (spk.name, mic.name)
-                freqs, mag_db = vr.compute_transfer_function(spk, mic)
-                n_fft = 2 * len(freqs) - 2
                 ir = vr.compute_impulse_response(spk, mic)
-                raw_irs[key] = ir
+                spec = np.fft.rfft(ir)
+                raw_ffts[key] = spec.astype(np.complex128)
                 if freqs_cache is None:
-                    freqs_cache = freqs
+                    freqs_cache = np.fft.rfftfreq(len(ir), 1.0 / 48000.0)
 
         def dsp_objective_wrapper(p: np.ndarray) -> float:
             self._check_cancel()
@@ -143,21 +143,16 @@ class OptimizationWorker(QObject):
             for spk in self.speakers:
                 if not spk.enabled:
                     continue
+                peq_response = PEQFilter(spk.peq, 48000).frequency_response(freqs_cache)
+                geq_response = GEQFilter.magnitude_response(spk.geq.gains_db, freqs_cache)
                 for mic in (self.microphones if self.microphones else []):
                     key = (spk.name, mic.name)
-                    ir = raw_irs[key].copy()
-                    delay_s = spk.delay_ms / 1000.0
-                    delay_samples = int(delay_s * 48000)
-                    if 0 < delay_samples < len(ir):
-                        ir = np.roll(ir, delay_samples)
-                        ir[:delay_samples] = 0.0
-                    ir *= spk.polarity.value
-                    peq_filter = PEQFilter(spk.peq, 48000)
-                    ir = peq_filter.apply(ir)
-                    geq_filter = GEQFilter(spk.geq)
-                    geq_filter.config.sample_rate = 48000
-                    ir = geq_filter.apply(ir)
-                    spec = np.fft.rfft(ir)
+                    spec = raw_ffts[key].copy()
+                    delay_rad = -2.0 * np.pi * freqs_cache * (spk.delay_ms / 1000.0)
+                    spec *= np.exp(1j * delay_rad)
+                    spec *= spk.polarity.value
+                    spec *= peq_response
+                    spec *= geq_response
                     mag = 20.0 * np.log10(np.abs(spec) + 1e-12)
                     phase = np.angle(spec)
                     phases.append(phase)
@@ -242,7 +237,16 @@ class VisualizationApp(QMainWindow):
         bottom_tabs.addTab(self.group_delay_view, "Group Delay")
         bottom_tabs.addTab(self.spectrogram_view, "Spectrogram")
 
-        view_splitter.addWidget(bottom_tabs)
+        bottom_wrapper = QVBoxLayout()
+        legend_btn = QPushButton("Toggle Legend")
+        legend_btn.setFixedHeight(22)
+        legend_btn.clicked.connect(self.freq_view.toggle_legend)
+        bottom_wrapper.addWidget(legend_btn)
+        bottom_wrapper.addWidget(bottom_tabs)
+
+        wrapper_widget = QWidget()
+        wrapper_widget.setLayout(bottom_wrapper)
+        view_splitter.addWidget(wrapper_widget)
         right_side.addWidget(view_splitter, 3)
 
         main_layout.addLayout(right_side, 3)

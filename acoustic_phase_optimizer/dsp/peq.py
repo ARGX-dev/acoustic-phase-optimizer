@@ -65,6 +65,17 @@ class PEQFilter:
                 out[i] = y
         return out
 
+    def frequency_response(self, freqs: np.ndarray) -> np.ndarray:
+        result = np.ones(len(freqs), dtype=np.complex128)
+        for band in self.config.bands:
+            coeffs = biquad_coefficients(band, self.sample_rate)
+            b0, b1, b2, a1, a2 = coeffs
+            omega = 2.0 * np.pi * np.asarray(freqs, dtype=np.float64) / self.sample_rate
+            z = np.exp(-1j * omega)
+            H = (b0 + b1 * z + b2 * z**2) / (1.0 + a1 * z + a2 * z**2)
+            result *= H
+        return result
+
 
 def peq_from_bands(bands: List[dict], sample_rate: float = 48000.0) -> PEQFilter:
     peq_bands = []
