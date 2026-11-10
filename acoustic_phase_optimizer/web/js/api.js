@@ -52,4 +52,6 @@ export const api = {
   deleteProject: (key) => request('DELETE', `/api/projects/${encodeURIComponent(key)}`),
   session: () => request('GET', '/api/session'),
   saveSession: (payload, keepalive = false) => request('PUT', '/api/session', payload, { keepalive }),
+  ping: () => request('POST', '/api/ping'),
+  bye: () => navigator.sendBeacon('/api/bye'),
 };

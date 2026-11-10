@@ -131,7 +131,7 @@ h1, h2, h3, p { margin: 0; }
 .menu { position: absolute; top: calc(100% + 6px); min-width: 250px; max-height: 70vh; overflow-y: auto; z-index: 40;
   background: var(--surface-2); border: 1px solid var(--line-strong); border-radius: var(--radius);
   box-shadow: var(--shadow); padding: 6px; }
-.menu.right { right: 0; }
+.menu.align-end { right: 0; }
 .menu h4 { margin: 6px 8px 4px; font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
 .menu-item { width: 100%; display: flex; align-items: center; gap: 8px; padding: 7px 8px; border: 0; background: transparent;
   border-radius: 5px; cursor: pointer; text-align: left; }

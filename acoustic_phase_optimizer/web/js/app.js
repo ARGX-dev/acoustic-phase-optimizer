@@ -34,7 +34,7 @@ function menuButton(content, build, { title, align = 'left', cls = 'btn ghost' }
     const wasOpen = openMenu?.wrap === wrap;
     closeMenu();
     if (wasOpen) return;
-    const menu = h('div', { class: 'menu' + (align === 'right' ? ' right' : ''), attrs: { role: 'menu' } });
+    const menu = h('div', { class: 'menu' + (align === 'right' ? ' align-end' : ''), attrs: { role: 'menu' } });
     wrap.append(menu);
     openMenu = { wrap, menu, button };
     button.setAttribute('aria-expanded', 'true');
@@ -230,9 +230,9 @@ async function boot() {
     createChart($('chart-toolbar'), $('chart-legend'), $('chart'));
     createResultsPanel($('right'));
     if (session?.project) {
-      const { probe, dirty, savedName, ...rest } = session.ui || {};
-      loadProject(session.project, { baseline: session.baseline || null, ui: rest, probe: probe || null,
-        saved: !!savedName && dirty === false && savedName === session.project.name, savedName: savedName || null });
+      const { probe, dirty, savedName, lastAction, compare, ...rest } = session.ui || {};
+      loadProject(session.project, { baseline: session.baseline || null, lastAction: lastAction || null, ui: rest,
+        probe: probe || null, savedName: savedName || null, dirty: dirty !== false });
     } else loadProject(fresh);
     bootEl.classList.add('hide');
     setTimeout(() => bootEl.remove(), 400);
@@ -243,7 +243,11 @@ async function boot() {
   }
 }
 
-window.addEventListener('pagehide', flushSession);
-window.addEventListener('beforeunload', flushSession);
+// The engine stops a few seconds after the last window closes; a reload pings again in time.
+const ping = () => api.ping().catch(() => {});
+setInterval(ping, 15000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) ping(); });
+window.addEventListener('pagehide', () => { flushSession(); api.bye(); });
+ping();
 
 boot();

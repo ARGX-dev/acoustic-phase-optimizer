@@ -1,6 +1,6 @@
 // Right panel: score, metrics, the optimizer and what it changed.
 
-import { autoEq, cancelOptimize, clearComparison, deepOptimize, on, quickAlign, setUI, state, undo } from './store.js';
+import { autoEq, cancelOptimize, clearComparison, deepOptimize, on, quickAlign, revertLastAction, setUI, state } from './store.js';
 import { clear, fmt, h, icon, statusBadge } from './util.js';
 import { seriesColor } from './theme.js';
 
@@ -130,7 +130,7 @@ export function createResultsPanel(root) {
         state.simBaseline ? h('div', { class: 'seg', attrs: { role: 'group', 'aria-label': 'Compare' } },
           ['before', 'after'].map((v) => h('button', { text: v === 'before' ? 'Before' : 'After', attrs: { 'aria-pressed': String(state.ui.compare === v) }, onclick: () => setUI({ compare: v }) }))) : null,
         h('span', { style: { flex: 1 } }),
-        rows.length ? h('button', { class: 'btn small', onclick: () => { undo(); clearComparison(); } }, icon('undo'), 'Undo') : null,
+        rows.length ? h('button', { class: 'btn small', title: 'Put back the settings from before', onclick: revertLastAction }, icon('undo'), 'Revert') : null,
         h('button', { class: 'btn small ghost', title: 'Keep the settings and hide this comparison', onclick: clearComparison }, 'Dismiss'))));
   }
 

@@ -178,3 +178,27 @@ def test_invalid_projects_are_rejected_with_a_reason(api):
     project["room"]["width"] = -3
     status, _, body = api("POST", "/api/simulate", {"project": project}, raw=True)
     assert status == 422 and "width" in body
+
+
+def test_presence_stops_only_after_the_last_window_leaves(monkeypatch):
+    from acoustic_phase_optimizer.server import app as app_module
+
+    clock = [1000.0]
+    monkeypatch.setattr(app_module.time, "monotonic", lambda: clock[0])
+    p = app_module.Presence()
+    assert not p.gone()  # nothing has connected yet: never stop
+    p.ping()
+    clock[0] += 60
+    assert not p.gone()
+    p.bye()
+    clock[0] += 2
+    p.ping()  # a reload comes straight back
+    clock[0] += 10
+    assert not p.gone()
+    p.bye()
+    clock[0] += 6
+    assert p.gone()  # closed for good
+    q = app_module.Presence()
+    q.ping()
+    clock[0] += 181
+    assert q.gone()  # silent (crashed or killed) browser

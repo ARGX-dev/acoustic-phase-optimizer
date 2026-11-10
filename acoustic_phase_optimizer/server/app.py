@@ -6,6 +6,8 @@ there is nothing to get out of sync between the UI and the engine.
 
 from __future__ import annotations
 
+import threading
+import time
 from pathlib import Path
 from typing import Literal
 
@@ -81,9 +83,38 @@ def _weights(raw: dict[str, float]) -> Weights:
     return w
 
 
+class Presence:
+    """Whether a window is still showing the app, so the launcher can stop when the last one closes."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self.last_seen: float | None = None
+        self.bye_at: float | None = None
+
+    def ping(self) -> None:
+        with self._lock:
+            self.last_seen = time.monotonic()
+            self.bye_at = None
+
+    def bye(self) -> None:
+        with self._lock:
+            self.bye_at = time.monotonic()
+
+    def gone(self, grace_s: float = 5.0, timeout_s: float = 180.0) -> bool:
+        """True once a page said goodbye and none came back (a reload pings again), or all went silent."""
+        with self._lock:
+            if self.last_seen is None:
+                return False
+            now = time.monotonic()
+            if self.bye_at is not None and now - self.bye_at > grace_s:
+                return True
+            return now - self.last_seen > timeout_s
+
+
 def create_app() -> FastAPI:
     app = FastAPI(title="Acoustic Phase Optimizer", version=__version__, docs_url="/api/docs", redoc_url=None)
     jobs = JobManager()
+    app.state.presence = presence = Presence()
 
     @app.middleware("http")
     async def no_cache(request: Request, call_next):
@@ -94,6 +125,16 @@ def create_app() -> FastAPI:
     @app.exception_handler(Exception)
     async def unhandled(_: Request, exc: Exception):
         return JSONResponse(status_code=500, content={"detail": f"{type(exc).__name__}: {exc}"})
+
+    @app.post("/api/ping")
+    def api_ping() -> dict:
+        presence.ping()
+        return {"ok": True}
+
+    @app.post("/api/bye")
+    def api_bye() -> dict:
+        presence.bye()
+        return {"ok": True}
 
     # ---------------------------------------------------------------- reference data
     @app.get("/api/meta")

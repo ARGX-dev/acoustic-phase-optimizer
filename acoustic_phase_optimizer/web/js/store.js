@@ -68,6 +68,7 @@ export function commit() {
 function restore(json) {
   state.project = JSON.parse(json);
   committed = json;
+  if (state.lastAction) dropComparison(); // the before/after no longer describes what is on screen
   if (state.selection && !findSelection()) state.selection = null;
   afterChange({ structural: true, source: 'history' });
   emit('history');
@@ -103,14 +104,20 @@ function afterChange({ interacting = false, source = null, structural = false } 
   autosave();
 }
 
-export function loadProject(project, { baseline = null, saved = false, savedName = null, ui = null, probe = null } = {}) {
+/**
+ * Show a project. saved: it was just opened from disk. savedName/dirty: restore that status from a session.
+ * lastAction goes with baseline so a restored comparison still has its change list.
+ */
+export function loadProject(project, { baseline = null, lastAction = null, saved = false, savedName = null, dirty = false,
+  ui = null, probe = null } = {}) {
   state.project = project;
   state.savedName = saved ? project.name : savedName;
+  if (!lastAction) baseline = null;
   state.baseline = baseline;
   state.simBaseline = null;
   state.sim = null;
   state.point = null;
-  state.lastAction = null;
+  state.lastAction = lastAction;
   state.selection = null;
   if (ui) Object.assign(state.ui, ui, { weights: { ...DEFAULT_WEIGHTS, ...(ui.weights || {}) } });
   const a = project.audience;
@@ -118,12 +125,14 @@ export function loadProject(project, { baseline = null, saved = false, savedName
   if (state.ui.source !== 'probe' && state.ui.source !== 'average' && !project.mics.some((m) => m.id === state.ui.source)) {
     state.ui.source = 'probe';
   }
-  if (!baseline) state.ui.compare = 'after';
+  state.ui.compare = 'after';
   committed = snapshot();
   past.length = 0;
   future = [];
-  savedJson = saved ? committed : '';
-  state.dirty = !saved;
+  // An example or a fresh room is not "changed" until you change it; a restored edited session still is.
+  const isDirty = !saved && dirty;
+  savedJson = isDirty ? '' : committed;
+  state.dirty = isDirty;
   emit('saved');
   emit('history');
   emit('selection');
@@ -331,7 +340,7 @@ async function fetchBaseline() {
   } catch (e) { /* comparison map is optional */ }
 }
 
-export function clearComparison() {
+function dropComparison() {
   state.baseline = null;
   state.simBaseline = null;
   state.lastAction = null;
@@ -339,7 +348,20 @@ export function clearComparison() {
   emit('action');
   emit('ui');
   emit('sim');
+}
+
+export function clearComparison() {
+  dropComparison();
   autosave();
+}
+
+/** Put the speakers back as they were before the last optimizer run. Works after a restart too (undoable). */
+export function revertLastAction() {
+  const before = state.baseline;
+  if (!before) return;
+  dropComparison();
+  mutate((p) => { p.speakers = clone(before.speakers); }, { structural: true, source: 'revert' });
+  toast('Back to the settings from before.');
 }
 
 async function runBlocking(name, title, call) {
@@ -468,7 +490,7 @@ async function pumpPoint() {
 
 const sessionPayload = () => ({
   project: state.project, baseline: state.baseline,
-  ui: { ...state.ui, probe: state.probe, dirty: state.dirty, savedName: state.savedName },
+  ui: { ...state.ui, probe: state.probe, dirty: state.dirty, savedName: state.savedName, lastAction: state.lastAction },
 });
 
 const autosave = debounce(() => {

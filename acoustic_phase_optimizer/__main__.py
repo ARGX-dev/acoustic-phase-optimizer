@@ -63,7 +63,8 @@ def serve(port: int, mode: str) -> int:
 
     port = _free_port(port)
     url = f"http://127.0.0.1:{port}/"
-    server = uvicorn.Server(uvicorn.Config(create_app(), host="127.0.0.1", port=port, log_level="warning"))
+    app = create_app()
+    server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning"))
     print(f"Acoustic Phase Optimizer {__version__}  ->  {url}")
 
     def open_ui() -> None:
@@ -73,17 +74,23 @@ def serve(port: int, mode: str) -> int:
         browser = _app_browser() if mode == "window" else None
         if browser:
             profile = data_dir() / "window-profile"
-            proc = subprocess.Popen([browser, f"--app={url}", f"--user-data-dir={profile}", "--no-first-run",
-                                     "--no-default-browser-check", "--window-size=1560,980"],
-                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            subprocess.Popen([browser, f"--app={url}", f"--user-data-dir={profile}", "--no-first-run",
+                              "--no-default-browser-check", "--disable-background-mode", "--window-size=1560,980"],
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             print("Close the app window to quit.")
-            proc.wait()
-            server.should_exit = True
         elif mode != "none":
             webbrowser.open(url)
-            print("Press Ctrl+C here to quit.")
+            print("Close the browser tab, or press Ctrl+C here, to quit.")
         else:
             print("Press Ctrl+C to quit.")
+            return
+        # The browser process can outlive its window (background mode, a shared profile), so it is the
+        # page itself that tells us it is gone: it pings while open and says goodbye when it closes.
+        while not server.should_exit:
+            time.sleep(1)
+            if app.state.presence.gone():
+                print("The app window was closed. Stopping.")
+                server.should_exit = True
 
     threading.Thread(target=open_ui, daemon=True).start()
     try:

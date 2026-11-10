@@ -38,4 +38,4 @@ jobs:
         with:
           node-version: 22
       - name: Syntax-check the web modules
-        run: for f in acoustic_phase_optimizer/web/js/*.js; do node --check "$f"; done
+        run: for f in acoustic_phase_optimizer/web/js/*.js; do cp "$f" "$RUNNER_TEMP/check.mjs" && node --check "$RUNNER_TEMP/check.mjs" || exit 1; done
