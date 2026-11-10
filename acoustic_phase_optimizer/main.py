@@ -125,37 +125,79 @@ class AcousticPhaseOptimizer:
 
         logger.info("Running measurement...")
 
-        from acoustic_phase_optimizer.measurement.signal_generator import SignalGenerator
-        import numpy as np
-
-        gen = SignalGenerator(self.config.get("system", "sample_rate", default=48000))
         params = self.config.data.get("measurement", {})
+        sample_rate = self.config.get("system", "sample_rate", default=48000)
 
-        signal = gen.generate(
+        from acoustic_phase_optimizer.measurement.runner import MeasurementRunner
+        runner = MeasurementRunner(sample_rate=sample_rate)
+
+        output_device = params.get("output_device")
+        if output_device is not None:
+            input_device = params.get("input_device", output_device)
+            runner.set_devices(output_device=output_device, input_device=input_device)
+
+        result = runner.run_measurement(
             sweep_type=params.get("sweep_type", "log"),
             duration=params.get("sweep_duration", 5.0),
             start_freq=params.get("sweep_start_freq", 20.0),
             end_freq=params.get("sweep_end_freq", 20000.0),
             mls_order=params.get("mls_order", 15),
             averaging=params.get("averaging", 3),
+            output_channels=params.get("output_channels", [0]),
+            input_channels=params.get("input_channels", [0]),
+            mic_cal_path=params.get("mic_cal_path"),
+            measure_latency=params.get("measure_latency", True),
         )
 
-        logger.info(f"Generated test signal: {len(signal)} samples")
-
         from acoustic_phase_optimizer.utils.audio_utils import AudioUtils
-        AudioUtils.write_wav("measurement_signal.wav", signal)
+        for label, recording in result.raw_recordings.items():
+            path = f"measurement_{label}.wav"
+            AudioUtils.write_wav(path, recording)
+
+        for label, clip in result.clipping_reports.items():
+            if clip.clipped:
+                logger.warning(
+                    f"Clipping on {label}: peak={clip.peak_level:.3f}, "
+                    f"{clip.clipped_sample_count} samples"
+                )
 
         return {
-            "signal_length": len(signal),
-            "duration": len(signal) / self.config.get("system", "sample_rate", default=48000),
-            "output_file": "measurement_signal.wav",
+            "channels": len(result.impulse_responses),
+            "sample_rate": result.sample_rate,
+            "duration_s": result.duration_s,
+            "clipping": {k: v.clipped for k, v in result.clipping_reports.items()},
+            "rt60": {k: v.get("rt60_broadband", 0.0) for k, v in result.analysis.items()},
+            "loopback_latency_ms": result.loopback_latency_s * 1000.0,
+            "mic_cal_applied": result.mic_calibration_applied,
         }
+
+
+def add_venu360_subparser(subparsers) -> None:
+    p = subparsers.add_parser(
+        "capture-venu360",
+        help="Parse a Wireshark pcap to reverse-engineer VENU360 control protocol",
+    )
+    p.add_argument("pcap_path", type=str, help="Path to .pcap/.pcapng file")
+    p.add_argument("--ip", type=str, default="192.168.1.100", help="VENU360 IP address")
+    p.set_defaults(func=_run_venu360_capture)
+
+
+def _run_venu360_capture(args) -> None:
+    from acoustic_phase_optimizer.dsp.venus360 import capture_to_candidate_commands
+    records = capture_to_candidate_commands(args.pcap_path, args.ip)
+    import json
+    print(json.dumps(records, indent=2))
+    print(f"\nExtracted {len(records)} packets")
+    print("Review payload_hex fields for repeating patterns that correlate with app actions.")
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Acoustic Phase Optimizer - Live Sound DSP Optimization Platform",
     )
+    subparsers = parser.add_subparsers(title="commands")
+    add_venu360_subparser(subparsers)
+
     parser.add_argument(
         "-c", "--config",
         type=str,
@@ -196,6 +238,10 @@ def main() -> None:
         log_file=args.log_file,
         verbose=args.verbose,
     )
+
+    if hasattr(args, 'func'):
+        args.func(args)
+        return
 
     config = Config(args.config) if args.config else Config()
 

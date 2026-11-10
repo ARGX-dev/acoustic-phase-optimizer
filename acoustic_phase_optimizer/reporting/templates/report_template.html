@@ -87,6 +87,16 @@
     <p style="font-size:11px;color:var(--dim);margin-top:12px;">Final coherence scores from $ALGO_COUNT algorithms on the same venue and objective weights.</p>
   </section>
 
+  <section id="measurementSection" style="display:none;">
+    <h2>Room measurements</h2>
+    <table>
+      <thead><tr><th>Parameter</th><th>Value</th></tr></thead>
+      <tbody>
+        $MEASUREMENT_ROWS
+      </tbody>
+    </table>
+  </section>
+
   <section>
     <h2>Delay alignment applied</h2>
     <table>
@@ -153,6 +163,7 @@ function renderHeatmap(canvasId, speakers, W, D, f, c){
     ctx.fillStyle='#0b0e11'; ctx.fill(); ctx.strokeStyle='#ffb020'; ctx.lineWidth=1.3; ctx.stroke();
   });
 }
+if ($HAS_MEASUREMENT) { document.getElementById('measurementSection').style.display=''; }
 const W=$ROOM_W, D=$ROOM_D, c=$SPEED_OF_SOUND, f=$HEATMAP_FREQ;
 const speakersBefore = $SPEAKERS_BEFORE_JSON;
 const speakersAfter  = $SPEAKERS_AFTER_JSON;

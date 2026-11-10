@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import os
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from functools import partial
+
 import numpy as np
 from numpy.typing import NDArray
 from typing import Callable, Dict, List, Optional, Tuple
@@ -9,6 +13,13 @@ from acoustic_phase_optimizer.optimization.constraints import Bounds
 from acoustic_phase_optimizer.utils.logging import get_logger
 
 logger = get_logger(__name__)
+
+
+_WORKERS = max(1, int(os.cpu_count() or 4) - 1)
+
+
+def _eval_one(objective_fn: Callable, individual: NDArray) -> float:
+    return float(objective_fn(individual))
 
 
 class GeneticOptimizer:
@@ -39,7 +50,7 @@ class GeneticOptimizer:
     ) -> Tuple[NDArray[np.float64], float, Dict]:
         n_params = len(initial_params)
         population = self._initialize_population(n_params, initial_params)
-        fitness = np.array([objective_fn(ind) for ind in population])
+        fitness = self._evaluate_population(objective_fn, population)
 
         best_idx = np.argmax(fitness)
         best_params = population[best_idx].copy()
@@ -73,7 +84,7 @@ class GeneticOptimizer:
                     new_population.append(child2)
 
             population = np.array(new_population[:self.population_size])
-            fitness = np.array([objective_fn(ind) for ind in population])
+            fitness = self._evaluate_population(objective_fn, population)
 
             current_best_idx = np.argmax(fitness)
             current_best_value = float(fitness[current_best_idx])
@@ -109,6 +120,23 @@ class GeneticOptimizer:
 
         history["generations"] = generation + 1
         return best_params, best_value, history
+
+    @staticmethod
+    def _evaluate_population(
+        objective_fn: Callable[[NDArray[np.float64]], float],
+        population: NDArray[np.float64],
+    ) -> NDArray[np.float64]:
+        n = len(population)
+        fitness = np.empty(n)
+        if n < 4:
+            for i in range(n):
+                fitness[i] = objective_fn(population[i])
+        else:
+            with ThreadPoolExecutor(max_workers=min(_WORKERS, n)) as pool:
+                futs = {pool.submit(objective_fn, population[i]): i for i in range(n)}
+                for fut in as_completed(futs):
+                    fitness[futs[fut]] = fut.result()
+        return fitness
 
     def _initialize_population(
         self,

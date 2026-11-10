@@ -31,6 +31,7 @@ class Config:
                 "bit_depth": 24,
                 "buffer_size": 1024,
                 "asio_driver": None,
+                "workers": None,
             },
             "measurement": {
                 "sweep_type": "log",

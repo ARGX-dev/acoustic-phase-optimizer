@@ -15,49 +15,108 @@ from acoustic_phase_optimizer.visualization.room_controls import RoomControls
 
 
 class MeasurementControls(QGroupBox):
-    """Controls for room measurement parameters."""
+    """Controls for room measurement with real hardware support."""
 
     def __init__(self, parent=None):
         super().__init__("Measurement Controls", parent)
-        layout = QGridLayout()
+        layout = QVBoxLayout()
 
-        layout.addWidget(QLabel("Sweep Type:"), 0, 0)
+        sweep_grid = QGridLayout()
+        sweep_grid.addWidget(QLabel("Sweep Type:"), 0, 0)
         self.sweep_type = QComboBox()
         self.sweep_type.addItems(["log", "mls"])
-        layout.addWidget(self.sweep_type, 0, 1)
+        sweep_grid.addWidget(self.sweep_type, 0, 1)
 
-        layout.addWidget(QLabel("Duration (s):"), 1, 0)
+        sweep_grid.addWidget(QLabel("Duration (s):"), 1, 0)
         self.duration = QDoubleSpinBox()
         self.duration.setRange(0.5, 30.0)
         self.duration.setValue(5.0)
         self.duration.setSingleStep(0.5)
-        layout.addWidget(self.duration, 1, 1)
+        sweep_grid.addWidget(self.duration, 1, 1)
 
-        layout.addWidget(QLabel("Start Freq (Hz):"), 2, 0)
+        sweep_grid.addWidget(QLabel("Start Freq (Hz):"), 2, 0)
         self.start_freq = QDoubleSpinBox()
         self.start_freq.setRange(10.0, 1000.0)
         self.start_freq.setValue(20.0)
-        layout.addWidget(self.start_freq, 2, 1)
+        sweep_grid.addWidget(self.start_freq, 2, 1)
 
-        layout.addWidget(QLabel("End Freq (Hz):"), 3, 0)
+        sweep_grid.addWidget(QLabel("End Freq (Hz):"), 3, 0)
         self.end_freq = QDoubleSpinBox()
         self.end_freq.setRange(1000.0, 48000.0)
         self.end_freq.setValue(20000.0)
-        layout.addWidget(self.end_freq, 3, 1)
+        sweep_grid.addWidget(self.end_freq, 3, 1)
 
-        layout.addWidget(QLabel("Averaging:"), 4, 0)
+        sweep_grid.addWidget(QLabel("Averaging:"), 4, 0)
         self.averaging = QSpinBox()
         self.averaging.setRange(1, 10)
         self.averaging.setValue(3)
-        layout.addWidget(self.averaging, 4, 1)
+        sweep_grid.addWidget(self.averaging, 4, 1)
+
+        layout.addLayout(sweep_grid)
+
+        device_group = QGroupBox("Audio Devices")
+        device_grid = QGridLayout()
+        device_grid.addWidget(QLabel("Output Device:"), 0, 0)
+        self.output_device = QComboBox()
+        device_grid.addWidget(self.output_device, 0, 1)
+        device_grid.addWidget(QLabel("Input Device:"), 1, 0)
+        self.input_device = QComboBox()
+        device_grid.addWidget(self.input_device, 1, 1)
+        self.refresh_devices_button = QPushButton("Refresh")
+        self.refresh_devices_button.setFixedHeight(20)
+        device_grid.addWidget(self.refresh_devices_button, 1, 2)
+        device_group.setLayout(device_grid)
+        layout.addWidget(device_group)
+
+        cal_group = QGroupBox("Calibration")
+        cal_grid = QGridLayout()
+        self.cal_file_label = QLabel("No file loaded")
+        self.cal_file_label.setStyleSheet("color: #8b93a1; font-size: 11px;")
+        cal_grid.addWidget(self.cal_file_label, 0, 0, 1, 2)
+        self.load_cal_button = QPushButton("Load Mic Cal File...")
+        cal_grid.addWidget(self.load_cal_button, 0, 2)
+        self.measure_latency_cb = QCheckBox("Measure loopback latency")
+        self.measure_latency_cb.setChecked(True)
+        cal_grid.addWidget(self.measure_latency_cb, 1, 0, 1, 3)
+        cal_group.setLayout(cal_grid)
+        layout.addWidget(cal_group)
+
+        chan_group = QGroupBox("Channels")
+        chan_grid = QGridLayout()
+        chan_grid.addWidget(QLabel("Input Channels:"), 0, 0)
+        self.input_channels = QSpinBox()
+        self.input_channels.setRange(1, 32)
+        self.input_channels.setValue(1)
+        chan_grid.addWidget(self.input_channels, 0, 1)
+        chan_grid.addWidget(QLabel("Output Channels:"), 1, 0)
+        self.output_channels = QSpinBox()
+        self.output_channels.setRange(1, 32)
+        self.output_channels.setValue(1)
+        chan_grid.addWidget(self.output_channels, 1, 1)
+        chan_group.setLayout(chan_grid)
+        layout.addWidget(chan_group)
 
         self.start_button = QPushButton("Start Measurement")
         self.start_button.setStyleSheet(
             "background-color: #4CAF50; color: white; font-weight: bold; padding: 8px;"
         )
-        layout.addWidget(self.start_button, 5, 0, 1, 2)
+        layout.addWidget(self.start_button)
 
         self.setLayout(layout)
+        self._refresh_devices()
+
+    def _refresh_devices(self) -> None:
+        import sounddevice as sd
+        self.output_device.clear()
+        self.input_device.clear()
+        devices = sd.query_devices()
+        self._devices = list(devices)
+        for i, d in enumerate(devices):
+            label = f"{i}: {d['name']}"
+            if d['max_output_channels'] > 0:
+                self.output_device.addItem(label, i)
+            if d['max_input_channels'] > 0:
+                self.input_device.addItem(label, i)
 
     def get_parameters(self) -> dict:
         return {
@@ -66,6 +125,11 @@ class MeasurementControls(QGroupBox):
             "start_freq": self.start_freq.value(),
             "end_freq": self.end_freq.value(),
             "averaging": self.averaging.value(),
+            "output_device": self.output_device.currentData(),
+            "input_device": self.input_device.currentData(),
+            "output_channels": list(range(self.output_channels.value())),
+            "input_channels": list(range(self.input_channels.value())),
+            "measure_latency": self.measure_latency_cb.isChecked(),
         }
 
 
@@ -287,6 +351,12 @@ class ControlPanel(QWidget):
                 self.measurement_controls.get_parameters()
             )
         )
+        self.measurement_controls.refresh_devices_button.clicked.connect(
+            self.measurement_controls._refresh_devices
+        )
+        self.measurement_controls.load_cal_button.clicked.connect(
+            self._on_load_cal_file
+        )
         self.optimization_controls.run_button.clicked.connect(
             lambda: self.optimization_started.emit(
                 self.optimization_controls.get_parameters()
@@ -322,6 +392,17 @@ class ControlPanel(QWidget):
             "geq_gains": geq_gains,
         }
         self.speaker_updated.emit(speaker_name, params)
+
+    def _on_load_cal_file(self) -> None:
+        from PyQt6.QtWidgets import QFileDialog
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Load Mic Calibration File", "",
+            "Calibration Files (*.txt *.cal *.csv);;All Files (*.*)"
+        )
+        if path:
+            from pathlib import Path
+            self.measurement_controls.cal_file_label.setText(Path(path).name)
+            self.measurement_controls.cal_file_label.setProperty("cal_path", path)
 
     def _on_lidar_import(self) -> None:
         from PyQt6.QtWidgets import QFileDialog

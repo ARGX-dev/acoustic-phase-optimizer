@@ -18,6 +18,8 @@ from acoustic_phase_optimizer.measurement.calibration import (
     apply_mic_calibration,
 )
 
+from acoustic_phase_optimizer.measurement.runner import MeasurementRunner, MeasurementResult
+
 __all__ = [
     "SignalGenerator",
     "ImpulseResponse",
@@ -29,4 +31,6 @@ __all__ = [
     "ClippingReport",
     "load_mic_calibration",
     "apply_mic_calibration",
+    "MeasurementRunner",
+    "MeasurementResult",
 ]

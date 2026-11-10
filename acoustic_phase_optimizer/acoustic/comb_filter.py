@@ -7,6 +7,7 @@ from numpy.typing import NDArray
 from scipy import signal, fft
 from typing import List, Optional, Tuple
 from dataclasses import dataclass
+from numba import njit
 from acoustic_phase_optimizer.utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -130,13 +131,8 @@ class CombFilterDetector:
         octave_fraction: float = 6.0,
     ) -> NDArray[np.float64]:
         log_freqs = np.log10(np.maximum(freqs, 1.0))
-        sigma = (log_freqs[-1] - log_freqs[0]) / (len(freqs) * octave_fraction)
-        smoothed = np.zeros_like(magnitude_db)
-        for i in range(len(magnitude_db)):
-            weights = np.exp(-0.5 * ((log_freqs - log_freqs[i]) / sigma) ** 2)
-            weights /= np.sum(weights) + 1e-12
-            smoothed[i] = np.sum(weights * magnitude_db)
-        return smoothed
+        sigma = float((log_freqs[-1] - log_freqs[0]) / (len(freqs) * octave_fraction))
+        return _smooth_spectrum_numba(magnitude_db, log_freqs, sigma)
 
     def _find_peaks(
         self,
@@ -163,3 +159,23 @@ class CombFilterDetector:
     @staticmethod
     def _compute_severity(depth_db: float, num_notches: int) -> float:
         return depth_db * np.log1p(num_notches)
+
+
+@njit(cache=True, nogil=True)
+def _smooth_spectrum_numba(
+    magnitude_db: NDArray[np.float64],
+    log_freqs: NDArray[np.float64],
+    sigma: float,
+) -> NDArray[np.float64]:
+    n = len(magnitude_db)
+    smoothed = np.zeros(n)
+    for i in range(n):
+        total_weight = 0.0
+        weighted_sum = 0.0
+        diff = log_freqs - log_freqs[i]
+        for j in range(n):
+            w = np.exp(-0.5 * (diff[j] / sigma) ** 2)
+            total_weight += w
+            weighted_sum += w * magnitude_db[j]
+        smoothed[i] = weighted_sum / (total_weight + 1e-12)
+    return smoothed

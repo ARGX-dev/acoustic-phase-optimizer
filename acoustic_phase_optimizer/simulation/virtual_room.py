@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import os
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
 import numpy as np
 from numpy.typing import NDArray
 from typing import Dict, List, Optional, Tuple
@@ -14,6 +17,8 @@ from acoustic_phase_optimizer.dsp.geq import GEQFilter
 from acoustic_phase_optimizer.utils.logging import get_logger
 
 logger = get_logger(__name__)
+
+_WORKERS = max(1, int(os.cpu_count() or 4) - 1)
 
 
 class VirtualRoom:
@@ -144,19 +149,34 @@ class VirtualRoom:
 
     def compute_multiple_transfer_functions(
         self,
+        max_workers: Optional[int] = None,
     ) -> Dict[str, Dict[str, NDArray[np.float64]]]:
-        results = {}
-        for mic in self.microphones:
-            mic_key = mic.name
-            results[mic_key] = {}
-            for spk in self.speakers:
-                if not spk.enabled:
-                    continue
+        pairs = [(spk, mic) for mic in self.microphones for spk in self.speakers if spk.enabled]
+        if len(pairs) < 4:
+            results = {}
+            for spk, mic in pairs:
+                results.setdefault(mic.name, {})[spk.name] = spk.name
                 freqs, mag_db = self.compute_transfer_function(spk, mic)
-                results[mic_key][spk.name] = {
-                    "freqs": freqs,
-                    "magnitude_db": mag_db,
-                }
+                results[mic.name][spk.name] = {"freqs": freqs, "magnitude_db": mag_db}
+            return results
+
+        n_workers = min(max_workers or _WORKERS, len(pairs))
+        results: Dict[str, Dict[str, dict]] = {}
+        lock = __import__("threading").Lock()
+
+        def _compute(pair: tuple) -> tuple:
+            spk, mic = pair
+            freqs, mag_db = self.compute_transfer_function(spk, mic)
+            return mic.name, spk.name, freqs, mag_db
+
+        with ThreadPoolExecutor(max_workers=n_workers) as pool:
+            futs = {pool.submit(_compute, p): p for p in pairs}
+            for fut in as_completed(futs):
+                mic_name, spk_name, freqs, mag_db = fut.result()
+                with lock:
+                    results.setdefault(mic_name, {})[spk_name] = {
+                        "freqs": freqs, "magnitude_db": mag_db,
+                    }
         return results
 
     def get_listening_area_mesh(

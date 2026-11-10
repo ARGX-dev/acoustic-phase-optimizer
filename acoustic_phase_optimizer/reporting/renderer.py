@@ -41,6 +41,20 @@ class Recommendation:
 
 
 @dataclass
+class MeasurementSummary:
+    rt60_broadband_s: float = 0.0
+    rt60_125hz: float = 0.0
+    rt60_1khz: float = 0.0
+    rt60_4khz: float = 0.0
+    clarity_c80_db: float = 0.0
+    definition_d50: float = 0.0
+    clipping_detected: bool = False
+    channels_measured: int = 0
+    loopback_latency_ms: float = 0.0
+    mic_cal_applied: bool = False
+
+
+@dataclass
 class ReportData:
     venue_name: str
     algorithm_used: str
@@ -58,6 +72,7 @@ class ReportData:
     coherence_gain_db: float
     algorithm_comparison: list[AlgoScore]
     recommendations: list[Recommendation] = field(default_factory=list)
+    measurement: Optional[MeasurementSummary] = None
 
 
 def render_report(
@@ -103,15 +118,48 @@ def render_report(
         f"<td>{s.delay_ms:.2f}</td><td>{s.gain_trim_db:+.1f}</td></tr>"
         for s in data.speakers
     )
+
+    measurement_rows = ""
+    if data.measurement:
+        m = data.measurement
+        measurement_rows = (
+            f"<tr><td>RT60 (broadband)</td><td>{m.rt60_broadband_s:.2f}s</td></tr>"
+            f"<tr><td>RT60 (125 Hz)</td><td>{m.rt60_125hz:.2f}s</td></tr>"
+            f"<tr><td>RT60 (1 kHz)</td><td>{m.rt60_1khz:.2f}s</td></tr>"
+            f"<tr><td>RT60 (4 kHz)</td><td>{m.rt60_4khz:.2f}s</td></tr>"
+            f"<tr><td>Clarity C80</td><td>{m.clarity_c80_db:.1f} dB</td></tr>"
+            f"<tr><td>Definition D50</td><td>{m.definition_d50:.2f}</td></tr>"
+            f"<tr><td>Channels measured</td><td>{m.channels_measured}</td></tr>"
+            f"<tr><td>Loopback latency</td><td>{m.loopback_latency_ms:.2f} ms</td></tr>"
+            f"<tr><td>Mic calibration</td><td>{'Applied' if m.mic_cal_applied else 'None'}</td></tr>"
+            f"<tr><td>Clipping detected</td><td>{'Yes' if m.clipping_detected else 'No'}</td></tr>"
+        )
+
+    recs = list(data.recommendations)
+    if data.measurement and data.measurement.clipping_detected:
+        recs.insert(0, Recommendation("high", "Reduce input gain and re-measure — clipping was detected during acquisition."))
+    if data.measurement and data.measurement.rt60_broadband_s > 2.0:
+        recs.insert(0, Recommendation("high", f"High reverberation (RT60={data.measurement.rt60_broadband_s:.1f}s). Consider additional acoustic treatment before optimization."))
+    if data.measurement and data.measurement.rt60_broadband_s < 0.3:
+        recs.insert(0, Recommendation("low", "Very dry room — optimization gains may be limited. Consider adding reflections for natural ambience."))
+    if data.worst_null_after_db > -6 and data.speakers:
+        recs.append(Recommendation("medium", "Residual nulls remain after optimization. Consider adding fill speakers or subwoofers for the affected zones."))
+    if data.coherence_gain_db < 3.0:
+        recs.append(Recommendation("medium", "Coherence gain is low — verify speaker placement and room geometry before making final adjustments."))
+    if not any("on-site" in r.text.lower() for r in recs):
+        recs.append(Recommendation("medium", "Run a final on-site measurement to verify alignment before the show."))
+    recs.append(Recommendation("low", "Save the session configuration for future recall and comparison."))
+
     tag_class = {"high": "high", "medium": "med", "low": "med"}
     rec_html = "\n".join(
         f'<div class="rec"><span class="tag {tag_class.get(r.severity, "med")}">'
         f'{r.severity.title()}</span><span>{r.text}</span></div>'
-        for r in data.recommendations
+        for r in recs
     ) or '<p style="color:var(--dim);font-size:13px;">No recommendations generated.</p>'
 
     subs = {
         "VENUE_NAME": data.venue_name,
+        "ROOM_HEIGHT": "8.0",
         "SESSION_META": (
             f"Session {datetime.now():%Y-%m-%d_%H-%M} &middot; "
             f"{data.algorithm_used} &middot; {data.iterations} iterations "
@@ -131,7 +179,9 @@ def render_report(
         "ALGOS_JSON": algos_json,
         "ALGO_COUNT": str(len(data.algorithm_comparison)),
         "DELAY_ROWS": delay_rows,
+        "MEASUREMENT_ROWS": measurement_rows,
         "RECOMMENDATIONS_HTML": rec_html,
+        "HAS_MEASUREMENT": "true" if data.measurement else "false",
     }
 
     rendered = Template(template_text).safe_substitute(subs)

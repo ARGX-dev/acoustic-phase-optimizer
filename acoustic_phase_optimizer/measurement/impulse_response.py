@@ -6,6 +6,7 @@ import numpy as np
 from numpy.typing import NDArray
 from scipy import signal, fft
 from typing import Optional, Tuple
+from numba import njit
 from acoustic_phase_optimizer.utils.logging import get_logger
 
 logger = get_logger(__name__)

@@ -5,10 +5,48 @@ from __future__ import annotations
 import numpy as np
 from numpy.typing import NDArray
 from typing import List, Optional, Tuple
+from numba import njit
 from acoustic_phase_optimizer.acoustic.room_model import RoomModel
 from acoustic_phase_optimizer.utils.logging import get_logger
 
 logger = get_logger(__name__)
+
+
+@njit(cache=True, nogil=True)
+def _compute_image_sources_numba(
+    sx: float, sy: float, sz: float,
+    L: float, W: float, H: float,
+    max_order: int,
+) -> tuple[NDArray[np.float64], NDArray[np.float64], NDArray[np.int64]]:
+    positions = np.empty((26 * 4, 3), dtype=np.float64)
+    distances = np.empty(26 * 4, dtype=np.float64)
+    orders = np.empty(26 * 4, dtype=np.int64)
+    count = 0
+
+    for order in range(1, max_order + 1):
+        for ref_x in range(-order, order + 1):
+            for ref_y in range(-order, order + 1):
+                for ref_z in range(0, order + 1):
+                    if abs(ref_x) + abs(ref_y) + abs(ref_z) != order:
+                        continue
+                    sign_x = 1.0 if ref_x % 2 == 0 else -1.0
+                    sign_y = 1.0 if ref_y % 2 == 0 else -1.0
+                    sign_z = 1.0 if ref_z % 2 == 0 else -1.0
+                    img_x = sign_x * sx + 2.0 * ref_x * sx
+                    img_y = sign_y * sy + 2.0 * ref_y * sy
+                    img_z = sign_z * sz + 2.0 * ref_z * sz
+                    dx = img_x - sx
+                    dy = img_y - sy
+                    dz = img_z - sz
+                    dist = np.sqrt(dx * dx + dy * dy + dz * dz)
+                    positions[count, 0] = img_x
+                    positions[count, 1] = img_y
+                    positions[count, 2] = img_z
+                    distances[count] = dist
+                    orders[count] = order
+                    count += 1
+
+    return positions[:count], distances[:count], orders[:count]
 
 
 class ReflectionEngine:
@@ -27,36 +65,24 @@ class ReflectionEngine:
         source_pos: NDArray[np.float64],
     ) -> list[dict]:
         L, W, H = self.room_model.get_dimensions_array()
+        absorption = self.room_model.average_absorption()
+        sx, sy, sz = float(source_pos[0]), float(source_pos[1]), float(source_pos[2])
+
+        positions, distances, orders = _compute_image_sources_numba(
+            sx, sy, sz, float(L), float(W), float(H), self.max_order,
+        )
+
         images = []
-
-        for order in range(1, self.max_order + 1):
-            for ref_x in range(-order, order + 1):
-                for ref_y in range(-order, order + 1):
-                    for ref_z in range(0, order + 1):
-                        if abs(ref_x) + abs(ref_y) + abs(ref_z) != order:
-                            continue
-
-                        sign_x = 1 if ref_x % 2 == 0 else -1
-                        sign_y = 1 if ref_y % 2 == 0 else -1
-                        sign_z = 1 if ref_z % 2 == 0 else -1
-
-                        img_x = sign_x * source_pos[0] + 2 * ref_x * source_pos[0]
-                        img_y = sign_y * source_pos[1] + 2 * ref_y * source_pos[1]
-                        img_z = sign_z * source_pos[2] + 2 * ref_z * source_pos[2]
-
-                        img_pos = np.array([img_x, img_y, img_z])
-                        distance = np.linalg.norm(img_pos - source_pos)
-
-                        absorption = self.room_model.average_absorption()
-                        reflection_coeff = (1.0 - absorption) ** order
-
-                        images.append({
-                            "order": order,
-                            "position": img_pos,
-                            "distance": distance,
-                            "reflection_coefficient": reflection_coeff,
-                            "image_indices": (ref_x, ref_y, ref_z),
-                        })
+        for i in range(len(positions)):
+            order = int(orders[i])
+            reflection_coeff = (1.0 - absorption) ** order
+            images.append({
+                "order": order,
+                "position": positions[i].copy(),
+                "distance": float(distances[i]),
+                "reflection_coefficient": reflection_coeff,
+                "image_indices": (0, 0, 0),
+            })
 
         images.sort(key=lambda x: x["distance"])
         return images

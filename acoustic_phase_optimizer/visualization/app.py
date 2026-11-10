@@ -41,9 +41,11 @@ from acoustic_phase_optimizer.acoustic.microphone import Microphone
 from acoustic_phase_optimizer.dsp.peq import PEQConfig, PEQBand, PEQFilter
 from acoustic_phase_optimizer.dsp.geq import GEQConfig, GEQFilter
 from acoustic_phase_optimizer.reporting import (
-    ReportData, SpeakerReport, AlgoScore, Recommendation,
+    ReportData, SpeakerReport, AlgoScore, Recommendation, MeasurementSummary,
     render_report, open_in_browser,
 )
+from acoustic_phase_optimizer.measurement.runner import MeasurementRunner, MeasurementResult
+from acoustic_phase_optimizer.visualization.fft_monitor import LiveFFTMonitor, FFTAcquirer, LevelMeter
 from acoustic_phase_optimizer.utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -217,6 +219,11 @@ class VisualizationApp(QMainWindow):
         self.control_panel = ControlPanel()
         main_layout.addWidget(self.control_panel, 1)
 
+        self.measurement_runner = MeasurementRunner()
+        self._measurement_result: Optional[MeasurementResult] = None
+        self._fft_acquirer: Optional[FFTAcquirer] = None
+        self._cal_path: Optional[str] = None
+
         right_side = QVBoxLayout()
 
         self.speaker_palette = self._create_speaker_palette()
@@ -243,10 +250,21 @@ class VisualizationApp(QMainWindow):
         self.freq_view = FrequencyResponseWidget()
         self.group_delay_view = GroupDelayWidget()
         self.spectrogram_view = SpectrogramWidget()
+        self.fft_monitor = LiveFFTMonitor()
+        self.level_meter_peak = LevelMeter(label="Peak:")
+        self.level_meter_rms = LevelMeter(label="RMS:")
+        level_wrapper = QWidget()
+        level_layout = QVBoxLayout()
+        level_layout.setContentsMargins(2, 2, 2, 2)
+        level_layout.addWidget(self.level_meter_peak)
+        level_layout.addWidget(self.level_meter_rms)
+        level_layout.addWidget(self.fft_monitor)
+        level_wrapper.setLayout(level_layout)
 
         bottom_tabs.addTab(self.freq_view, "Frequency Response")
         bottom_tabs.addTab(self.group_delay_view, "Group Delay")
         bottom_tabs.addTab(self.spectrogram_view, "Spectrogram")
+        bottom_tabs.addTab(level_wrapper, "Live FFT")
         self.algo_comparison = AlgorithmComparisonWidget()
         bottom_tabs.addTab(self.algo_comparison, "Algo Comparison")
 
@@ -328,16 +346,103 @@ class VisualizationApp(QMainWindow):
         self.control_panel.preset_requested.connect(self._on_load_preset)
 
     def _on_measurement_start(self, params: dict) -> None:
-        self.control_panel.log(f"Starting measurement: {params}")
-        if self.virtual_room:
-            for mic in self.microphones:
-                for spk in self.speakers:
-                    freqs, mag_db = self.virtual_room.compute_transfer_function(spk, mic)
-                    self.freq_view.update_data(
-                        f"{spk.name} -> {mic.name}",
-                        freqs, mag_db,
-                        phase_rad=np.zeros_like(freqs),
-                    )
+        self.control_panel.log(f"Starting measurement: {params['sweep_type']}, {params['duration']}s")
+        self.control_panel.measurement_controls.start_button.setEnabled(False)
+        self.control_panel.measurement_controls.start_button.setText("Measuring...")
+
+        mic_cal_path = None
+        cal_label = self.control_panel.measurement_controls.cal_file_label
+        cal_path = cal_label.property("cal_path")
+        if cal_path:
+            mic_cal_path = str(cal_path)
+
+        out_dev = params.get("output_device")
+        in_dev = params.get("input_device")
+        out_chs = params.get("output_channels", [0])
+        in_chs = params.get("input_channels", [0])
+
+        self.measurement_runner.set_devices(
+            output_device=out_dev, input_device=in_dev,
+        )
+
+        self._fft_acquirer = FFTAcquirer(
+            sample_rate=48000, device=in_dev, channels=len(in_chs),
+        )
+        self._fft_acquirer.spectrum_ready.connect(self.fft_monitor.update_spectrum)
+        self._fft_acquirer.level_ready.connect(self._on_level_ready)
+        self._fft_acquirer.start()
+        self.fft_monitor.reset_hold()
+
+        import threading
+        def _run() -> None:
+            try:
+                result = self.measurement_runner.run_measurement(
+                    sweep_type=params["sweep_type"],
+                    duration=params["duration"],
+                    start_freq=params["start_freq"],
+                    end_freq=params["end_freq"],
+                    averaging=params["averaging"],
+                    output_channels=out_chs,
+                    input_channels=in_chs,
+                    mic_cal_path=mic_cal_path,
+                    measure_latency=params.get("measure_latency", True),
+                )
+                self._on_measurement_complete(result)
+            except Exception as e:
+                logger.error(f"Measurement failed: {e}")
+                self.control_panel.log(f"Measurement failed: {e}", "ERROR")
+                self.control_panel.measurement_controls.start_button.setEnabled(True)
+                self.control_panel.measurement_controls.start_button.setText("Start Measurement")
+
+        threading.Thread(target=_run, daemon=True).start()
+
+    def _on_measurement_complete(self, result: MeasurementResult) -> None:
+        if self._fft_acquirer:
+            self._fft_acquirer.stop()
+            self._fft_acquirer = None
+
+        self.control_panel.measurement_controls.start_button.setEnabled(True)
+        self.control_panel.measurement_controls.start_button.setText("Start Measurement")
+
+        if result.cancelled:
+            self.control_panel.log("Measurement cancelled")
+            return
+
+        self._measurement_result = result
+        self.control_panel.log(f"Measurement complete: {len(result.impulse_responses)} channels")
+
+        for label, clip in result.clipping_reports.items():
+            if clip.clipped:
+                self.control_panel.log(
+                    f"Clipping on {label}: peak={clip.peak_level:.3f}, {clip.clipped_sample_count} samples",
+                    "WARN",
+                )
+
+        for label, ir in result.impulse_responses.items():
+            if label in result.transfer_functions:
+                freqs, mag_db = result.transfer_functions[label]
+                self.freq_view.update_data(
+                    f"Measured: {label}",
+                    freqs, mag_db,
+                    phase_rad=result.phase_data.get(label),
+                )
+
+        for label, analysis in result.analysis.items():
+            rt60 = analysis.get("rt60", {})
+            if rt60:
+                broadband = rt60.get("rt60_broadband", 0.0)
+                self.control_panel.log(f"RT60 ({label}): {broadband:.2f}s (broadband)")
+
+        if result.loopback_latency_s > 0:
+            self.control_panel.log(
+                f"Loopback latency: {result.loopback_latency_s * 1000:.2f} ms"
+            )
+
+        self._update_views()
+
+    def _on_level_ready(self, peak_db: float, rms_db: float) -> None:
+        self.level_meter_peak.set_level(peak_db)
+        self.level_meter_rms.set_level(rms_db)
 
     def _on_optimization_start(self, params: dict) -> None:
         algorithm = params.get("algorithm", "compare_all")
@@ -458,6 +563,25 @@ class VisualizationApp(QMainWindow):
         elif hasattr(result, 'best_value'):
             coherence = result.best_value
 
+        measurement_summary = None
+        if self._measurement_result:
+            mr = self._measurement_result
+            first_analysis = next(iter(mr.analysis.values()), {}) if mr.analysis else {}
+            first_rt60 = next(iter(mr.rt60.values()), {}) if mr.rt60 else {}
+            any_clipping = any(c.clipped for c in mr.clipping_reports.values())
+            measurement_summary = MeasurementSummary(
+                rt60_broadband_s=first_rt60.get("rt60_broadband", 0.0),
+                rt60_125hz=first_rt60.get("rt60_125hz", 0.0),
+                rt60_1khz=first_rt60.get("rt60_1000hz", 0.0),
+                rt60_4khz=first_rt60.get("rt60_4000hz", 0.0),
+                clarity_c80_db=first_analysis.get("clarity_80", 0.0),
+                definition_d50=first_analysis.get("definition_50", 0.0),
+                clipping_detected=any_clipping,
+                channels_measured=len(mr.impulse_responses),
+                loopback_latency_ms=mr.loopback_latency_s * 1000.0,
+                mic_cal_applied=mr.mic_calibration_applied,
+            )
+
         data = ReportData(
             venue_name="Optimization Session",
             algorithm_used=result.algorithm.capitalize(),
@@ -477,6 +601,7 @@ class VisualizationApp(QMainWindow):
             recommendations=[
                 Recommendation("medium", "Run a final on-site measurement to verify alignment before the show."),
             ],
+            measurement=measurement_summary,
         )
 
         output = Path("session_report.html").resolve()
@@ -725,7 +850,10 @@ class VisualizationApp(QMainWindow):
         if self.virtual_room and self.speakers:
             X, Y = self.virtual_room.get_listening_area_mesh(30)
             c = self.room_model.speed_of_sound
+            freq = 1000.0
+            wavenum = 2.0 * np.pi * freq / c
 
+            pts = np.stack([X.ravel(), Y.ravel(), np.full_like(X.ravel(), 1.2)], axis=1)
             Z_spl = np.zeros_like(X)
             Z_before = np.zeros_like(X)
             Z_after = np.zeros_like(X)
@@ -733,24 +861,20 @@ class VisualizationApp(QMainWindow):
             for spk in self.speakers:
                 if not spk.enabled:
                     continue
-                for i in range(X.shape[0]):
-                    for j in range(X.shape[1]):
-                        pt = np.array([X[i, j], Y[i, j], 1.2])
-                        Z_spl[i, j] += spk.spl_at_distance(pt)
+                spk_pos = spk.position.reshape(1, 3)
+                diffs = pts - spk_pos
+                dists = np.sqrt(np.sum(diffs ** 2, axis=1))
+                d_clipped = np.maximum(dists, 0.1)
+                Z_spl += (spk.sensitivity_db - 20.0 * np.log10(d_clipped)).reshape(X.shape)
 
-                        dist = float(np.linalg.norm(spk.position - pt))
-                        if dist < 0.01:
-                            continue
-                        freq = 1000.0
-                        wavenum = 2.0 * np.pi * freq / c
-
-                        phase_before = wavenum * dist
-                        amp_before = 1.0 / dist
-                        Z_before[i, j] += amp_before * np.cos(phase_before)
-
-                        phase_after = wavenum * dist - 2.0 * np.pi * freq * (spk.delay_ms / 1000.0)
-                        amp_after = 1.0 / dist * (10.0 ** (spk.gain_db / 20.0))
-                        Z_after[i, j] += amp_after * np.cos(phase_after)
+                valid = dists >= 0.01
+                d = dists[valid]
+                before = (1.0 / d) * np.cos(wavenum * d)
+                after = (1.0 / d) * (10.0 ** (spk.gain_db / 20.0)) * np.cos(
+                    wavenum * d - 2.0 * np.pi * freq * (spk.delay_ms / 1000.0)
+                )
+                Z_before.ravel()[valid] += before
+                Z_after.ravel()[valid] += after
 
             Z_before_db = 20.0 * np.log10(np.abs(Z_before) + 1e-12)
             Z_after_db = 20.0 * np.log10(np.abs(Z_after) + 1e-12)
