@@ -1,86 +1,39 @@
 @echo off
-setlocal enabledelayedexpansion
-
+setlocal
 title Acoustic Phase Optimizer - Setup
+cd /d "%~dp0"
 
 echo.
-echo ============================================
-echo  Acoustic Phase Optimizer - Windows Setup
-echo ============================================
+echo  Acoustic Phase Optimizer - setup
+echo  ================================
 echo.
 
-:: ---- Check Python ----
 python --version >nul 2>&1
-if %errorlevel% neq 0 (
-    echo [STEP 1/5] Python not found. Downloading Python 3.12...
-    echo.
-    echo  =^> Download from: https://www.python.org/downloads/
-    echo  =^> Make sure to check "Add Python to PATH" during install
-    echo.
-    pause
+if errorlevel 1 (
+    echo  Python was not found. Install Python 3.10 or newer from https://www.python.org/downloads/
+    echo  and tick "Add Python to PATH", then run this again.
     start https://www.python.org/downloads/
-    echo.
-    echo  Press any key AFTER installing Python...
-    pause >nul
-    python --version >nul 2>&1
-    if !errorlevel! neq 0 (
-        echo [ERROR] Python not detected after install. Please restart this script.
-        pause
-        exit /b 1
-    )
-) else (
-    for /f "tokens=2" %%v in ('python --version 2^>^&1') do set pyver=%%v
-    echo [OK] Python found: %pyver%
-)
-
-:: ---- Create virtual environment ----
-echo.
-echo [STEP 2/5] Creating virtual environment...
-if exist venv (
-    echo  =^> Existing venv found, removing...
-    rmdir /s /q venv
-)
-python -m venv venv
-if %errorlevel% neq 0 (
-    echo [ERROR] Failed to create virtual environment.
     pause
     exit /b 1
 )
-echo  [OK] Virtual environment created.
 
-:: ---- Upgrade pip ----
-echo.
-echo [STEP 3/5] Upgrading pip...
-call venv\Scripts\pip install --upgrade pip >nul 2>&1
-echo  [OK] pip upgraded.
-
-:: ---- Install package with extras ----
-echo.
-echo [STEP 4/5] Installing Acoustic Phase Optimizer with GUI + dev extras...
-echo  (this may take a few minutes on first run)
-echo.
-
-call venv\Scripts\pip install -e ".[gui,dev]"
-if %errorlevel% neq 0 (
-    echo [WARN] Some dependencies failed. Retrying without GUI extras...
-    call venv\Scripts\pip install -e ".[dev]"
+if not exist venv (
+    echo  Creating a private Python environment...
+    python -m venv venv || goto :fail
 )
 
+echo  Installing (first time takes a minute)...
+call venv\Scripts\python -m pip install --upgrade pip >nul
+call venv\Scripts\python -m pip install -e . || goto :fail
+
 echo.
-echo ============================================
-echo  Setup Complete!
-echo ============================================
-echo.
-echo  To run the program:
-echo.
-echo      venv\Scripts\activate
-echo      python -m acoustic_phase_optimizer --gui
-echo.
-echo  Or run from anywhere with this shortcut:
-echo.
-echo      venv\Scripts\python -m acoustic_phase_optimizer --gui
-echo.
-echo  Headless (no GUI):
-echo      venv\Scripts\python -m acoustic_phase_optimizer --headless
+echo  Done. Start the app with "Acoustic Phase Optimizer.bat".
 echo.
 pause
+exit /b 0
+
+:fail
+echo.
+echo  Setup failed. Scroll up for the error.
+pause
+exit /b 1

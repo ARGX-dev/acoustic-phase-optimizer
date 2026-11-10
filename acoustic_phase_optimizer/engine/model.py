@@ -1,0 +1,156 @@
+"""Project data model, shared by the engine, the API and saved project files.
+
+Coordinate system (metres): x = across the room (0..width), y = from the stage
+wall (y = 0) toward the back (0..length), z = up (0..height).
+Speaker aim: yaw 0 deg points down +y (toward the audience), positive yaw turns
+toward +x; pitch negative tilts down.
+"""
+
+from __future__ import annotations
+
+import uuid
+from typing import Literal
+
+from pydantic import BaseModel, Field, model_validator
+
+
+def _id() -> str:
+    return uuid.uuid4().hex[:8]
+
+
+MaterialId = str
+Role = Literal["main", "fill", "front_fill", "delay", "sub"]
+FilterType = Literal["bell", "low_shelf", "high_shelf", "highpass", "lowpass"]
+
+
+class Materials(BaseModel):
+    floor: MaterialId = "wood_floor"
+    ceiling: MaterialId = "gypsum"
+    front: MaterialId = "concrete"
+    back: MaterialId = "concrete"
+    left: MaterialId = "concrete"
+    right: MaterialId = "concrete"
+
+
+class Room(BaseModel):
+    width: float = Field(20.0, gt=1, le=200)
+    length: float = Field(30.0, gt=1, le=300)
+    height: float = Field(8.0, gt=1.5, le=60)
+    materials: Materials = Field(default_factory=Materials)
+
+
+class Environment(BaseModel):
+    temperature_c: float = Field(20.0, ge=-20, le=50)
+    humidity_pct: float = Field(50.0, ge=0, le=100)
+    pressure_kpa: float = Field(101.325, ge=60, le=110)
+
+
+class Audience(BaseModel):
+    x0: float = 1.0
+    y0: float = 4.0
+    x1: float = 19.0
+    y1: float = 28.0
+    ear_height: float = Field(1.2, ge=0.3, le=20)
+
+
+class PEQBand(BaseModel):
+    id: str = Field(default_factory=_id)
+    type: FilterType = "bell"
+    freq: float = Field(1000.0, ge=10, le=24000)
+    gain_db: float = Field(0.0, ge=-24, le=24)
+    q: float = Field(1.0, ge=0.1, le=30)
+    enabled: bool = True
+
+
+class Speaker(BaseModel):
+    id: str = Field(default_factory=_id)
+    name: str = "Speaker"
+    role: Role = "main"
+    model: str = "generic_12_2way"
+    # Placement
+    x: float = 10.0
+    y: float = 1.0
+    z: float = 4.0
+    yaw: float = 0.0
+    pitch: float = -10.0
+    # Acoustic model
+    coverage_h: float = Field(90.0, ge=5, le=360)
+    coverage_v: float = Field(60.0, ge=5, le=360)
+    level_db: float = Field(128.0, ge=60, le=160)  # max SPL @ 1 m
+    hp_hz: float = Field(60.0, ge=0, le=2000)  # 0 = no high-pass
+    lp_hz: float = Field(0.0, ge=0, le=24000)  # 0 = no low-pass
+    directivity_hz: float = Field(900.0, ge=50, le=10000)  # pattern control above this
+    # DSP (what the optimizer adjusts)
+    delay_ms: float = Field(0.0, ge=0, le=500)
+    gain_db: float = Field(0.0, ge=-40, le=20)
+    invert: bool = False
+    mute: bool = False
+    peq: list[PEQBand] = Field(default_factory=list)
+    # Optimizer locks
+    lock_delay: bool = False
+    lock_gain: bool = False
+    color: int | None = Field(None, ge=0, le=7)  # chart colour slot; follows the speaker, never its rank
+
+
+class Mic(BaseModel):
+    id: str = Field(default_factory=_id)
+    name: str = "Mic"
+    x: float = 10.0
+    y: float = 15.0
+    z: float = 1.2
+
+
+class Settings(BaseModel):
+    grid_resolution: float = Field(0.5, ge=0.1, le=5)
+    reflection_order: int = Field(2, ge=0, le=4)
+    f_min: float = Field(31.5, ge=10, le=500)
+    f_max: float = Field(16000.0, ge=1000, le=22000)
+    precedence_ms: float = Field(0.0, ge=0, le=30)  # extra delay on fills so the image stays on stage
+    target_tilt_db_per_oct: float = Field(-1.0, ge=-6, le=3)
+    link_symmetric: bool = True  # mirror-image pairs always receive identical DSP
+
+
+class Project(BaseModel):
+    version: int = 2
+    name: str = "Untitled venue"
+    room: Room = Field(default_factory=Room)
+    environment: Environment = Field(default_factory=Environment)
+    audience: Audience = Field(default_factory=Audience)
+    speakers: list[Speaker] = Field(default_factory=list)
+    mics: list[Mic] = Field(default_factory=list)
+    settings: Settings = Field(default_factory=Settings)
+    notes: str = ""
+
+    @model_validator(mode="after")
+    def _clamp_audience(self) -> Project:
+        a, r = self.audience, self.room
+        x0, x1 = sorted((a.x0, a.x1))
+        y0, y1 = sorted((a.y0, a.y1))
+        a.x0, a.x1 = max(0.0, x0), min(r.width, x1)
+        a.y0, a.y1 = max(0.0, y0), min(r.length, y1)
+        if a.x1 - a.x0 < 0.2:
+            a.x0, a.x1 = 0.0, r.width
+        if a.y1 - a.y0 < 0.2:
+            a.y0, a.y1 = 0.0, r.length
+        a.ear_height = min(a.ear_height, r.height - 0.1)
+        return self
+
+    @model_validator(mode="after")
+    def _assign_colors(self) -> Project:
+        used = {s.color for s in self.speakers if s.color is not None}
+        for s in self.speakers:
+            if s.color is None:
+                free = [c for c in range(8) if c not in used]
+                s.color = free[0] if free else len(used) % 8
+                used.add(s.color)
+        return self
+
+    @model_validator(mode="after")
+    def _unique_ids(self) -> Project:
+        for items in (self.speakers, self.mics):
+            seen: set[str] = set()
+            for it in items:
+                if it.id in seen:
+                    it.id = _id()
+                seen.add(it.id)
+        return self
