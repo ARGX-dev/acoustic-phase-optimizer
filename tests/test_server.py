@@ -200,5 +200,8 @@ def test_presence_stops_only_after_the_last_window_leaves(monkeypatch):
     assert p.gone()  # closed for good
     q = app_module.Presence()
     q.ping()
+    clock[0] += 400  # laptop asleep
+    q.resumed()
+    assert not q.gone()
     clock[0] += 181
     assert q.gone()  # silent (crashed or killed) browser

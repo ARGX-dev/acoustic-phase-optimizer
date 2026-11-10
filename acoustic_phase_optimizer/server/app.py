@@ -96,6 +96,12 @@ class Presence:
             self.last_seen = time.monotonic()
             self.bye_at = None
 
+    def resumed(self) -> None:
+        """The computer slept: give the page a fresh timeout instead of counting the sleep as silence."""
+        with self._lock:
+            if self.last_seen is not None:
+                self.last_seen = time.monotonic()
+
     def bye(self) -> None:
         with self._lock:
             self.bye_at = time.monotonic()

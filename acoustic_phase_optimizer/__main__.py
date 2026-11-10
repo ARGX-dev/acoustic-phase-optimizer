@@ -75,20 +75,27 @@ def serve(port: int, mode: str) -> int:
         if browser:
             profile = data_dir() / "window-profile"
             subprocess.Popen([browser, f"--app={url}", f"--user-data-dir={profile}", "--no-first-run",
-                              "--no-default-browser-check", "--disable-background-mode", "--window-size=1560,980"],
+                              "--no-default-browser-check", "--disable-background-mode",
+                              "--disable-background-timer-throttling", "--disable-renderer-backgrounding",
+                              "--window-size=1560,980"],
                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             print("Close the app window to quit.")
-        elif mode != "none":
-            webbrowser.open(url)
-            print("Close the browser tab, or press Ctrl+C here, to quit.")
         else:
-            print("Press Ctrl+C to quit.")
-            return
+            if mode != "none":
+                webbrowser.open(url)
+            print("Press Ctrl+C here to quit.")
+            return  # an ordinary browser tab can be throttled, duplicated or discarded: no auto-stop
         # The browser process can outlive its window (background mode, a shared profile), so it is the
         # page itself that tells us it is gone: it pings while open and says goodbye when it closes.
+        presence = app.state.presence
+        tick = time.monotonic()
         while not server.should_exit:
             time.sleep(1)
-            if app.state.presence.gone():
+            now = time.monotonic()
+            if now - tick > 5:  # the computer slept; the page has not had a chance to ping yet
+                presence.resumed()
+            tick = now
+            if presence.gone():
                 print("The app window was closed. Stopping.")
                 server.should_exit = True
 
