@@ -318,6 +318,27 @@ def test_speaker_library_search_add_and_change_model(ui):
     assert page.locator(".row-list .row-item").count() == before
 
 
+def test_plan_zoom_and_pan(ui):
+    page = ui["page"]
+    canvas = page.locator("canvas.plan")
+    box = canvas.bounding_box()
+    cx, cy = box["x"] + box["width"] / 2, box["y"] + box["height"] / 2
+    before = canvas.screenshot()
+    page.mouse.move(cx, cy)
+    page.mouse.wheel(0, -600)
+    time.sleep(0.4)
+    assert page.locator(".fit-btn").is_visible()
+    page.mouse.down(button="right")
+    page.mouse.move(cx + 80, cy + 30, steps=4)
+    page.mouse.up(button="right")
+    time.sleep(0.3)
+    shot(page, "13-plan-zoomed")
+    assert canvas.screenshot() != before
+    page.locator(".fit-btn").click()
+    time.sleep(0.3)
+    assert not page.locator(".fit-btn").is_visible()
+
+
 def test_delete_saved_and_discard_prompt(ui):
     page = ui["page"]
     ui["dialogs"].clear()

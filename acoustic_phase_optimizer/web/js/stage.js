@@ -86,6 +86,10 @@ export function createStage(root, foot) {
   const ctx = canvas.getContext('2d');
   let W = 0, H = 0, dpr = 1;
   let view = { scale: 1, ox: 0, oy: 0 };
+  let zoom = { k: 1, tx: 0, ty: 0 }; // screen = t + k * fitted position
+  const fitBtn = h('button', { class: 'btn small fit-btn', hidden: true, title: 'Show the whole room (0)', onclick: () => resetZoom() }, 'Fit room');
+  root.append(fitBtn);
+  function resetZoom() { zoom = { k: 1, tx: 0, ty: 0 }; fitBtn.hidden = true; schedule(); }
   let drag = null;
   let hover = null;
   let raf = 0;
@@ -98,7 +102,8 @@ export function createStage(root, foot) {
     const pad = { l: 46, r: 18, t: 16, b: 30 };
     const aw = Math.max(10, W - pad.l - pad.r), ah = Math.max(10, H - pad.t - pad.b);
     const scale = Math.min(aw / r.length, ah / r.width);
-    view = { scale, ox: pad.l + (aw - r.length * scale) / 2, oy: pad.t + (ah - r.width * scale) / 2 };
+    const ox = pad.l + (aw - r.length * scale) / 2, oy = pad.t + (ah - r.width * scale) / 2;
+    view = { scale: scale * zoom.k, ox: zoom.tx + zoom.k * ox, oy: zoom.ty + zoom.k * oy };
   }
 
   function niceStep(pxPerMetre) {
@@ -315,7 +320,29 @@ export function createStage(root, foot) {
   const local = (e) => { const b = canvas.getBoundingClientRect(); return [e.clientX - b.left, e.clientY - b.top]; };
   const snap = (v, lo, hi) => round(clamp(v, lo, hi), 1);
 
+  canvas.addEventListener('wheel', (e) => {
+    if (!state.project) return;
+    e.preventDefault();
+    const [sx, sy] = local(e);
+    const k = clamp(zoom.k * Math.exp(-e.deltaY * (e.deltaMode === 1 ? 0.05 : 0.0016)), 1, 12);
+    if (k === 1) { resetZoom(); return; }
+    zoom = { k, tx: sx - (k / zoom.k) * (sx - zoom.tx), ty: sy - (k / zoom.k) * (sy - zoom.ty) };
+    fitBtn.hidden = false;
+    tip.hidden = true;
+    schedule();
+  }, { passive: false });
+  canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+  canvas.addEventListener('keydown', (e) => { if (e.key === '0' && !e.ctrlKey) resetZoom(); });
+
   canvas.addEventListener('pointerdown', (e) => {
+    if ((e.button === 1 || e.button === 2) && state.project) { // pan
+      const [sx, sy] = local(e);
+      drag = { mode: 'pan', sx, sy, tx: zoom.tx, ty: zoom.ty };
+      canvas.setPointerCapture(e.pointerId);
+      canvas.style.cursor = 'grabbing';
+      e.preventDefault();
+      return;
+    }
     if (e.button !== 0 || !state.project) return;
     const [sx, sy] = local(e);
     const target = hit(sx, sy);
@@ -342,6 +369,12 @@ export function createStage(root, foot) {
     const r = state.project.room;
     if (drag) {
       const live = { commit: false, interacting: true, source: 'stage' };
+      if (drag.mode === 'pan') {
+        zoom = { ...zoom, tx: drag.tx + sx - drag.sx, ty: drag.ty + sy - drag.sy };
+        fitBtn.hidden = false;
+        schedule();
+        return;
+      }
       if (drag.mode === 'rotate') {
         const s = speakerById(drag.id);
         if (!s) return;
@@ -376,6 +409,7 @@ export function createStage(root, foot) {
     const d = drag;
     drag = null;
     try { canvas.releasePointerCapture(e.pointerId); } catch (err) { /* already released */ }
+    if (d.mode === 'pan') { canvas.style.cursor = 'default'; if (zoom.k === 1 && !zoom.tx && !zoom.ty) fitBtn.hidden = true; return; }
     if (d.mode === 'probe') setProbe(state.probe.x, state.probe.y, { final: true });
     else if (d.moved) { commit(); mutate(() => {}, { source: 'stage' }); }
   };
@@ -398,7 +432,9 @@ export function createStage(root, foot) {
     } else if (state.simError) foot.append(h('span', { text: 'No result: ' + state.simError }));
     else foot.append(h('span', { text: state.project?.speakers.length ? 'Calculating…' : 'Add a speaker to see coverage.' }));
     if (sim?.preview) foot.append(h('span', { class: 'badge', text: 'Preview quality while editing' }));
-    foot.append(h('span', { class: 'readout', text: hover?.readout || 'Drag speakers and mics · click the map to move the probe' }));
+    const help = state.ui.view === '3d' ? 'Drag to orbit · right-drag to pan · scroll to zoom · click a speaker to select it'
+      : 'Drag speakers and mics · click to move the probe · scroll to zoom, right-drag to pan';
+    foot.append(h('span', { class: 'readout', text: hover?.readout || help }));
   }
 
   new ResizeObserver(() => {

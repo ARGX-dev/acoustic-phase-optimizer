@@ -331,13 +331,25 @@ export function create3D(root) {
     requestRender();
   }
 
+  // Labels are placed in priority order (selected, speakers, mics, stage); one that would overlap a label
+  // already shown is hidden. Hovering an object still names it in the tooltip.
   function placeLabels() {
     const v = new THREE.Vector3();
-    for (const { el, pos } of labelEls) {
+    const shown = [];
+    const order = [...labelEls].sort((a, b) => (b.el.classList.contains('sel') ? 1 : 0) - (a.el.classList.contains('sel') ? 1 : 0));
+    for (const item of order) {
+      const { el, pos } = item;
       v.copy(pos).project(camera);
-      const hide = v.z > 1 || v.x < -1.1 || v.x > 1.1 || v.y < -1.1 || v.y > 1.1;
+      let hide = v.z > 1 || v.x < -1.1 || v.x > 1.1 || v.y < -1.1 || v.y > 1.1;
+      const x = ((v.x + 1) / 2) * W, y = ((1 - v.y) / 2) * H;
+      if (!hide) {
+        if (!item.w) { el.style.display = ''; item.w = el.offsetWidth || 60; item.h = el.offsetHeight || 18; }
+        const box = { l: x - item.w / 2 - 2, r: x + item.w / 2 + 2, t: y - item.h - 1, b: y + 1 };
+        hide = shown.some((o) => box.l < o.r && box.r > o.l && box.t < o.b && box.b > o.t);
+        if (!hide) shown.push(box);
+      }
       el.style.display = hide ? 'none' : '';
-      if (!hide) el.style.transform = `translate(${((v.x + 1) / 2) * W}px, ${((1 - v.y) / 2) * H}px) translate(-50%, -100%)`;
+      if (!hide) el.style.transform = `translate(${x}px, ${y}px) translate(-50%, -100%)`;
     }
   }
 

@@ -25,9 +25,19 @@ Everything runs on your own computer. The window talks to a small local engine o
 
 - **Model the venue.** Room size, a material for each surface, the audience area, temperature and humidity.
   Four example venues (gymnasium, theatre, house of worship, conference room) or an empty room.
+- **Import a 3D scan.** GLB, OBJ or PLY from a LiDAR app (Polycam, Scaniverse, 3d Scanner App) or a laser
+  scanner. The app measures the room from it (floor, ceiling, wall direction), you pick the stage wall and
+  confirm the size, and the scan is shown in the 3D view. The sound prediction still uses the fitted box,
+  not the scanned shape. Draco/meshopt-compressed GLBs and USDZ are not supported yet.
 - **Place speakers on the plan.** Drag to move, drag the handle to aim. Mains, fills, front fills, delays and
-  subs, from eight generic loudspeaker types or your own coverage figures. Left/right pairs are linked so
-  they stay matched.
+  subs. Left/right pairs are linked so they stay matched.
+- **Choose real loudspeakers.** A searchable library of 24 models from QSC, JBL, Yamaha, Electro-Voice, RCF,
+  L-Acoustics, d&b audiotechnik, Meyer Sound and Bose, plus eight generic types or your own figures.
+  Coverage, max SPL and low-frequency limit come from the manufacturer datasheets (each entry links to its
+  source). Pattern-control frequency, the high-pass corner and line-array hangs (8 boxes) are estimated
+  by fixed rules, and the app says so. Entries marked *approx.* have a figure that could not be confirmed.
+- **Look at it in 3D.** Orbit the room with the coverage map at ear height, speakers, aim and mics, or switch
+  to the plan, which zooms (scroll) and pans (right-drag).
 - **See the result live.** Maps of direct level (all frequencies or one octave), total level, clarity,
   summation and cancellation, and arrival-time spread. Click anywhere for the magnitude, phase and arrivals
   at that seat, or add measurement-mic positions.

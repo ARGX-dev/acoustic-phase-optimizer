@@ -245,6 +245,16 @@ export function typeFields(type) {
 }
 export const speakerType = (id) => state.meta.speaker_types.find((t) => t.id === id);
 
+/** Near (x, y) but not on top of another speaker. */
+function freeSpot(p, x, y) {
+  const taken = (cx) => p.speakers.some((s) => Math.hypot(s.x - cx, s.y - y) < 0.8);
+  for (let i = 0; i < 40; i++) {
+    const cx = round(x + (i % 2 ? 1 : -1) * Math.ceil(i / 2) * 1.0, 1);
+    if (cx > 0.2 && cx < p.room.width - 0.2 && !taken(cx)) return { x: cx, y };
+  }
+  return { x, y };
+}
+
 export function addSpeaker(typeId) {
   const type = speakerType(typeId) || state.meta.speaker_types[0];
   const id = uid();
@@ -254,7 +264,7 @@ export function addSpeaker(typeId) {
     const sub = acoustic.role === 'sub';
     p.speakers.push({
       id, name: uniqueName(p, sub ? 'Sub' : acoustic.role === 'main' ? 'Main' : 'Fill'), model,
-      x: round(p.room.width / 2, 1), y: sub ? 1 : Math.min(2, p.room.length / 4),
+      ...freeSpot(p, round(p.room.width / 2, 1), sub ? 1 : Math.min(2, p.room.length / 4)),
       z: sub ? 0.5 : round(Math.min(p.room.height - 0.5, 4), 1), yaw: 0, pitch: sub ? 0 : -10,
       ...acoustic, delay_ms: 0, gain_db: 0, invert: false, mute: false, peq: [],
       lock_delay: false, lock_gain: false, color: freeColor(p),
