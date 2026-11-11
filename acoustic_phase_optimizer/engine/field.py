@@ -65,7 +65,8 @@ def freq_grid(f_min: float, f_max: float, points_per_octave: int = PPO) -> np.nd
 class Grid:
     xs: np.ndarray
     ys: np.ndarray
-    z: float
+    z: float  # ear height at the front row (ys[0])
+    rise: float = 0.0  # raked seating: extra height at the back row (ys[-1])
 
     @property
     def nx(self) -> int:
@@ -77,7 +78,9 @@ class Grid:
 
     def points(self) -> np.ndarray:
         X, Y = np.meshgrid(self.xs, self.ys)  # row-major: y rows, x columns
-        return np.column_stack([X.ravel(), Y.ravel(), np.full(X.size, self.z)])
+        span = float(self.ys[-1] - self.ys[0]) or 1.0
+        Z = self.z + self.rise * (Y - self.ys[0]) / span
+        return np.column_stack([X.ravel(), Y.ravel(), Z.ravel()])
 
 
 def audience_grid(project: Project, max_points: int = MAX_GRID_POINTS) -> Grid:
@@ -86,7 +89,7 @@ def audience_grid(project: Project, max_points: int = MAX_GRID_POINTS) -> Grid:
     res = max(project.settings.grid_resolution, float(np.sqrt(w * l / max_points)))
     nx = max(2, int(round(w / res)) + 1)
     ny = max(2, int(round(l / res)) + 1)
-    return Grid(np.linspace(a.x0, a.x1, nx), np.linspace(a.y0, a.y1, ny), a.ear_height)
+    return Grid(np.linspace(a.x0, a.x1, nx), np.linspace(a.y0, a.y1, ny), a.ear_height, a.rake)
 
 
 # --------------------------------------------------------------------- directivity
@@ -434,7 +437,7 @@ def get_field(project: Project, preview: bool = False) -> FieldModel:
     ctx = make_context(project)
     grid = audience_grid(project, PREVIEW_GRID_POINTS if preview else MAX_GRID_POINTS)
     grid_key = repr((grid.nx, grid.ny, float(grid.xs[0]), float(grid.xs[-1]),
-                     float(grid.ys[0]), float(grid.ys[-1]), grid.z))
+                     float(grid.ys[0]), float(grid.ys[-1]), grid.z, grid.rise))
     mic_key = repr([(m.x, m.y, m.z) for m in project.mics])
     spk_keys = [speaker_key(s) for s in project.speakers]
     full_key = _sha(ctx.key, grid_key, mic_key, *spk_keys)

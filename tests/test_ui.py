@@ -729,6 +729,28 @@ def test_sti_map_and_metric(ui):
     page.locator("select[aria-label='Map']").select_option("direct")
 
 
+def test_raked_seating(ui):
+    page = ui["page"]
+    page.get_by_role("tab", name="Room").click()
+    rake = page.get_by_role("spinbutton", name="Rake: back row higher by")
+    rake.scroll_into_view_if_needed()
+    rake.fill("2.5")
+    rake.press("Enter")
+    page.locator("#stage-toolbar .seg button", has_text="Section").click()
+    page.wait_for_selector(".section-view canvas")
+    time.sleep(2.5)
+    shot(page, "28-raked-section")
+    page.locator("#stage-toolbar .seg button", has_text="3D").click()
+    page.wait_for_selector(".view3d canvas", timeout=15000)
+    time.sleep(2)
+    shot(page, "29-raked-3d")
+    page.locator("#stage-toolbar .seg button", has_text="Plan").click()
+    page.get_by_role("tab", name="Room").click()
+    rake = page.get_by_role("spinbutton", name="Rake: back row higher by")
+    rake.fill("0")
+    rake.press("Enter")
+
+
 def test_imperial_units(ui):
     page = ui["page"]
     page.get_by_role("tab", name="Setup").click()

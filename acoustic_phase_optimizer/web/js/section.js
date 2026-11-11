@@ -3,7 +3,7 @@
 // or across the room. Speakers can be dragged (distance and height) and their aim handle tilts them.
 
 import { api } from './api.js';
-import { commit, editSpeaker, mutate, on, select, setProbe, setUI, state } from './store.js';
+import { commit, earAt, editSpeaker, mutate, on, select, setProbe, setUI, state } from './store.js';
 import { clamp, clear, debounce, fmt, h } from './util.js';
 import { cssVar, makeScale, seriesColor } from './theme.js';
 import { levelRange, setFootOverride } from './stage.js';
@@ -172,14 +172,22 @@ export function createSection(root) {
     if (axis() === 'length') text('STAGE', x0 + 6, yFloor - 8, { color: c.muted, size: 10, weight: 600 });
     // audience and ear height
     const [ua, ub] = axis() === 'length' ? [a.y0, a.y1] : [a.x0, a.x1];
-    const [ax0, eary] = toS(ua, a.ear_height), [ax1] = toS(ub, a.ear_height);
-    ctx.strokeStyle = c.accent; ctx.lineWidth = 4; ctx.beginPath(); ctx.moveTo(ax0, yFloor - 2); ctx.lineTo(ax1, yFloor - 2); ctx.stroke();
+    // ear height along the slice: rising with raked seating when the slice runs away from the stage
+    const earU = (u) => earAt(a, axis() === 'length' ? u : at());
+    const [ax0, eary0] = toS(ua, earU(ua)), [ax1, eary1] = toS(ub, earU(ub));
+    const [, fy0] = toS(ua, earU(ua) - a.ear_height), [, fy1] = toS(ub, earU(ub) - a.ear_height);
+    if (Math.abs(fy0 - yFloor) > 1 || Math.abs(fy1 - yFloor) > 1) {
+      ctx.fillStyle = c.line; ctx.globalAlpha = 0.5; // the raked seating
+      ctx.beginPath(); ctx.moveTo(ax0, yFloor); ctx.lineTo(ax0, fy0); ctx.lineTo(ax1, fy1); ctx.lineTo(ax1, yFloor); ctx.closePath(); ctx.fill(); ctx.globalAlpha = 1;
+    }
+    ctx.strokeStyle = c.accent; ctx.lineWidth = 4; ctx.beginPath(); ctx.moveTo(ax0, fy0 - 2); ctx.lineTo(ax1, fy1 - 2); ctx.stroke();
     ctx.lineWidth = 1.5; ctx.setLineDash([5, 4]); ctx.strokeStyle = c.ink; ctx.globalAlpha = 0.8;
-    ctx.beginPath(); ctx.moveTo(ax0, eary); ctx.lineTo(ax1, eary); ctx.stroke(); ctx.setLineDash([]); ctx.globalAlpha = 1;
-    text(`Ear height ${len(a.ear_height)}`, ax1 - 4, eary - 6, { color: c.ink2, align: 'right', size: 10.5 });
+    ctx.beginPath(); ctx.moveTo(ax0, eary0); ctx.lineTo(ax1, eary1); ctx.stroke(); ctx.setLineDash([]); ctx.globalAlpha = 1;
+    text(a.rake > 0.05 && axis() === 'length' ? `Ears ${len(a.ear_height)} rising to ${len(earU(ub))}` : `Ear height ${len(earU(ua))}`,
+      ax1 - 4, eary1 - 6, { color: c.ink2, align: 'right', size: 10.5 });
     // probe
     const pu = axis() === 'length' ? state.probe.y : state.probe.x;
-    const [px] = toS(pu, 0);
+    const [px, eary] = toS(pu, earU(pu));
     ctx.strokeStyle = c.ink; ctx.globalAlpha = 0.55; ctx.setLineDash([2, 4]); ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(px + 0.5, yTop); ctx.lineTo(px + 0.5, yFloor); ctx.stroke(); ctx.setLineDash([]); ctx.globalAlpha = 1;
     ctx.beginPath(); ctx.arc(px, eary, 5, 0, Math.PI * 2); ctx.fillStyle = cssVar('--surface'); ctx.fill(); ctx.lineWidth = 2; ctx.strokeStyle = c.ink; ctx.stroke();

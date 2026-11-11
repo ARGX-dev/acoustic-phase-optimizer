@@ -6,7 +6,7 @@
 
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { commit, editSpeaker, mutate, on, select, setProbe, state } from './store.js';
+import { commit, earAt, editSpeaker, mutate, on, select, setProbe, state } from './store.js';
 import { clamp, clear, fmt, h } from './util.js';
 import { cssVar, isDark, seriesColor } from './theme.js';
 import { currentScale, heatImage, mapKey, MAPS, shownSim, unitOf, valueAt } from './stage.js';
@@ -160,8 +160,16 @@ export function create3D(root) {
     groups.room.add(grid);
 
     const a = state.project.audience;
-    const ear = a.ear_height;
-    const outline = [P(a.x0, a.y0, ear), P(a.x1, a.y0, ear), P(a.x1, a.y1, ear), P(a.x0, a.y1, ear), P(a.x0, a.y0, ear)];
+    const e0 = earAt(a, a.y0), e1 = earAt(a, a.y1);
+    const outline = [P(a.x0, a.y0, e0), P(a.x1, a.y0, e0), P(a.x1, a.y1, e1), P(a.x0, a.y1, e1), P(a.x0, a.y0, e0)];
+    if (a.rake > 0.05) {
+      // the seating slope itself, ear height below the ear plane
+      const fl = (y) => Math.max(0, earAt(a, y) - a.ear_height);
+      const g = new THREE.BufferGeometry().setFromPoints([P(a.x0, a.y0, fl(a.y0)), P(a.x1, a.y0, fl(a.y0)), P(a.x1, a.y1, fl(a.y1)),
+        P(a.x0, a.y0, fl(a.y0)), P(a.x1, a.y1, fl(a.y1)), P(a.x0, a.y1, fl(a.y1))]);
+      g.computeVertexNormals();
+      groups.room.add(new THREE.Mesh(g, new THREE.MeshStandardMaterial({ color: c.box, roughness: 0.8, side: THREE.DoubleSide, transparent: true, opacity: 0.85 })));
+    }
     groups.room.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(outline), new THREE.LineBasicMaterial({ color: c.edge })));
 
     // light from above the audience, shadows inside the room only
@@ -216,8 +224,12 @@ export function create3D(root) {
     heatMesh.material.map = heatTex;
     heatMesh.material.needsUpdate = true;
     heatTex.needsUpdate = true;
-    heatMesh.scale.set(y1 - y0, x1 - x0, 1);
-    heatMesh.position.copy(P((x0 + x1) / 2, (y0 + y1) / 2, a.ear_height));
+    // On raked seating the map is a slope: tilt the plane by the rise over the audience depth.
+    const rise = earAt(a, y1) - earAt(a, y0);
+    heatMesh.rotation.set(-Math.PI / 2, 0, 0);
+    heatMesh.scale.set(Math.hypot(y1 - y0, rise), x1 - x0, 1);
+    heatMesh.position.copy(P((x0 + x1) / 2, (y0 + y1) / 2, (earAt(a, y0) + earAt(a, y1)) / 2));
+    heatMesh.rotateOnWorldAxis(new THREE.Vector3(0, 0, 1), Math.atan2(rise, y1 - y0)); // room y is three.js x, up is y
     heatMesh.userData.bounds = { x0, x1, y0, y1 };
     heatMesh.visible = true;
   }
@@ -227,7 +239,7 @@ export function create3D(root) {
     const group = new THREE.Group();
     if (s.coverage_h >= 300) return group;
     const r = state.project.room;
-    const drop = s.z - state.project.audience.ear_height;
+    const drop = s.z - earAt(state.project.audience, s.y + 10);
     const reach = s.pitch < -1 && drop > 0 ? drop / Math.tan((-s.pitch * Math.PI) / 180) : 12;
     const L = clamp(reach * 1.15, 3, Math.max(r.length, r.width) * 0.9);
     const th = Math.tan((Math.min(s.coverage_h, 160) * Math.PI) / 360) * L;
@@ -307,7 +319,7 @@ export function create3D(root) {
       groups.marks.add(mesh, stand);
     }
     if (state.probe) {
-      const z = state.project.audience.ear_height;
+      const z = earAt(state.project.audience, state.probe.y);
       const on = state.ui.source === 'probe';
       const pin = new THREE.Mesh(new THREE.ConeGeometry(0.18, 0.5, 20), new THREE.MeshStandardMaterial({ color: on ? c.accent : c.edge }));
       pin.rotation.x = Math.PI;

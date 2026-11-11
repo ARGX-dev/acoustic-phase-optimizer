@@ -696,3 +696,41 @@ def test_constant_curvature_hang_covers_its_fan_without_holes():
     i = int(np.argmin(abs(ctx.freqs - 8000)))
     m = 20 * np.log10(np.abs(H[:, i]))
     assert m.min() > m.max() - 6
+
+
+def test_raked_seating_lifts_the_back_rows():
+    from acoustic_phase_optimizer.engine.field import audience_grid
+    from acoustic_phase_optimizer.engine.simulate import point_response
+
+    p = presets.theater()
+    a = p.audience
+    a.rake = 3.0
+    g = audience_grid(p).points()
+    front, back = g[g[:, 1] == g[:, 1].min()], g[g[:, 1] == g[:, 1].max()]
+    assert np.allclose(front[:, 2], a.ear_height) and np.allclose(back[:, 2], a.ear_height + 3.0)
+    assert a.ear_at((a.y0 + a.y1) / 2) == pytest.approx(a.ear_height + 1.5)
+    assert a.ear_at(a.y1 + 50) == pytest.approx(a.ear_height + 3.0)
+    # the probe defaults to the raked ear height
+    r = point_response(p, (a.x0 + a.x1) / 2, a.y1)
+    flat = point_response(presets.theater(), (a.x0 + a.x1) / 2, a.y1)
+    assert r["arrivals"] != flat["arrivals"]
+    # the back row cannot rise through the ceiling
+    q = presets.theater().model_dump()
+    q["audience"]["rake"] = 40
+    from acoustic_phase_optimizer.engine.model import Project as _P
+    q = _P(**q)
+    assert q.audience.ear_height + q.audience.rake <= q.room.height - 0.1 + 1e-9
+
+
+def test_rake_changes_the_prediction_and_old_files_are_flat():
+    from acoustic_phase_optimizer.engine.simulate import simulate
+
+    flat = simulate(presets.theater())
+    p = presets.theater()
+    p.audience.rake = 3.0
+    raked = simulate(p)
+    assert flat["metrics"]["mean_spl"] != raked["metrics"]["mean_spl"]
+    old = presets.theater().model_dump()
+    old["audience"].pop("rake")
+    from acoustic_phase_optimizer.engine.model import Project as _P
+    assert _P(**old).audience.rake == 0

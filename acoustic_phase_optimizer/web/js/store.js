@@ -18,6 +18,13 @@ function emit(evt, data = {}) {
 /** Tell every view the colour theme changed so canvases repaint with the new palette. */
 export const themeChanged = () => emit('theme');
 
+/** Ear height at distance y from the stage: raked seating rises evenly from the front row to the back. */
+export function earAt(a, y) {
+  const span = a.y1 - a.y0;
+  const t = span > 0 ? Math.min(1, Math.max(0, (y - a.y0) / span)) : 0;
+  return a.ear_height + (a.rake || 0) * t;
+}
+
 export const DEFAULT_WEIGHTS = { coverage: 1, interference: 1, clarity: 1, timing: 1, tonal: 1 };
 
 export const state = {
@@ -338,7 +345,7 @@ export function addMic() {
     let n = p.mics.length + 1;
     while (names.has(`Mic ${n}`)) n++;
     const at = state.probe || { x: (a.x0 + a.x1) / 2, y: (a.y0 + a.y1) / 2 };
-    p.mics.push({ id, name: `Mic ${n}`, x: round(at.x, 1), y: round(at.y, 1), z: a.ear_height });
+    p.mics.push({ id, name: `Mic ${n}`, x: round(at.x, 1), y: round(at.y, 1), z: round(earAt(a, at.y), 2) });
   }, { structural: true });
   select('mic', id);
 }

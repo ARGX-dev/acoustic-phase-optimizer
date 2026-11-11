@@ -65,8 +65,15 @@ class Audience(BaseModel):
     y0: float = 4.0
     x1: float = 19.0
     y1: float = 28.0
-    ear_height: float = Field(1.2, ge=0.3, le=20)
+    ear_height: float = Field(1.2, ge=0.3, le=20)  # at the front row
+    rake: float = Field(0.0, ge=0, le=40)  # raked seating: how much higher the back row's ears are, m
     occupancy: float = Field(0.0, ge=0, le=1)  # share of seats filled; blends audience absorption into the floor
+
+    def ear_at(self, y: float) -> float:
+        """Ear height at distance y from the stage: rising evenly from the front row to the back row."""
+        span = self.y1 - self.y0
+        t = 0.0 if span <= 0 else min(1.0, max(0.0, (y - self.y0) / span))
+        return self.ear_height + self.rake * t
 
 
 class PEQBand(BaseModel):
@@ -212,6 +219,7 @@ class Project(BaseModel):
         if a.y1 - a.y0 < 0.2:
             a.y0, a.y1 = 0.0, r.length
         a.ear_height = min(a.ear_height, r.height - 0.1)
+        a.rake = max(0.0, min(a.rake, r.height - 0.1 - a.ear_height))  # the back row stays under the ceiling
         return self
 
     @model_validator(mode="after")

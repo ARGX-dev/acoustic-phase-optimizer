@@ -60,6 +60,8 @@ strict Content-Security-Policy.
 - **See the result live.** Maps of direct level (all frequencies or one octave, Z, A or C weighted), total
   level, clarity, speech intelligibility (an STI estimate), summation and cancellation, and arrival-time
   spread. Click anywhere for the magnitude, phase and arrivals at that seat, or add measurement-mic positions.
+- **Raked seating.** Set how much higher the back row sits; the maps, the probe, the section and the 3D
+  view follow the slope.
 - **Metric or imperial.** Choose metres or feet in the Setup tab; every field, axis and readout follows.
   Venue files are always saved in metres.
 - **Compare with a measurement.** Import a REW "Export measurement as text", a Smaart ASCII export or any
@@ -106,6 +108,8 @@ Limits worth knowing:
   curve), so the beam narrowing with frequency, the long throw and the low-frequency build-up come out of
   the model. Reflections from a hang still use one combined source. Box heights come from the datasheets
   (d&b V8 and Y8: the architect's-specification maximum; Meyer LEOPARD: estimated from its woofer size).
+- Raked seating lifts the ears evenly from the front row to the back row (one straight slope). The floor
+  under it is still flat for reflections.
 - Outdoors, wind and temperature gradients are not modelled.
 
 It is a prediction from an idealised room and datasheet loudspeakers. Use it to plan and to get close, then

@@ -1,7 +1,7 @@
 // Plan view: coverage heat map with draggable speakers, mics and a probe.
 // The stage is on the left; distance from the stage runs left to right.
 
-import { commit, editSpeaker, mutate, on, select, setProbe, speakerById, state } from './store.js';
+import { commit, earAt, editSpeaker, mutate, on, select, setProbe, speakerById, state } from './store.js';
 import { clamp, clear, fmt, h, round } from './util.js';
 import { cssVar, makeScale, seriesColor } from './theme.js';
 import { len, lenNum, tickStep } from './units.js';
@@ -213,7 +213,7 @@ export function createStage(root, foot) {
       const omni = s.coverage_h >= 300;
       ctx.globalAlpha = s.mute ? 0.4 : 1;
       if (!omni) {
-        const drop = s.z - a.ear_height;
+        const drop = s.z - earAt(a, s.y + 10);
         const reach = s.pitch < -1 && drop > 0 ? drop / Math.tan((-s.pitch * Math.PI) / 180) : 14;
         const len = clamp(reach, 4, 30) * view.scale;
         const half = (s.coverage_h * Math.PI) / 360;

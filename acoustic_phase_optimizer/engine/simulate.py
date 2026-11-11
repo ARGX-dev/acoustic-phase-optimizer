@@ -159,7 +159,7 @@ def section(project: Project, axis: str = "length", at: float | None = None, ban
 def point_response(project: Project, x: float, y: float, z: float | None = None, ppo: int = 48) -> dict:
     """High-resolution response, per-speaker traces and arrival list at one point."""
     room = project.room
-    z = project.audience.ear_height if z is None else z
+    z = project.audience.ear_at(y) if z is None else z
     x = float(np.clip(x, 0.0, room.width))
     y = float(np.clip(y, 0.0, room.length))
     z = float(np.clip(z, 0.0, room.height))
