@@ -537,6 +537,11 @@ def create_app() -> FastAPI:
     def api_project_save(body: ProjectIn) -> dict:
         return storage.save_project(body.project)
 
+    @app.post("/api/projects/check")
+    def api_project_check(body: ProjectIn) -> dict:
+        """Validate a project that arrived in a file (a .trky bundle) and return it in today's shape."""
+        return body.project.model_dump()
+
     @app.get("/api/projects/{key}")
     def api_project_load(key: str) -> dict:
         try:

@@ -14,6 +14,7 @@ import { createStageBar } from './stagebar.js';
 import { createChart } from './chart.js';
 import { createLeftPanel } from './panels.js';
 import { createResultsPanel } from './results.js';
+import { enableDrop } from './drop.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -161,12 +162,13 @@ function createTopbar(root) {
 
   const projects = menuButton([icon('folder'), h('span', { text: 'Open' })], async () => {
     const list = await api.projects();
-    if (!list.length) return [h('div', { class: 'empty', text: 'Nothing saved yet. Press Save to keep this venue.' })];
+    const fromFile = [h('hr'), item('Open a .trky archive…', () => import('./trky.js').then((m) => m.chooseTrky()), { ico: 'folder', hint: '.trky' })];
+    if (!list.length) return [h('div', { class: 'empty', text: 'Nothing saved yet. Press Save to keep this venue.' }), ...fromFile];
     return [h('h4', { text: 'Saved venues' }), ...list.map((p) => h('div', { style: { display: 'flex', alignItems: 'center' } },
       item(p.name, () => openSaved(p.key), { hint: `${p.speakers} spk · ${p.modified.slice(0, 10)}` }),
       h('button', { class: 'icon-btn small', title: `Delete ${p.name}`, attrs: { 'aria-label': `Delete ${p.name}` },
         onclick: () => { closeMenu(); deleteSaved(p); } }, icon('trash')))),
-    h('hr'), h('div', { class: 'empty', text: `Stored in ${state.meta.data_dir}` })];
+    ...fromFile, h('hr'), h('div', { class: 'empty', text: `Stored in ${state.meta.data_dir}` })];
   }, { title: 'Open a saved venue' });
 
   const saveBtn = h('button', { class: 'btn ghost', title: 'Save (Ctrl+S)', onclick: saveVenue }, icon('save'), h('span', { text: 'Save' }));
@@ -178,7 +180,10 @@ function createTopbar(root) {
     item('JSON', () => exportDsp('json'), { hint: '.json' }),
     h('hr'),
     item('Printable report', openReport, { hint: 'HTML / PDF' }),
-  ], { title: 'Export settings or a report', align: 'right' });
+    h('hr'),
+    h('h4', { text: 'Share the venue' }),
+    item('Project archive, with the scan', () => import('./trky.js').then((m) => m.saveTrky()), { hint: '.trky' }),
+  ], { title: 'Export settings, a report or the whole venue', align: 'right' });
 
   root.append(h('div', { class: 'brand' }, logo, h('span', { text: 'Acoustic Phase Optimizer' })),
     h('span', { class: 'sep' }), name, saveState, h('span', { class: 'spacer' }),
@@ -294,6 +299,7 @@ async function boot() {
     createStageBar($('stage-toolbar'), $('stage'));
     createChart($('chart-toolbar'), $('chart-legend'), $('chart'));
     createResultsPanel($('right'));
+    enableDrop();
     if (session?.project) {
       const { probe, dirty, savedName, lastAction, compare, ...rest } = session.ui || {};
       loadProject(session.project, { baseline: session.baseline || null, lastAction: lastAction || null, ui: rest,

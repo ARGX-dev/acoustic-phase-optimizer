@@ -53,6 +53,7 @@ export const api = {
   report: (project, baseline) => request('POST', '/api/report', { project, baseline }, { as: 'text' }),
   projects: () => request('GET', '/api/projects'),
   saveProject: (project) => request('POST', '/api/projects', { project }),
+  checkProject: (project) => request('POST', '/api/projects/check', { project }),
   loadProject: (key) => request('GET', `/api/projects/${encodeURIComponent(key)}`),
   deleteProject: (key) => request('DELETE', `/api/projects/${encodeURIComponent(key)}`),
   session: () => request('GET', '/api/session'),

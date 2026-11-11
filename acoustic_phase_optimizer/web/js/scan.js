@@ -271,6 +271,8 @@ const extOf = (f) => (f.name.split('.').pop() || '').toLowerCase();
 
 /** Import from a set of chosen files: one scan or model, or a .gltf with its buffers and textures. */
 export async function importFiles(files) {
+  const trky = files.find((f) => extOf(f) === 'trky');
+  if (trky) return (await import('./trky.js')).openTrky(trky);
   const gltf = files.find((f) => extOf(f) === 'gltf');
   if (gltf) {
     let packed;
@@ -570,7 +572,7 @@ export function chooseMvrFolder() {
 }
 
 export function chooseScanFile() {
-  const input = h('input', { type: 'file', accept: [...SCAN_EXTS, ...GLTF_PARTS].map((e) => `.${e}`).join(','), style: { display: 'none' },
+  const input = h('input', { type: 'file', accept: [...SCAN_EXTS, ...GLTF_PARTS, 'trky'].map((e) => `.${e}`).join(','), style: { display: 'none' },
     attrs: { multiple: '' }, // a .gltf is chosen together with its .bin and textures
     onchange: () => { const files = [...(input.files || [])]; input.remove(); if (files.length) importFiles(files); } });
   document.body.append(input);

@@ -160,6 +160,16 @@ def test_project_storage_round_trip(api):
     assert api("GET", f"/api/projects/{saved['key']}", raw=True)[0] == 404
 
 
+def test_project_check_validates_without_saving(api):
+    project = small()
+    project["name"] = "From a bundle"
+    checked = api("POST", "/api/projects/check", {"project": project})
+    assert checked["name"] == "From a bundle" and len(checked["speakers"]) == 4
+    assert api("GET", "/api/projects") == []  # nothing stored
+    project["speakers"][0]["x"] = "not a number"
+    assert api("POST", "/api/projects/check", {"project": project}, raw=True)[0] == 422
+
+
 def test_storage_keys_cannot_escape_the_projects_folder():
     for hostile in ("../../evil", "..\\..\\evil", "/etc/passwd", "C:\\Windows\\x", "", "..."):
         assert all(ch not in storage.slug(hostile) for ch in "/\\:.")

@@ -869,6 +869,100 @@ def test_import_measurement_overlay(ui, tmp_path):
     page.wait_for_selector(".meas-row", state="detached")
 
 
+def rew_text() -> str:
+    import math
+
+    rows = ["* Measurement data measured by REW V5.31", "Freq(Hz) SPL(dB) Phase(degrees)"]
+    f = 20.0
+    while f < 20000:
+        rows.append(f"{f:.3f} {95 - 3 * math.log2(max(f, 60) / 1000):.3f} {(-f * 0.36) % 360 - 180:.2f}")
+        f *= 2 ** (1 / 48)
+    return "\n".join(rows)
+
+
+def make_trky(out: Path, files: dict[str, Path]) -> Path:
+    import shutil
+    import subprocess
+
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("Node.js is needed to build a .trky for this test")
+    script = Path(__file__).parent / "fixtures" / "make_trky.cjs"
+    subprocess.run([node, str(script), str(out), *(f"{k}={v}" for k, v in files.items())], check=True, timeout=120)
+    return out
+
+
+def drop_file(page, path: Path) -> None:
+    """Drop a file on the window, as dragging it from Explorer would."""
+    import base64
+
+    page.evaluate("""([name, b64]) => {
+        const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+        const dt = new DataTransfer();
+        dt.items.add(new File([bytes], name));
+        for (const type of ['dragenter', 'dragover', 'drop']) {
+            document.body.dispatchEvent(new DragEvent(type, { dataTransfer: dt, bubbles: true, cancelable: true }));
+        }
+    }""", [path.name, base64.b64encode(path.read_bytes()).decode()])
+
+
+def test_save_and_reopen_a_project_as_trky(ui, tmp_path):
+    page = ui["page"]
+    page.get_by_role("tab", name="Room").click()
+    assert page.locator(".scan-card").count() == 1  # the scan imported earlier travels inside the archive
+    name = page.locator(".venue-name").input_value()
+    page.get_by_role("button", name="Export").click()
+    with page.expect_download(timeout=60000) as dl:
+        page.get_by_role("menuitem", name=re.compile("Project archive")).click()
+    assert dl.value.suggested_filename == f"{name}.trky"
+    saved = tmp_path / dl.value.suggested_filename
+    dl.value.save_as(saved)
+    assert saved.read_bytes()[:5] == b"TRKY\x04"
+    page.wait_for_selector(".toast:has-text('.trky')", timeout=10000)
+
+    page.locator(".venue-name").fill("Changed after saving")
+    page.locator(".venue-name").press("Enter")
+    page.get_by_role("button", name="Open").click()
+    with page.expect_file_chooser() as fc:
+        page.get_by_role("menuitem", name=re.compile("Open a .trky archive")).click()
+    fc.value.set_files(str(saved))
+    page.get_by_role("button", name="Discard changes").click()
+    page.wait_for_function(f"document.querySelector('.venue-name').value === {name!r}", timeout=30000)
+    assert page.locator(".scan-card").count() == 1
+
+
+def test_drop_a_trky_with_a_model_and_a_measurement(ui, tmp_path):
+    page = ui["page"]
+    meas = tmp_path / "front.txt"
+    meas.write_text(rew_text(), encoding="utf-8")
+    arc = make_trky(tmp_path / "survey.trky", {"models/hall.obj": room_obj(tmp_path / "hall.obj"), "meas/front.txt": meas})
+
+    drop_file(page, arc)
+    page.wait_for_selector(".dialog .trky-row", timeout=30000)
+    assert page.locator(".dialog .trky-row").count() == 2
+    shot(page, "13-trky-contents")
+    page.get_by_role("button", name="Add as a measurement: meas/front.txt").click()
+    page.wait_for_selector(".toast:has-text('Imported \"front\"')", timeout=30000)
+
+    drop_file(page, arc)
+    page.get_by_role("button", name="Use as the room: models/hall.obj").click()
+    page.wait_for_selector(".dialog [data-testid='repair-report']", timeout=30000)
+    page.locator(".dialog .btn", has_text="Cancel").click()
+    page.wait_for_selector(".dialog", state="detached", timeout=10000)
+
+    page.get_by_role("tab", name="Mics").click()
+    page.get_by_role("button", name="Delete front").click()
+    page.wait_for_selector(".meas-row", state="detached")
+
+
+def test_dropping_an_unknown_file_says_so(ui, tmp_path):
+    page = ui["page"]
+    junk = tmp_path / "notes.docx"
+    junk.write_bytes(b"PK\x03\x04 not for this app")
+    drop_file(page, junk)
+    page.wait_for_selector(".toast.error:has-text('notes.docx cannot be opened here')", timeout=10000)
+
+
 def test_sti_map_and_metric(ui):
     page = ui["page"]
     v = page.locator(".metric", has_text="Speech intelligibility").locator(".v").inner_text()

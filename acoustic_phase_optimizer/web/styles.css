@@ -357,6 +357,21 @@ table.data td:first-child { display: flex; align-items: center; gap: 6px; }
 .repair-note { margin-top: 12px; padding: 8px 10px; border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: 8px; background: var(--page); }
 .repair-note .hint { margin: 0 0 6px; }
 .repair-note .hint:last-child { margin-bottom: 0; }
+
+/* .trky archive contents */
+.trky-list { display: flex; flex-direction: column; gap: 4px; max-height: 60vh; }
+.trky-row { display: flex; align-items: center; gap: 8px; padding: 4px 0; border-bottom: 1px solid var(--line); }
+.trky-row .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink); }
+.trky-row small { color: var(--muted); font-variant-numeric: tabular-nums; }
+
+/* drop files anywhere */
+.drop-overlay { position: fixed; inset: 0; z-index: 140; display: grid; place-items: center; pointer-events: none;
+  background: rgba(57, 135, 229, 0.12); border: 3px dashed var(--accent); opacity: 0; transition: opacity 0.12s; }
+.drop-overlay.show { opacity: 1; }
+.drop-card { display: flex; flex-direction: column; gap: 4px; align-items: center; padding: 18px 26px; border-radius: var(--radius);
+  background: var(--surface-2); box-shadow: var(--shadow); color: var(--ink-2); text-align: center; }
+.drop-card strong { font-size: 1.15em; color: var(--ink); }
+@media (prefers-reduced-motion: reduce) { .drop-overlay { transition: none; } }
 @media (max-width: 760px) { .scan-dialog { grid-template-columns: 1fr; } }
 
 /* ------------------------------------------------------- loudspeaker picker */

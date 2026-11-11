@@ -23,6 +23,35 @@ const PRIORITIES = [['coverage', 'Even coverage'], ['interference', 'Summation']
 const LIVE = { commit: false, interacting: true, source: 'panel' };
 const DONE = { commit: true, source: 'panel' };
 
+// ------------------------------------------------- file imports (also used for files inside a .trky archive)
+function predictedCurve() {
+  if (state.ui.source === 'average') return state.sim?.average ? { f: state.sim.freqs, v: state.sim.average.spl } : null;
+  return state.point ? { f: state.point.freqs, v: state.point.spl_smooth } : null;
+}
+const fmtHzRange = (f) => `${Math.round(f[0])} Hz–${f.at(-1) >= 1000 ? `${fmt(f.at(-1) / 1000, 1)} kHz` : `${Math.round(f.at(-1))} Hz`}`;
+
+/** Add a measured response (REW / Smaart text or CSV) to the venue. Throws with a readable message. */
+export function addMeasurement(fileName, text) {
+  const list = state.project.measurements || [];
+  if (list.length >= 8) throw new Error('Up to 8 measurements per venue. Delete one first.');
+  const m = parseResponse(text);
+  const used = new Set([...list.map((x) => x.color), ...state.project.speakers.map((x) => x.color)]);
+  const color = [5, 6, 7, 3, 2, 1, 0, 4].find((c) => !used.has(c)) ?? 5;
+  const pred = predictedCurve();
+  const offset = pred ? matchOffset(m, pred.f, pred.v) : 0;
+  const name = fileName.replace(/^.*[\\/]/, '').replace(/\.[^.]+$/, '').slice(0, 80) || 'Measurement';
+  mutate((p) => { p.measurements = [...(p.measurements || []), { id: `m${uid()}`, name, ...m, offset_db: offset, color }]; }, { structural: true });
+  return `Imported "${name}": ${m.freqs.length} points${m.phase ? ' with phase' : ''}, ${fmtHzRange(m.freqs)}.${offset ? ` Level offset ${fmt(offset, 1, true)} dB to line it up with the prediction (200 Hz–2 kHz).` : ''}`;
+}
+
+/** Add loudspeakers from a CSV or JSON list. Returns { message, error }. */
+export async function addSpeakerList(text) {
+  const res = await api.importSpeakers(text);
+  await loadSpeakerLibrary(api);
+  const bad = res.error_count ? ` ${res.error_count} row(s) skipped: ${res.errors.slice(0, 3).map((e) => `row ${e.row}: ${e.error}`).join('; ')}` : '';
+  return { message: `Imported ${res.added} speaker(s).${bad}`, error: !res.added, long: !!bad };
+}
+
 export function createLeftPanel(root) {
   const tabBar = h('div', { class: 'tabs', attrs: { role: 'tablist' } });
   const body = h('div', { class: 'tab-body', attrs: { role: 'tabpanel' } });
@@ -218,7 +247,7 @@ export function createLeftPanel(root) {
       return group('3D scan',
         h('button', { class: 'btn block', onclick: pick }, icon('cube'), 'Import a 3D scan…'),
         h('button', { class: 'btn small block', style: { marginTop: '6px' }, title: MVR_FOLDER_TIP, onclick: pickFolder }, 'Import a folder (unpacked MVR or glTF)…'),
-        h('p', { class: 'hint', text: 'A scan (GLB, glTF, USDZ, OBJ or PLY from Polycam, Scaniverse, 3d Scanner App, iPhone RoomPlan or a laser scanner) or a venue model (MVR, 3DS, FBX, COLLADA or STL, e.g. from Vectorworks: File > Export). For a .gltf, choose it together with its .bin and texture files. The room size is measured from it.' }));
+        h('p', { class: 'hint', text: 'A scan (GLB, glTF, USDZ, OBJ or PLY from Polycam, Scaniverse, 3d Scanner App, iPhone RoomPlan or a laser scanner) or a venue model (MVR, 3DS, FBX, COLLADA or STL, e.g. from Vectorworks: File > Export). Also DXF, DWG, IFC, STEP and IGES drawings, and .trky archives. For a .gltf, choose it together with its .bin and texture files. Damaged models are repaired on import (you can switch that off). The room size is measured from it. You can also drop files anywhere on the window.' }));
     }
     const setScan = (k) => (v, o) => mutate((p) => { if (p.scan) p.scan[k] = v; }, o);
     const out = h('output', { text: `${Math.round(sc.opacity * 100)}%` });
@@ -479,11 +508,9 @@ export function createLeftPanel(root) {
         input.remove();
         if (!f) return;
         try {
-          const res = await api.importSpeakers(await f.text());
-          await loadSpeakerLibrary(api);
+          const r = await addSpeakerList(await f.text());
           render();
-          const bad = res.error_count ? ` ${res.error_count} row(s) skipped: ${res.errors.slice(0, 3).map((e) => `row ${e.row}: ${e.error}`).join('; ')}` : '';
-          toast(`Imported ${res.added} speaker(s).${bad}`, { error: !res.added, ms: bad ? 12000 : 5000 });
+          toast(r.message, { error: r.error, ms: r.long ? 12000 : 5000 });
         } catch (e) { toast(e.message, { error: true }); }
       } });
     document.body.append(input);
@@ -526,11 +553,6 @@ export function createLeftPanel(root) {
   }
 
   // ------------------------------------------------------------------ measurements
-  function predictedCurve() {
-    if (state.ui.source === 'average') return state.sim?.average ? { f: state.sim.freqs, v: state.sim.average.spl } : null;
-    return state.point ? { f: state.point.freqs, v: state.point.spl_smooth } : null;
-  }
-
   function importMeasurement() {
     const input = h('input', { type: 'file', accept: '.txt,.csv,.tsv,.frd,.dat,text/plain,text/csv', style: { display: 'none' },
       onchange: async () => {
@@ -539,22 +561,12 @@ export function createLeftPanel(root) {
         if (!f) return;
         if (f.size > 20_000_000) { toast('That file is larger than 20 MB.', { error: true }); return; }
         try {
-          const m = parseResponse(await f.text());
-          const used = new Set([...(P().measurements || []).map((x) => x.color), ...P().speakers.map((x) => x.color)]);
-          const color = [5, 6, 7, 3, 2, 1, 0, 4].find((c) => !used.has(c)) ?? 5;
-          const pred = predictedCurve();
-          const offset = pred ? matchOffset(m, pred.f, pred.v) : 0;
-          const name = f.name.replace(/\.[^.]+$/, '').slice(0, 80) || 'Measurement';
-          if ((P().measurements || []).length >= 8) { toast('Up to 8 measurements per venue. Delete one first.', { error: true }); return; }
-          mutate((p) => { p.measurements = [...(p.measurements || []), { id: `m${uid()}`, name, ...m, offset_db: offset, color }]; }, { structural: true });
-          toast(`Imported "${name}": ${m.freqs.length} points${m.phase ? ' with phase' : ''}, ${fmtHzRange(m.freqs)}.${offset ? ` Level offset ${fmt(offset, 1, true)} dB to line it up with the prediction (200 Hz–2 kHz).` : ''}`, { ms: 8000 });
+          toast(addMeasurement(f.name, await f.text()), { ms: 8000 });
         } catch (e) { toast(e.message, { error: true }); }
       } });
     document.body.append(input);
     input.click();
   }
-  const fmtHzRange = (f) => `${Math.round(f[0])} Hz–${f.at(-1) >= 1000 ? `${fmt(f.at(-1) / 1000, 1)} kHz` : `${Math.round(f.at(-1))} Hz`}`;
-
   function measurementsGroup() {
     const list = P().measurements || [];
     const setM = (id, fn) => mutate((p) => { const m = p.measurements.find((x) => x.id === id); if (m) fn(m); });

@@ -35,6 +35,9 @@ ab69972fe70cdb53a6ffa935ba4dbe541cbac4dc6c1b28faa3a3ad389e15cefb *./three/exampl
 56981604d66cccc26558c710afe08a15177030f8dd3842255d1cc53b4c9b7f3b *./three/examples/jsm/math/ColorSpaces.js
 c25b7930e570e9ec56173cd3b866ec8d2e10016630db3937efb439daf1cedbf6 *./three/examples/jsm/utils/BufferGeometryUtils.js
 94ff7b608caf3b827ffa95bd6092b9d174732b856915b38ed006b4f049f95675 *./three/examples/jsm/utils/WorkerPool.js
+fdd6e2a84d2a99decb67e50d7cbf1b7f833ab08bba86f41f282ba8021075c61b *./trky/audio.js
+44cc789e44ad59349a0d1b8fd9ed0d86493d8d676a575ae7dffccbee9c112381 *./trky/core.js
+d97061da2b4bcc272e96a62190f58af52dfb819eb6888dd6092ca71f311ed292 *./trky/flac.js
 1f256ecad192880510e84ad60474eab7589218784b9a50bc7ceee34c2b91f1d5 *./web-ifc/LICENSE.md
 1edb1dd8e8dba63757932f62001f1b2ee812d86594b6ffc5e1e8beebe1f16690 *./web-ifc/web-ifc-api.js
 1fbd30bd5515ff6ad15268e87aa26e41d57b29411c8461618b63bee92735d349 *./web-ifc/web-ifc.wasm
