@@ -98,6 +98,8 @@ class Speaker(BaseModel):
     directivity_hz: float = Field(900.0, ge=50, le=10000)  # pattern control above this
     array_boxes: int = Field(0, ge=0, le=32)  # line-array hang: number of boxes (0 = not an array)
     array_splay: float = Field(0.0, ge=0, le=30)  # degrees between boxes
+    array_box_h: float = Field(0.0, ge=0, le=1.5)  # height of one box, m (0 = not known: a typical 0.3 m)
+    array_box_curve: float = Field(0.0, ge=0, le=60)  # a constant-curvature box's own vertical angle, degrees
     # DSP (what the optimizer adjusts)
     delay_ms: float = Field(0.0, ge=0, le=500)
     gain_db: float = Field(0.0, ge=-40, le=20)
@@ -191,8 +193,11 @@ class Project(BaseModel):
 
         for s in self.speakers:
             t = BY_ID.get(s.model)
-            if t and t["spec"]["kind"] == "element" and s.array_boxes == 0:
-                s.array_boxes, s.array_splay = t["array_boxes"], t["array_splay"]
+            if t and t["spec"]["kind"] == "element":
+                if s.array_boxes == 0:
+                    s.array_boxes, s.array_splay = t["array_boxes"], t["array_splay"]
+                if s.array_box_h == 0:  # saved before boxes had a height
+                    s.array_box_h, s.array_box_curve = t["array_box_h"], t["array_box_curve"]
         return self
 
     @model_validator(mode="after")

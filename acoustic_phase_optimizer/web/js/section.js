@@ -226,12 +226,14 @@ export function createSection(root) {
       }
       // cabinet: a stack of boxes for a line-array hang, otherwise one box
       const boxes = sp.array_boxes > 1 ? Math.min(sp.array_boxes, 24) : 1;
-      const bh = boxes > 1 ? Math.max(3, Math.min(9, view.s * 0.35)) : 12, bw = boxes > 1 ? Math.max(10, view.s * 0.9) : 12;
+      // drawn to scale: each box its real height, the fan centred on the aim (as the engine computes it)
+      const bh = boxes > 1 ? Math.max(2, view.s * (sp.array_box_h || 0.3)) : 12, bw = boxes > 1 ? Math.max(10, view.s * 0.5) : 12;
       ctx.save();
       ctx.translate(sx, sy);
       const tilt = faceOn ? 0 : Math.atan2(d.dz, Math.abs(d.du) || 1e-6) * (d.du < 0 ? -1 : 1);
       const flip = d.du < 0 ? -1 : 1;
-      let ang = -tilt * flip;
+      const splayRad = ((sp.array_splay || 0) * Math.PI) / 180;
+      let ang = -tilt * flip - ((boxes - 1) / 2) * splayRad;
       let cx = 0, cy = -(boxes - 1) * bh / 2;
       for (let i = 0; i < boxes; i++) {
         ctx.save(); ctx.translate(cx, cy); ctx.rotate(ang * flip);
@@ -239,7 +241,7 @@ export function createSection(root) {
         ctx.beginPath(); ctx.roundRect(-bw / 2, -bh / 2, bw, bh, 2); ctx.fill(); ctx.stroke();
         ctx.restore();
         cy += bh * Math.cos(ang); cx += -bh * Math.sin(ang) * flip;
-        ang += ((sp.array_splay || 0) * Math.PI) / 180;
+        ang += splayRad;
       }
       ctx.restore();
       if (near || sel) text(sp.name, sx + bw / 2 + 6, sy - (boxes - 1) * bh / 2 - 6, { color: c.ink, size: 11, weight: 600 });
@@ -265,7 +267,7 @@ export function createSection(root) {
         h('span', { text: `${fmt(sc.lo, 0)} ${unit()}` }), h('div', { class: 'bar', style: { background: sc.css } }), h('span', { text: `${fmt(sc.hi, 0)} ${unit()}` })));
     }
     if (pending) items.push(h('span', { class: 'badge', text: 'Updating' }));
-    items.push(h('span', { class: 'readout', text: hover || 'Direct level on a vertical slice through the probe · each hang is computed as one source (its stack is drawn for reference) · drag a speaker to move it, drag its aim handle to tilt' }));
+    items.push(h('span', { class: 'readout', text: hover || 'Direct level on a vertical slice through the probe · line-array boxes drawn to scale and computed one by one · drag a speaker to move it, drag its aim handle to tilt' }));
     return items;
   }
 
@@ -282,7 +284,7 @@ export function createSection(root) {
     }
     for (const s of sp) {
       const [x, y] = toS(along(s), s.z);
-      const tall = s.array_boxes > 1 ? Math.min(s.array_boxes, 24) * Math.max(3, Math.min(9, view.s * 0.35)) / 2 + 4 : 10;
+      const tall = s.array_boxes > 1 ? Math.min(s.array_boxes, 24) * Math.max(2, view.s * (s.array_box_h || 0.3)) / 2 + 4 : 10;
       if (Math.abs(sx - x) < 12 && Math.abs(sy - y) < tall) return { kind: 'speaker', id: s.id };
     }
     return null;

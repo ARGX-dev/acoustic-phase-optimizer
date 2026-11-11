@@ -456,7 +456,74 @@ def test_old_project_files_still_load_and_hangs_get_boxes():
     p = Project(**old)
     assert p.room.kind == "indoor" and p.audience.occupancy == 0 and p.custom_materials == []
     assert p.speakers[0].array_boxes == 8 and p.speakers[0].array_splay > 0
+    assert p.speakers[0].array_box_h == pytest.approx(0.354)  # K2 datasheet height, filled in on load
     assert p.speakers[1].array_boxes in (0, 8)
+
+
+def _free_field_hang(boxes=12, splay=0.0):
+    from acoustic_phase_optimizer.engine import field as F
+    from acoustic_phase_optimizer.engine.presets import make_speaker
+
+    p = Project()
+    p.room.width, p.room.length, p.room.height = 200, 300, 60
+    p.settings.reflection_order = 0
+    s = make_speaker("lacoustics_k2", "K2", 100, 1, 30, yaw=0, pitch=0)
+    s.array_boxes, s.array_splay = boxes, splay
+    return F, s, F.make_context(p)
+
+
+def _arc(F, s, ctx, deg, r=250.0):
+    th = np.radians(np.asarray(deg, float))
+    pts = np.column_stack([np.full(th.shape, 100.0), 1 + r * np.cos(th), 30 + r * np.sin(th)])
+    return F.speaker_field(s, pts, ctx).H
+
+
+def test_straight_hang_beam_width_matches_line_source_theory():
+    F, s, ctx = _free_field_hang()
+    length = 12 * s.array_box_h
+    deg = np.linspace(-40, 40, 801)
+    H = _arc(F, s, ctx, deg)
+    for f0 in (500, 1000, 2000):
+        i = int(np.argmin(abs(ctx.freqs - f0)))
+        m = 20 * np.log10(np.abs(H[:, i]))
+        inside = deg[m >= m.max() - 6]
+        theory = 2 * np.degrees(np.arcsin(0.603 * ctx.c / ctx.freqs[i] / length))
+        assert inside.max() - inside.min() == pytest.approx(theory, abs=0.6), f0
+
+
+def test_hang_adds_coherently_far_away_and_has_no_grating_lobes():
+    F, s, ctx = _free_field_hang()
+    i = int(np.argmin(abs(ctx.freqs - 250)))
+    one_box = F.speaker_amplitude(s) / np.sqrt(12) / 250  # the box level, spread over 250 m
+    gain = 20 * np.log10(abs(_arc(F, s, ctx, [0])[0, i]) / one_box)
+    assert gain == pytest.approx(20 * np.log10(12), abs=1.0)  # +21.6 dB, not the +10.8 of the old rule
+    i8 = int(np.argmin(abs(ctx.freqs - 8000)))
+    grating = np.degrees(np.arcsin(ctx.c / ctx.freqs[i8] / s.array_box_h))
+    H = _arc(F, s, ctx, [0, grating])
+    assert 20 * np.log10(abs(H[1, i8]) / abs(H[0, i8])) < -30
+
+
+def test_hang_falls_slower_close_in_than_far_away():
+    F, s, ctx = _free_field_hang()
+    i = int(np.argmin(abs(ctx.freqs - 2000)))
+    ds = np.array([3.0, 12.0, 160.0, 640.0 / 2.5])
+    pts = np.column_stack([np.full(4, 100.0), 1 + ds, np.full(4, 30.0)])
+    v = 20 * np.log10(np.abs(F.speaker_field(s, pts, ctx).H[:, i]))
+    near = (v[0] - v[1]) / np.log2(ds[1] / ds[0])  # dB per doubling
+    far = (v[2] - v[3]) / np.log2(ds[3] / ds[2])
+    assert near < 4.5 and far > 5.5
+
+
+def test_one_box_hang_is_the_old_single_source():
+    from acoustic_phase_optimizer.engine import field as F
+
+    p = presets.festival()
+    s = p.speakers[0].model_copy(update={"array_boxes": 1})
+    pts = np.array([[10.0, 20.0, 1.2], [5.0, 40.0, 1.2]])
+    ctx = F.make_context(p)
+    a = F.speaker_field(s, pts, ctx).H
+    b = F.speaker_field(s.model_copy(update={"array_boxes": 0}), pts, ctx).H
+    assert np.allclose(a, b)
 
 
 def test_presets_with_real_hangs_carry_box_counts():
@@ -609,3 +676,23 @@ def test_sub_array_that_does_not_fit_is_refused():
         subarray.build(p, "endfire", "sub_18", 4, 1.2, 10, 1.4)  # the rear boxes would be behind the stage wall
     with pytest.raises(ValueError, match="outside the room across"):
         subarray.build(p, "line", "sub_18", 12, 2.0, p.room.width / 2, 3)
+
+
+def test_constant_curvature_hang_covers_its_fan_without_holes():
+    from acoustic_phase_optimizer.engine import field as F
+    from acoustic_phase_optimizer.engine.presets import make_speaker
+
+    p = Project()
+    p.room.width, p.room.length, p.room.height = 200, 300, 300
+    p.settings.reflection_order = 0
+    s = make_speaker("lacoustics_a15_wide", "A15", 100, 1, 150, pitch=0)
+    s.array_boxes = 4  # 4 x 30 degrees
+    assert s.array_box_curve == 30
+    ctx = F.make_context(p)
+    deg = np.linspace(-55, 55, 221)
+    th = np.radians(deg)
+    pts = np.column_stack([np.full(th.shape, 100.0), 1 + 100 * np.cos(th), 150 + 100 * np.sin(th)])
+    H = F.speaker_field(s, pts, ctx).H
+    i = int(np.argmin(abs(ctx.freqs - 8000)))
+    m = 20 * np.log10(np.abs(H[:, i]))
+    assert m.min() > m.max() - 6

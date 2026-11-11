@@ -33,7 +33,7 @@ def make_speaker(model: str, name: str, x: float, y: float, z: float, yaw: float
 
         src = BY_ID[model]
         t = {k: src[k] for k in ("coverage_h", "coverage_v", "level_db", "hp_hz", "lp_hz", "directivity_hz", "role",
-                                 "array_boxes", "array_splay") if k in src}
+                                 "array_boxes", "array_splay", "array_box_h", "array_box_curve") if k in src}
     t.update(kw)
     return Speaker(model=model, name=name, x=x, y=y, z=z, yaw=yaw, pitch=pitch, **t)
 

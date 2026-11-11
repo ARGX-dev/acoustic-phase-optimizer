@@ -21,6 +21,10 @@ Model per speaker:
     full angle equals the nominal coverage above `directivity_hz`, relaxing to
     omnidirectional at low frequencies
   * ISO 9613-1 air absorption on every path
+  * a line-array hang (2 or more boxes): the direct sound is the coherent sum of every box, each a short
+    vertical line source (sinc pattern over its height) on the hang's curve, so the hang's vertical
+    pattern, its throw and its near-field/far-field behaviour come out of the interference. Reflections
+    and the diffuse tail still use one source with the hang's combined coverage.
 """
 
 from __future__ import annotations
@@ -45,6 +49,8 @@ EARLY_MS = 50.0  # reflections later than this after the direct sound count as l
 MAX_GRID_POINTS = 2600
 PREVIEW_GRID_POINTS = 640
 MIN_DISTANCE = 0.25
+DEFAULT_BOX_H = 0.3  # a line-array box of unknown height, m
+HANG_MAX_SEGMENTS = 64  # boxes x sub-segments of curved boxes
 LOG_REAR_FLOOR = float(np.log(10 ** (-24 / 20)))
 
 
@@ -237,6 +243,62 @@ def source_position(spk: Speaker, dims: tuple[float, float, float]) -> np.ndarra
                      np.clip(spk.z, 0.01, dims[2] - 0.01)])
 
 
+def is_hang(spk: Speaker) -> bool:
+    return spk.array_boxes >= 2
+
+
+def hang_segments(spk: Speaker, centre: np.ndarray) -> tuple[np.ndarray, np.ndarray, float]:
+    """Positions (n, 3), pitch of each (n,) and height of one segment for a hang centred on `centre`.
+
+    The fan is centred on the speaker's aim: the top box points splay x (boxes - 1) / 2 above it. A
+    constant-curvature box is split into sub-segments across its own angle so its wavefront is curved.
+    """
+    n = spk.array_boxes
+    h = spk.array_box_h or DEFAULT_BOX_H
+    curve = spk.array_box_curve
+    m = 1 if curve <= 0 else max(1, min(int(np.ceil(curve / 3.0)), HANG_MAX_SEGMENTS // n))
+    hs = h / m
+    tilt = [((n - 1) / 2 - b) * spk.array_splay + (((m - 1) / 2 - j) * curve / m if m > 1 else 0.0)
+            for b in range(n) for j in range(m)]
+    pitches = spk.pitch + np.array(tilt)
+    ups = [orientation(spk.yaw, p)[2] for p in pitches]
+    pos = [np.zeros(3)]
+    for i in range(1, len(pitches)):  # each segment hangs from the bottom edge of the one above
+        pos.append(pos[-1] - (ups[i - 1] + ups[i]) * hs / 2)
+    pos = np.array(pos)
+    return pos - pos.mean(axis=0) + centre, pitches, hs
+
+
+def hang_direct(spk: Speaker, points: np.ndarray, centre: np.ndarray, ctx: Context) -> np.ndarray:
+    """Direct sound of a hang at `points`, (P, F) complex, relative to the hang's 1 m amplitude.
+
+    Each box carries 1/sqrt(boxes) of the amplitude, so the summed power matches the hang's rated level
+    (box level + 10 log10 boxes); coherent addition on axis in the far field then gives up to +20 log10.
+    """
+    freqs = ctx.freqs
+    pos, pitches, hs = hang_segments(spk, centre)
+    n_seg = len(pos)
+    lo = np.array([0.01, 0.01, 0.01])
+    hi = np.array(ctx.dims) - 0.01
+    pos = np.clip(pos, lo, hi)
+    seg_amp = 1.0 / np.sqrt(spk.array_boxes) / (n_seg / spk.array_boxes)
+    n_h = lobe_exponent(spk.coverage_h) * directivity_weight(freqs, spk.directivity_hz)
+    out = np.zeros((len(points), len(freqs)), dtype=np.complex64)
+    for p_i, pitch in zip(pos, pitches):
+        fwd, right, up = orientation(spk.yaw, pitch)
+        vec = points - p_i
+        d = np.maximum(np.linalg.norm(vec, axis=1), MIN_DISTANCE)
+        u = vec / d[:, None]
+        a, b, c = u @ fwd, u @ right, u @ up
+        lh = np.log(np.maximum((1.0 + np.cos(np.arctan2(b, a))) / 2.0, 1e-9))
+        la = np.maximum(np.outer(lh, n_h), LOG_REAR_FLOOR)
+        la -= np.outer(d, ctx.air_np)
+        la -= np.log(d)[:, None]
+        line = np.sinc(np.outer(c, ctx.k) * hs / 2 / np.pi)  # signed: keeps the side lobes' polarity
+        out += (seg_amp * line * np.exp(la - 1j * np.outer(d, ctx.k))).astype(np.complex64)
+    return out
+
+
 @dataclass
 class SpeakerField:
     H: np.ndarray  # (P, F) complex64
@@ -254,7 +316,12 @@ def speaker_field(spk: Speaker, points: np.ndarray, ctx: Context, early_ms: floa
     L = np.zeros((P, F), dtype=np.float32)
     d0 = np.maximum(np.linalg.norm(points - src, axis=1), MIN_DISTANCE)
     early_limit = d0 + early_ms * 1e-3 * ctx.c
+    hang = is_hang(spk)
+    if hang:
+        H += hang_direct(spk, points, src, ctx)
     for im in image_sources(src, ctx.dims, ctx.order):
+        if hang and im.order == 0:
+            continue  # the direct sound came from the boxes above
         vec = points - im.pos
         d = np.maximum(np.linalg.norm(vec, axis=1), MIN_DISTANCE)
         early = d <= early_limit + 1e-9
@@ -344,7 +411,8 @@ _FIELD_CACHE = _LRU(6)
 _LOCK = threading.RLock()
 
 _GEOMETRY_FIELDS = {"x", "y", "z", "yaw", "pitch", "coverage_h", "coverage_v",
-                    "level_db", "hp_hz", "lp_hz", "directivity_hz"}
+                    "level_db", "hp_hz", "lp_hz", "directivity_hz",
+                    "array_boxes", "array_splay", "array_box_h", "array_box_curve"}
 
 
 def _sha(*parts: str) -> str:

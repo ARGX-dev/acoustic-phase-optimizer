@@ -364,7 +364,9 @@ export function createLeftPanel(root) {
           ? h('div', { class: 'field' }, h('span', { text: 'Splay' }), h('div', { class: 'open-surface', text: `${type.spec.splay_max}° fixed per box` }))
           : num('Splay per box', g('array_splay'), (v, o) => editSpeaker(s.id, hangFields(type, speakerById(s.id).array_boxes, clamp(v, 0, type.spec.splay_max)), o),
             { min: 0, max: type.spec.splay_max, step: 0.5, unit: '°', nd: 1, title: `0° to ${type.spec.splay_max}° between boxes` })),
-      h('p', { class: 'hint', text: `${s.array_boxes} × ${type.label.replace(/, hang of \d+$/, '')}: ${fmt(s.level_db, 0)} dB peak at 1 m, ${fmt(s.coverage_v, 0)}° vertical. Each box ${type.spec.box_spl} dB.` })) : null;
+      h('p', { class: 'hint', text: `${s.array_boxes} × ${type.label.replace(/, hang of \d+$/, '')}, ${len(s.array_boxes * (s.array_box_h || 0.3))} long, fanned over ${fmt(s.array_boxes * s.array_splay, 0)}°. Each box (${type.spec.box_spl} dB peak at 1 m) is computed on its own, so throw, the narrowing beam and the low-frequency build-up come from how the boxes add up.` }),
+      s.array_boxes * (s.array_box_h || 0.3) / 2 > s.z
+        ? h('p', { class: 'hint warn', text: `The hang is longer than twice its height above the floor: its lower boxes would be below the floor. Raise it to at least ${len(s.array_boxes * (s.array_box_h || 0.3) / 2 + 0.2)}.` }) : null) : null;
     const mates = s.array_group ? P().speakers.filter((q) => q.array_group === s.array_group) : [];
     const subArray = mates.length > 1 ? group('Sub array',
       h('p', { class: 'hint', text: `One of ${mates.length} boxes in an array. Processor output: ${fmt(s.delay_ms + s.array_delay_ms, 2)} ms (alignment ${fmt(s.delay_ms, 2)} + pattern ${fmt(s.array_delay_ms, 2)})${s.invert !== s.array_invert ? ', polarity inverted' : ''}. The optimizer moves the whole array together and never changes the pattern. The pattern was worked out for the boxes where they were built: if you move one, rebuild the array.` }),

@@ -41,7 +41,7 @@ strict Content-Security-Policy.
   L-Acoustics, d&b audiotechnik, Meyer Sound and Bose, plus generic types. Coverage, max SPL and
   low-frequency limit come from the manufacturer datasheets (each entry links to its source); figures that
   could not be confirmed are marked *approx.* Pattern-control frequency and the high-pass corner are
-  estimated by fixed rules, and the app says so. Line-array hangs take a box count and splay.
+  estimated by fixed rules, and the app says so. Line-array hangs take a box count and splay, and each box is modelled.
   There is no open, checked dataset of thousands of PA loudspeakers, so the library grows by hand; add your
   own models with **Import list…** (CSV or JSON; download the template from the Speakers tab) or
   **Save as my model**.
@@ -96,8 +96,10 @@ This aligns a saved project without the window. It writes `venue.optimized.apo.j
 Limits worth knowing:
 
 - The room is a box. An imported scan sets its size and is shown in 3D; it does not change the acoustics.
-- A line-array hang is one source with the hang's combined coverage and level. Its boxes are drawn in the
-  section for reference, not computed one by one.
+- In a line-array hang every box is computed for the direct sound (each a short line source on the hang's
+  curve), so the beam narrowing with frequency, the long throw and the low-frequency build-up come out of
+  the model. Reflections from a hang still use one combined source. Box heights come from the datasheets
+  (d&b V8 and Y8: the architect's-specification maximum; Meyer LEOPARD: estimated from its woofer size).
 - Outdoors, wind and temperature gradients are not modelled.
 
 It is a prediction from an idealised room and datasheet loudspeakers. Use it to plan and to get close, then

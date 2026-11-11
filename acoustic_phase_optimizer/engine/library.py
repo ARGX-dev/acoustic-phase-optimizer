@@ -45,6 +45,7 @@ class SpeakerRow(BaseModel):
     lf_db: Literal[-10, -6, -5, -3] | None = None
     hf_hz: float | None = Field(None, ge=40, le=24000)
     pattern_hz: float | None = Field(None, ge=50, le=10000)  # overrides the estimate when known
+    box_h_mm: float | None = Field(None, ge=80, le=1500)  # line-array box height (sets the hang's length)
     source: str = Field("", max_length=400)
     note: str = Field("", max_length=400)
     approximate: bool = False
@@ -89,6 +90,11 @@ def constant_curvature(row: SpeakerRow) -> bool:
     return row.kind == "element" and "constant-curvature" in row.note.lower()
 
 
+def box_height(row: SpeakerRow) -> float:
+    """Box height in metres: the datasheet figure, else a rule from the woofer size (8 in: 0.24 m, 15 in: 0.42 m)."""
+    return round(row.box_h_mm / 1000 if row.box_h_mm else 0.03 + row.woofer_in * 0.026, 3)
+
+
 def hang(row: SpeakerRow, boxes: int, splay: float) -> tuple[float, float]:
     """Level and vertical coverage of a hang of `boxes` elements at `splay` degrees between boxes."""
     peak = row.max_spl + _TO_PEAK[row.spl_basis]
@@ -105,8 +111,11 @@ def to_speaker_type(row: SpeakerRow) -> dict:
     if row.kind == "element":
         splay = row.coverage_v if constant_curvature(row) else min(3.0, row.coverage_v)
         level, cov_v = hang(row, DEFAULT_BOXES, splay)
-        extra = {"array_boxes": DEFAULT_BOXES, "array_splay": splay}
-        estimated.append("hang: level +10·log10(boxes), vertical = boxes × splay")
+        extra = {"array_boxes": DEFAULT_BOXES, "array_splay": splay, "array_box_h": box_height(row),
+                 "array_box_curve": row.coverage_v if constant_curvature(row) else 0.0}
+        estimated.append("hang reflections: one source, level +10·log10(boxes), vertical = boxes × splay")
+        if not row.box_h_mm:
+            estimated.append("box height (from the woofer size)")
     return {
         "id": row.id, "label": label, "brand": row.brand, "group": "My speakers" if row.user else row.brand,
         "coverage_h": row.coverage_h, "coverage_v": cov_v, "level_db": min(160.0, level),

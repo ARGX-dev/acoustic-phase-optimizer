@@ -238,10 +238,10 @@ function uniqueName(p, base) {
   return base;
 }
 
-const TYPE_FIELDS = ['coverage_h', 'coverage_v', 'level_db', 'hp_hz', 'lp_hz', 'directivity_hz', 'role', 'array_boxes', 'array_splay'];
+const TYPE_FIELDS = ['coverage_h', 'coverage_v', 'level_db', 'hp_hz', 'lp_hz', 'directivity_hz', 'role', 'array_boxes', 'array_splay', 'array_box_h', 'array_box_curve'];
 /** The acoustic settings a speaker type puts on a speaker (never its label, brand or datasheet notes). */
 export function typeFields(type) {
-  return { array_boxes: 0, array_splay: 0, ...Object.fromEntries(TYPE_FIELDS.filter((k) => k in type).map((k) => [k, type[k]])) };
+  return { array_boxes: 0, array_splay: 0, array_box_h: 0, array_box_curve: 0, ...Object.fromEntries(TYPE_FIELDS.filter((k) => k in type).map((k) => [k, type[k]])) };
 }
 
 /** A line-array hang's level and vertical coverage from its box spec (same rule as engine/library.py). */
