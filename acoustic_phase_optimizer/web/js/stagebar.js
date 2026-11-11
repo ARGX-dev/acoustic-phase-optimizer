@@ -9,10 +9,21 @@ const BANDS = [['all', 'All'], ['63', '63'], ['125', '125'], ['250', '250'], ['5
 export function createStageBar(bar, stageRoot) {
   let view3d = null;
   let loading = null;
+  let section = null;
+  let sectionLoading = null;
 
   async function applyView() {
     const want3d = state.ui.view === '3d';
-    stageRoot.classList.toggle('is-3d', want3d);
+    const wantSection = state.ui.view === 'section';
+    stageRoot.classList.toggle('is-3d', want3d || wantSection);
+    if (!wantSection) section?.hide();
+    if (wantSection) {
+      view3d?.hide();
+      sectionLoading ??= import('./section.js').then((m) => m.createSection(stageRoot));
+      section = await sectionLoading;
+      if (state.ui.view === 'section') section.show();
+      return;
+    }
     if (!want3d) { view3d?.hide(); return; }
     if (!view3d) {
       loading ??= import('./view3d.js').then((m) => m.create3D(stageRoot)).catch((e) => {
@@ -37,9 +48,18 @@ export function createStageBar(bar, stageRoot) {
       h('select', { attrs: { 'aria-label': 'Frequency band' }, onchange: (e) => setUI({ band: e.target.value }) },
         BANDS.map(([v, t]) => h('option', { value: v, text: t, selected: state.ui.band === v })))) : null;
     const views = h('div', { class: 'seg', attrs: { role: 'group', 'aria-label': 'View' } },
-      [['plan', 'Plan'], ['3d', '3D']].map(([id, label]) =>
-        h('button', { text: label, attrs: { 'aria-pressed': String((state.ui.view || 'plan') === id) }, onclick: () => setUI({ view: id }) })));
-    bar.append(h('span', { class: 'title', text: 'Coverage' }), mapSel, band, h('span', { class: 'spacer' }), views);
+      [['plan', 'Plan', 'Floor plan (1)'], ['section', 'Section', 'Vertical slice through the probe (3)'], ['3d', '3D', 'Orbit the venue (2)']].map(([id, label, tip]) =>
+        h('button', { text: label, title: tip, attrs: { 'aria-pressed': String((state.ui.view || 'plan') === id) }, onclick: () => setUI({ view: id }) })));
+    const inSection = state.ui.view === 'section';
+    if (inSection) {
+      mapSel.disabled = true;
+      mapSel.value = 'direct';
+      mapSel.title = 'The section shows direct level; pick a band to look at one octave.';
+    }
+    const bandSel = inSection ? h('label', { class: 'band' }, h('span', { text: 'Band, Hz' }),
+      h('select', { attrs: { 'aria-label': 'Frequency band' }, onchange: (e) => setUI({ band: e.target.value }) },
+        BANDS.map(([v, t]) => h('option', { value: v, text: t, selected: state.ui.band === v })))) : band;
+    bar.append(h('span', { class: 'title', text: 'Coverage' }), mapSel, bandSel, h('span', { class: 'spacer' }), views);
   }
 
   on('ui', (patch) => {

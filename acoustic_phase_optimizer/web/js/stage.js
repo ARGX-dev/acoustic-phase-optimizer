@@ -20,7 +20,7 @@ export const MAPS = {
 
 export const mapKey = () => (MAPS[state.ui.map].bands && state.ui.band !== 'all' ? `direct_${state.ui.band}` : state.ui.map);
 
-function levelRange(values) {
+export function levelRange(values) {
   const v = values.filter((x) => x != null).sort((a, b) => a - b);
   if (!v.length) return [66, 78];
   const hi = Math.ceil(v[Math.min(v.length - 1, Math.floor(v.length * 0.985))]);
@@ -33,6 +33,11 @@ export function currentScale() {
   const [lo, hi] = def.range || levelRange(ref || []);
   return makeScale(def.kind, lo, hi);
 }
+
+// Another view (the section) can take over the footer while it is showing.
+let footOverride = null;
+let footRefresh = null;
+export function setFootOverride(fn) { footOverride = fn; footRefresh?.(); }
 
 export const shownSim = () => (state.ui.compare === 'before' && state.simBaseline ? state.simBaseline : state.sim);
 
@@ -430,6 +435,7 @@ export function createStage(root, foot) {
   // ------------------------------------------------------------------ footer
   function renderFoot() {
     clear(foot);
+    if (footOverride && state.ui.view === 'section') { foot.append(...footOverride()); return; }
     const def = MAPS[state.ui.map];
     const sim = shownSim();
     if (sim?.maps?.[mapKey()]) {
@@ -459,6 +465,7 @@ export function createStage(root, foot) {
 
   on('project sim selection probe ui theme', () => { schedule(); renderFoot(); });
   on('simstate', () => root.classList.toggle('busy', state.simBusy && !state.sim?.preview));
+  footRefresh = renderFoot;
   renderFoot();
   return { draw: schedule };
 }

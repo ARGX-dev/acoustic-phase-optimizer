@@ -223,6 +223,7 @@ document.addEventListener('keydown', (e) => {
     mutate((p) => { const s = p.speakers.find((x) => x.id === state.selection.id); if (s) s.mute = !s.mute; }, { structural: true });
   } else if (!mod && k === '1') setUI({ view: 'plan' });
   else if (!mod && k === '2') setUI({ view: '3d' });
+  else if (!mod && k === '3') setUI({ view: 'section' });
   else if (!mod && (e.key === '?' || (k === '/' && e.shiftKey))) { e.preventDefault(); showShortcuts(); }
   else if (!mod && e.key === 'Tab' && !e.altKey && document.activeElement === document.body) cycleSelection(e);
 });
@@ -266,7 +267,7 @@ const SHORTCUTS = [
   ['Ctrl+Z / Ctrl+Y', 'Undo / redo'], ['Ctrl+S', 'Save the venue'], ['Ctrl+D', 'Duplicate the selected speaker'],
   ['Delete', 'Delete the selection'], ['Arrow keys', 'Nudge 0.1 m (Shift: 1 m)'], ['R / Shift+R', 'Turn 5° right / left'],
   ['M', 'Mute or unmute the selected speaker'], ['Tab / Shift+Tab', 'Select the next / previous speaker or mic'],
-  ['Esc', 'Clear the selection'], ['1 / 2', 'Plan / 3D view'], ['Scroll, pinch', 'Zoom the plan'],
+  ['Esc', 'Clear the selection'], ['1 / 2 / 3', 'Plan / 3D / section view'], ['Scroll, pinch', 'Zoom the plan'],
   ['Right-drag, Space-drag', 'Pan the plan'], ['0', 'Fit the plan to the room'], ['Drag a field label', 'Scrub a number (Shift faster, Alt finer)'],
   ['Drag in 3D', 'Move a speaker or mic; orbit on empty space'],
 ];

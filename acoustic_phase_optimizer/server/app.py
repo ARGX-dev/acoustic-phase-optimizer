@@ -27,7 +27,7 @@ from ..engine.metrics import BANDS, Weights
 from ..engine.model import Project, Speaker
 from ..engine.optimize import auto_eq, deep_optimize, diff_speakers, evaluate, link_units, quick_align
 from ..engine.scanfit import fit_box
-from ..engine.simulate import point_response, room_report, simulate
+from ..engine.simulate import point_response, room_report, section, simulate
 from ..export import FORMATS
 from ..report import render_report
 from . import storage
@@ -48,6 +48,12 @@ class PointIn(ProjectIn):
     x: float
     y: float
     z: float | None = None
+
+
+class SectionIn(ProjectIn):
+    axis: Literal["length", "width"] = "length"
+    at: float | None = None
+    band: Literal["all", "63", "125", "250", "500", "1000", "2000", "4000", "8000"] = "all"
 
 
 class AutoEqIn(ProjectIn):
@@ -231,6 +237,10 @@ def create_app() -> FastAPI:
         result["advice"] = advise(result["metrics"], result["room"])
         result["units"] = [[body.project.speakers[i].id for i in u] for u in link_units(body.project)]
         return result
+
+    @app.post("/api/section")
+    def api_section(body: SectionIn) -> dict:
+        return section(body.project, body.axis, body.at, body.band)
 
     @app.post("/api/point")
     def api_point(body: PointIn) -> dict:

@@ -463,3 +463,25 @@ def test_presets_with_real_hangs_carry_box_counts():
     fest = presets.festival()
     assert fest.speakers[0].array_boxes == 8
     assert presets.stadium().speakers[0].array_boxes == 8
+
+
+def test_section_matches_plan_at_ear_height():
+    from acoustic_phase_optimizer.engine.simulate import section
+
+    p = presets.theater()
+    sim = simulate(p)
+    g = sim["grid"]
+    ix, iy = g["nx"] // 2, g["ny"] // 2
+    x = g["x0"] + (g["x1"] - g["x0"]) * ix / (g["nx"] - 1)
+    y = g["y0"] + (g["y1"] - g["y0"]) * iy / (g["ny"] - 1)
+    plan = sim["maps"]["direct"][iy * g["nx"] + ix]
+    sec = section(p, "length", x)
+    us = np.linspace(sec["u0"], sec["u1"], sec["nu"])
+    zs = np.linspace(sec["z0"], sec["z1"], sec["nz"])
+    iu, iz = int(np.argmin(abs(us - y))), int(np.argmin(abs(zs - p.audience.ear_height)))
+    assert abs(us[iu] - y) < 0.35 and abs(zs[iz] - p.audience.ear_height) < 0.35
+    val = sec["values"][iz * sec["nu"] + iu]
+    assert abs(val - plan) < 1.5, (val, plan)
+    assert sec["nu"] * sec["nz"] <= 5200
+    across = section(p, "width", y, "1000")
+    assert across["axis"] == "width" and len(across["values"]) == across["nu"] * across["nz"]

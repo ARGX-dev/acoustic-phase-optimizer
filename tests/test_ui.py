@@ -361,7 +361,7 @@ def test_venue_type_materials_and_air(ui):
     page.locator("input[aria-label='Audience occupancy']").fill("1")
     time.sleep(1.0)
     shot(page, "14-room-tab")
-    for _ in range(4):
+    for _ in range(5):
         page.locator("body").click(position={"x": 700, "y": 20})
         page.keyboard.press("Control+z")
     time.sleep(0.6)
@@ -446,6 +446,40 @@ def test_drag_a_speaker_in_3d(ui):
     time.sleep(0.6)
     back = (float(page.locator("input[aria-label='From stage']").input_value()), float(page.locator("input[aria-label='Across']").input_value()))
     assert moved != back, (moved, back, before)
+    page.locator("#stage-toolbar .seg button", has_text="Plan").click()
+
+
+def test_section_view_and_tilt_by_handle(ui):
+    page = ui["page"]
+    page.locator("#stage-toolbar .seg button", has_text="Section").click()
+    page.wait_for_selector(".section-view canvas")
+    page.wait_for_function("document.querySelector('#stage-foot .scale') !== null", timeout=20000)
+    time.sleep(0.5)
+    shot(page, "18-section")
+    page.locator(".section-buttons button", has_text="Across the room").click()
+    page.wait_for_function("!document.querySelector('#stage-foot .badge')", timeout=20000)
+    time.sleep(2.5)  # the theater slice takes about a second
+    shot(page, "19-section-across")
+    page.locator(".section-buttons button", has_text="Away from stage").click()
+    time.sleep(1.0)
+    # Select Hang L, then drag its aim handle upward: the tilt must change and undo in one step.
+    page.get_by_role("tab", name="Speakers").click()
+    page.locator(".row-list .row-item", has_text="Hang L").click()
+    pitch0 = float(page.locator("input[aria-label='Tilt']").input_value())
+    hx, hy = page.evaluate("""() => window.__apoSectionHandle?.('Hang L')""") or (None, None)
+    assert hx is not None
+    box = page.locator(".section-view canvas").bounding_box()
+    page.mouse.move(box["x"] + hx, box["y"] + hy)
+    page.mouse.down()
+    page.mouse.move(box["x"] + hx, box["y"] + hy - 40, steps=6)
+    page.mouse.up()
+    time.sleep(0.6)
+    pitch1 = float(page.locator("input[aria-label='Tilt']").input_value())
+    assert pitch1 > pitch0 + 5, (pitch0, pitch1)
+    page.locator("body").click(position={"x": 700, "y": 20})
+    page.keyboard.press("Control+z")
+    time.sleep(0.5)
+    assert float(page.locator("input[aria-label='Tilt']").input_value()) == pytest.approx(pitch0)
     page.locator("#stage-toolbar .seg button", has_text="Plan").click()
 
 

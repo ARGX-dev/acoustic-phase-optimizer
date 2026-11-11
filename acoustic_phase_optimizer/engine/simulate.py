@@ -23,7 +23,7 @@ from .field import (
     speaker_field,
 )
 from .materials import OCTAVE_BANDS, room_stats, surface_alphas
-from .metrics import BANDS, analyse, arrivals, band_levels, db, smooth, spl, summarise, tone_floor
+from .metrics import BANDS, F_HI, F_LO, analyse, arrivals, band_levels, db, smooth, spl, summarise, tone_floor
 from .model import Project
 
 F_LO, F_HI = 100.0, 10000.0
@@ -83,6 +83,66 @@ def simulate(project: Project, preview: bool = False) -> dict:
         out["mics"].append({"id": m.id, "spl": _r(spl(smooth(total[p], freqs, 6.0)), 2)})
     out["timing"] = {"field_ms": round(t_field * 1000, 1), "total_ms": round((time.perf_counter() - t0) * 1000, 1)}
     return out
+
+
+SECTION_MAX_POINTS = 3200
+
+
+def section(project: Project, axis: str = "length", at: float | None = None, band: str = "all") -> dict:
+    """Direct level (direct sound + early reflections, as in the plan's Direct map) on a vertical slice.
+
+    axis="length": the slice runs away from the stage at `at` metres across the room.
+    axis="width": the slice runs across the room at `at` metres from the stage.
+    Columns run along the slice, rows run from the floor up.
+    """
+    t0 = time.perf_counter()
+    room = project.room
+    if axis == "length":
+        span = room.length
+        at = float(np.clip(room.width / 2 if at is None else at, 0.0, room.width))
+    else:
+        span = room.width
+        at = float(np.clip(room.length / 2 if at is None else at, 0.0, room.length))
+    step = max(0.1, float(np.sqrt(span * room.height / SECTION_MAX_POINTS)))
+    nu = max(2, int(span / step) + 1)
+    nz = max(2, int(room.height / step) + 1)
+    us = np.linspace(0.05, span - 0.05, nu)
+    zs = np.linspace(0.05, room.height - 0.05, nz)
+    U, Z = np.meshgrid(us, zs)  # (nz, nu): row = height
+    if axis == "length":
+        pts = np.column_stack([np.full(U.size, at), U.ravel(), Z.ravel()])
+    else:
+        pts = np.column_stack([U.ravel(), np.full(U.size, at), Z.ravel()])
+    ctx = make_context(project)
+    freqs = ctx.freqs
+    w = dsp_weights(project.speakers, freqs)
+    coh = np.zeros((len(pts), len(freqs)), np.complex64)
+    live = [i for i, s in enumerate(project.speakers) if not s.mute]
+    chunks = np.array_split(np.arange(len(pts)), min(8, max(1, len(pts) // 300)))
+
+    def work(job):
+        i, rows = job
+        return rows, speaker_field(project.speakers[i], pts[rows], ctx).H * w[i].astype(np.complex64)[None, :]
+
+    from concurrent.futures import ThreadPoolExecutor
+
+    with ThreadPoolExecutor(max_workers=8) as ex:
+        for rows, part in ex.map(work, [(i, r) for i in live for r in chunks]):
+            coh[rows] += part
+    early = coh.real ** 2 + coh.imag ** 2
+    if band == "all":
+        sel = (freqs >= F_LO) & (freqs <= F_HI)
+    else:
+        fc = float(band)
+        sel = (freqs >= fc / np.sqrt(2)) & (freqs < fc * np.sqrt(2))
+    level = spl(early[:, sel].mean(1)) if sel.any() else np.full(len(pts), np.nan)
+    return {
+        "axis": axis, "at": round(at, 2), "band": band,
+        "nu": nu, "nz": nz, "u0": float(us[0]), "u1": float(us[-1]), "z0": float(zs[0]), "z1": float(zs[-1]),
+        "span": span, "height": room.height,
+        "values": _r(level, 1),
+        "timing_ms": round((time.perf_counter() - t0) * 1000, 1),
+    }
 
 
 def point_response(project: Project, x: float, y: float, z: float | None = None, ppo: int = 48) -> dict:

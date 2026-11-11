@@ -37,7 +37,7 @@ export const state = {
   dirty: false,
   savedName: null, // the name this venue was last saved under, if it ever was
   ui: {
-    tab: 'room', map: 'direct', band: 'all', compare: 'after', view: 'plan',
+    tab: 'room', map: 'direct', band: 'all', compare: 'after', view: 'plan', sectionAxis: 'length',
     source: 'probe', chart: 'magnitude', table: false,
     weights: { ...DEFAULT_WEIGHTS }, eqBands: 5, budget: 15,
   },
