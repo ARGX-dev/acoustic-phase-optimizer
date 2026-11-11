@@ -162,3 +162,54 @@ export async function gltfToGlb(gltfFile, others = []) {
   const name = gltfFile.name.replace(/\.gltf$/i, '') + '.glb';
   return { file: new File(parts, name, { type: 'model/gltf-binary' }), missing };
 }
+
+// ------------------------------------------------------------------ compressed glTF / GLB
+const LIBS = new URL('../vendor/three/examples/jsm/libs/', import.meta.url).href;
+
+/** The JSON part of a GLB (or a .gltf text), to see which extensions a file needs before loading it. */
+function gltfJson(data) {
+  try {
+    if (typeof data === 'string') return JSON.parse(data);
+    const v = new DataView(data);
+    if (v.getUint32(0, true) !== 0x46546c67) return JSON.parse(new TextDecoder().decode(data));
+    const len = v.getUint32(12, true);
+    return JSON.parse(new TextDecoder().decode(new Uint8Array(data, 20, len)));
+  } catch { return {}; }
+}
+
+/**
+ * Parse a GLB or .gltf, bringing in the decoders it needs: Draco and meshopt geometry, KTX2 (Basis) textures.
+ * Each decoder runs in WebAssembly, loaded only for a file that uses it.
+ */
+export async function parseGltf(data, manager) {
+  const { GLTFLoader } = await import('three/addons/loaders/GLTFLoader.js');
+  const used = new Set([...(gltfJson(data).extensionsUsed || [])]);
+  const loader = new GLTFLoader(manager);
+  const cleanup = [];
+  if (used.has('KHR_draco_mesh_compression')) {
+    const { DRACOLoader } = await import('three/addons/loaders/DRACOLoader.js');
+    const draco = new DRACOLoader(manager).setDecoderPath(`${LIBS}draco/gltf/`).setDecoderConfig({ type: 'wasm' });
+    loader.setDRACOLoader(draco);
+    cleanup.push(() => draco.dispose());
+  }
+  if (used.has('EXT_meshopt_compression')) {
+    const { MeshoptDecoder } = await import('three/addons/libs/meshopt_decoder.module.js');
+    loader.setMeshoptDecoder(MeshoptDecoder);
+  }
+  if (used.has('KHR_texture_basisu')) {
+    const { KTX2Loader } = await import('three/addons/loaders/KTX2Loader.js');
+    // the texture formats this GPU can show, asked of a throwaway renderer (the 3D view's uses the same GPU)
+    const renderer = new THREE.WebGLRenderer();
+    const ktx2 = new KTX2Loader(manager).setTranscoderPath(`${LIBS}basis/`).detectSupport(renderer);
+    renderer.dispose();
+    renderer.forceContextLoss();
+    loader.setKTX2Loader(ktx2);
+    cleanup.push(() => ktx2.dispose());
+  }
+  try {
+    const gltf = await new Promise((res, rej) => loader.parse(data, '', res, rej));
+    const root = gltf.scene || gltf.scenes?.[0];
+    if (!root) throw new Error('the file has no scene');
+    return root;
+  } finally { cleanup.forEach((f) => f()); }
+}

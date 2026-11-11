@@ -2,7 +2,6 @@
 // then store the file and keep only a small reference in the project. Loaded on demand with three.js.
 
 import * as THREE from 'three';
-import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
 import { PLYLoader } from 'three/addons/loaders/PLYLoader.js';
 import { api } from './api.js';
@@ -47,9 +46,6 @@ const SIDES = ['-y', '+x', '+y', '-x'];
 // ------------------------------------------------------------------ loading
 function friendly(e) {
   const m = String(e?.message || e);
-  if (/DRACO|Draco/i.test(m)) return 'This GLB uses Draco compression, which the app cannot read yet. Export it again without compression (in Polycam: GLB, "compress" off).';
-  if (/meshopt/i.test(m)) return 'This GLB uses meshopt compression, which the app cannot read yet. Export it again without compression.';
-  if (/KTX2|basis/i.test(m)) return 'This GLB uses compressed (KTX2) textures, which the app cannot read yet. Export it with ordinary textures.';
   return `The scan could not be read: ${m}`;
 }
 
@@ -81,9 +77,7 @@ export async function parseScan(buffer, ext) {
     return both(new FBXLoader(quietManager()).parse(buffer, ''));
   }
   if (ext === 'glb') {
-    const gltf = await new Promise((res, rej) => new GLTFLoader().parse(buffer, '', res, rej));
-    const root = gltf.scene || gltf.scenes?.[0];
-    if (!root) throw new Error('the file has no scene');
+    const root = await (await import('./formats.js')).parseGltf(buffer); // Draco, meshopt and KTX2 included
     root.traverse((o) => { if (o.isMesh) (Array.isArray(o.material) ? o.material : [o.material]).forEach((m) => { m.side = THREE.DoubleSide; }); });
     return root;
   }

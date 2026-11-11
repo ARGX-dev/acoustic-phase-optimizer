@@ -1155,3 +1155,25 @@ def test_import_usdz_and_gltf(ui, tmp_path):
     assert not page.locator(".toast", has_text="left plain").count()
     page.locator(".dialog .btn", has_text="Cancel").click()
     page.wait_for_selector(".dialog", state="detached", timeout=10000)
+
+
+def test_compressed_glb_draco_meshopt_ktx2(ui):
+    """Each decoder runs in WebAssembly (Draco and KTX2 in a worker) under the app's own content policy."""
+    import base64
+
+    page = ui["page"]
+    page.evaluate("window.__csp = []; document.addEventListener('securitypolicyviolation', e => window.__csp.push(e.violatedDirective + ' ' + e.blockedURI));")
+    for name in ("room_draco.glb", "room_meshopt.glb", "room_ktx2.glb"):
+        got = page.evaluate("""async (b64) => {
+            const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+            const THREE = await import('three');
+            const g = await (await import('/js/scan.js')).parseScan(bytes.buffer, 'glb');
+            const bb = new THREE.Box3().setFromObject(g);
+            let tex = null;
+            g.traverse((o) => { if (o.isMesh && o.material.map) tex = [o.material.map.image?.width, o.material.map.isCompressedTexture || false]; });
+            return { min: bb.min.toArray(), max: bb.max.toArray(), tex };
+        }""", base64.b64encode((FIXTURES / name).read_bytes()).decode())
+        assert got["min"] == pytest.approx([0, 0, 0], abs=0.01) and got["max"] == pytest.approx([12, 5, 20], abs=0.01), (name, got)
+        if name == "room_ktx2.glb":
+            assert got["tex"] and got["tex"][0] == 128, got  # the Basis texture was transcoded
+    assert page.evaluate("window.__csp") == []

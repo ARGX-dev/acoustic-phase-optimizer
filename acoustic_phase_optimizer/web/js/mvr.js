@@ -8,7 +8,7 @@
 // loaders for the geometry. Nothing in the archive is executed or fetched from outside it.
 
 import * as THREE from 'three';
-import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { parseGltf } from './formats.js';
 import { TDSLoader } from 'three/addons/loaders/TDSLoader.js';
 
 const MAX_ENTRIES = 20000;
@@ -138,9 +138,7 @@ export async function parseMvr(buffer) {
       }
       if (ext === 'glb' || ext === 'gltf') {
         const src = ext === 'gltf' ? new TextDecoder().decode(data) : data;
-        const gltf = await new Promise((res, rej) => new GLTFLoader(manager).parse(src, '', res, rej));
-        const root = gltf.scene || gltf.scenes?.[0];
-        if (!root) return null;
+        const root = await parseGltf(src, manager);
         // glTF is metres, Y up: turn it into MVR's millimetres, Z up.
         const holder = new THREE.Group();
         holder.add(root);

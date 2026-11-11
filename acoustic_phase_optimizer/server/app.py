@@ -7,6 +7,7 @@ there is nothing to get out of sync between the UI and the engine.
 from __future__ import annotations
 
 import json
+import mimetypes
 import threading
 import time
 from pathlib import Path
@@ -160,7 +161,8 @@ def content_security_policy() -> str:
     ]
     return "; ".join([
         "default-src 'self'",
-        "script-src 'self' " + " ".join(hashes),
+        # wasm-unsafe-eval lets the decoders (Draco, KTX2, IFC, STEP...) compile WebAssembly; JavaScript eval stays blocked
+        "script-src 'self' 'wasm-unsafe-eval' " + " ".join(hashes),
         "style-src 'self' 'unsafe-inline'",  # element.style from the UI code
         "img-src 'self' data: blob:",
         "connect-src 'self' blob:",  # GLTFLoader fetches embedded textures through blob: URLs
@@ -529,5 +531,7 @@ def create_app() -> FastAPI:
         storage.save_session(body.model_dump())
         return {"ok": True}
 
+    # WebAssembly must be served as application/wasm; a Windows registry entry can say otherwise
+    mimetypes.add_type("application/wasm", ".wasm")
     app.mount("/", StaticFiles(directory=WEB_DIR, html=True), name="web")
     return app
