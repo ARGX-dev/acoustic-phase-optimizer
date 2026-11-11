@@ -180,13 +180,13 @@
    "coverage_h": 80,
    "coverage_v": 50,
    "max_spl": 134,
-   "lf_hz": 60,
-   "lf_db": null,
+   "lf_hz": 50,
+   "lf_db": -5,
    "hf_hz": null,
    "source": "https://www.dbaudio.com/assets/products/downloads/architectural-specifications/dbaudio-arch-specs-e12-en.txt",
-   "note": "Low-frequency limit not confirmed; 60 Hz is an estimate.",
+   "note": "d&b architect's specification: 80° x 50° (rotatable), at least 134 dB, 50 Hz to 18 kHz (-5 dB).",
    "spl_basis": "peak",
-   "approximate": true
+   "approximate": false
   },
   {
    "id": "meyer_upj1p",
@@ -422,9 +422,9 @@
    "lf_db": -10,
    "hf_hz": null,
    "source": "https://www.qscaudio.com/resource-files/productresources/spk/k.2/q_spk_k2_specs.pdf",
-   "note": "Peak SPL not yet confirmed on QSC's spec sheet.",
+   "note": "QSC K.2 spec sheet: 105° axisymmetric, 128 dB peak (dynamic pink noise, 1 m), 59 Hz (-6 dB) / 55 Hz (-10 dB).",
    "spl_basis": "peak",
-   "approximate": true
+   "approximate": false
   },
   {
    "id": "qsc_k10_2",
@@ -439,9 +439,9 @@
    "lf_db": -10,
    "hf_hz": null,
    "source": "https://www.qscaudio.com/resource-files/productresources/spk/k.2/q_spk_k2_specs.pdf",
-   "note": "Peak SPL not yet confirmed on QSC's spec sheet.",
+   "note": "QSC K.2 spec sheet: 90° axisymmetric, 130 dB peak (dynamic pink noise, 1 m), 56 Hz (-6 dB) / 50 Hz (-10 dB).",
    "spl_basis": "peak",
-   "approximate": true
+   "approximate": false
   },
   {
    "id": "jbl_prx908",
@@ -500,16 +500,16 @@
    "model": "SRX812P",
    "kind": "point",
    "woofer_in": 12,
-   "coverage_h": 60,
-   "coverage_v": 40,
+   "coverage_h": 90,
+   "coverage_v": 50,
    "max_spl": 136,
    "lf_hz": 40,
    "lf_db": -10,
    "hf_hz": null,
    "source": "https://goknight.com/content/documentation/SRX812P_Datasheet.pdf",
-   "note": "Coverage not confirmed; 60° × 40° is a best reading.",
+   "note": "JBL SRX800 datasheet: 90° x 50°, 136 dB max SPL, 40 Hz - 21 kHz (-10 dB).",
    "spl_basis": "peak",
-   "approximate": true
+   "approximate": false
   },
   {
    "id": "jbl_srx818sp",
@@ -626,9 +626,9 @@
    "lf_db": -10,
    "hf_hz": 150,
    "source": "https://markertek.com/Attachments/Specifications/Yamaha/YMH-DXS15XLF-D_Specifications.pdf",
-   "note": "Max SPL read from an ambiguous Yamaha table.",
+   "note": "Yamaha spec sheet: 136 dB SPL peak (pink noise, 1 m), 33 Hz - 150 Hz (-10 dB).",
    "spl_basis": "peak",
-   "approximate": true
+   "approximate": false
   },
   {
    "id": "ev_ekx18sp",
@@ -774,12 +774,12 @@
    "woofer_in": 10,
    "coverage_h": 80,
    "coverage_v": 10,
-   "max_spl": 142,
-   "lf_hz": 60,
-   "lf_db": null,
+   "max_spl": 139,
+   "lf_hz": 67,
+   "lf_db": -5,
    "hf_hz": null,
-   "source": "https://www.dbaudio.com/global/en/products/series/v-series/v8/",
-   "note": "Low limit not found; 60 Hz is an estimate.",
+   "source": "https://www.dbaudio.com/assets/products/downloads/architectural-specifications/dbaudio-arch-specs-v8-en.txt",
+   "note": "d&b architect's specification: 80° horizontal, at least 139 dB, 67 Hz to 18 kHz (-5 dB). Vertical coverage per box is set by the 0-14° splay; 10° is an estimate.",
    "spl_basis": "peak",
    "approximate": true
   },
@@ -792,11 +792,11 @@
    "coverage_h": 80,
    "coverage_v": 10,
    "max_spl": 139,
-   "lf_hz": 65,
-   "lf_db": null,
+   "lf_hz": 54,
+   "lf_db": -5,
    "hf_hz": null,
-   "source": "https://www.dbaudio.com/global/en/products/series/y-series/y8/",
-   "note": "Low limit not found; 65 Hz is an estimate.",
+   "source": "https://www.dbaudio.com/assets/products/downloads/architectural-specifications/dbaudio-arch-specs-y8-en.txt",
+   "note": "d&b architect's specification: 80° horizontal, at least 139 dB, 54 Hz to 19 kHz (-5 dB). Vertical coverage per box is set by the 0-14° splay; 10° is an estimate.",
    "spl_basis": "peak",
    "approximate": true
   }
