@@ -82,6 +82,41 @@ def delete_project(key: str) -> bool:
     return False
 
 
+SCAN_TYPES = {"glb": "model/gltf-binary", "obj": "text/plain", "ply": "application/octet-stream"}
+MAX_SCAN_BYTES = 300 * 1024 * 1024
+
+
+def _scan_path(scan_id: str, ext: str) -> Path:
+    if not re.fullmatch(r"[0-9a-f]{16,64}", scan_id) or ext not in SCAN_TYPES:
+        raise ValueError("bad scan reference")
+    folder = data_dir() / "scans"
+    folder.mkdir(exist_ok=True)
+    return folder / f"{scan_id}.{ext}"
+
+
+def save_scan(data: bytes, ext: str) -> dict:
+    import hashlib
+
+    scan_id = hashlib.sha256(data).hexdigest()[:32]
+    path = _scan_path(scan_id, ext)
+    if not path.exists():
+        _write_bytes(path, data)
+    return {"id": scan_id, "ext": ext, "bytes": len(data)}
+
+
+def scan_file(scan_id: str, ext: str) -> Path:
+    path = _scan_path(scan_id, ext)
+    if not path.exists():
+        raise FileNotFoundError(scan_id)
+    return path
+
+
+def _write_bytes(path: Path, data: bytes) -> None:
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_bytes(data)
+    os.replace(tmp, path)
+
+
 def save_session(payload: dict) -> None:
     _write(data_dir() / "session.json", json.dumps(payload))
 

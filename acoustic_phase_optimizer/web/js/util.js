@@ -95,6 +95,8 @@ const ICONS = {
   table: 'M4 5h16v14H4zM4 10h16M4 15h16M10 5v14',
   x: 'M6 6l12 12M18 6 6 18',
   lock: 'M7 11V8a5 5 0 0 1 10 0v3M6 11h12a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1v-8a1 1 0 0 1 1-1z',
+  cube: 'M12 2 3 7v10l9 5 9-5V7l-9-5zM3 7l9 5 9-5M12 12v10',
+  search: 'M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14zm9 3-4.35-4.35',
 };
 
 export function icon(name) {

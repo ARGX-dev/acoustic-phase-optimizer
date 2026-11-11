@@ -234,6 +234,59 @@ def test_map_picker_and_3d_view(ui):
     assert page.locator("#stage canvas.plan").is_visible()
 
 
+def room_obj(path: Path, w=12.0, l=20.0, h=5.0, yaw_deg=30.0) -> Path:
+    """An OBJ 'scan' of a plain room: six inward faces, rotated, y-up like a phone app export."""
+    import math
+
+    a = math.radians(yaw_deg)
+    corners = [(x, y, z) for z in (0, h) for y in (0, l) for x in (0, w)]
+    def place(p):  # rotate about the vertical, then convert z-up -> y-up (x, z, -y)
+        x, y, z = p
+        xr, yr = x * math.cos(a) - y * math.sin(a), x * math.sin(a) + y * math.cos(a)
+        return xr + 2, z, -(yr - 3)
+    verts = [("v {:.4f} {:.4f} {:.4f}".format(*place(c))) for c in corners]
+    quads = [(1, 2, 4, 3), (5, 7, 8, 6), (1, 5, 6, 2), (3, 4, 8, 7), (1, 3, 7, 5), (2, 6, 8, 4)]
+    faces = [line for a_, b, c, d in quads for line in (f"f {a_} {b} {c}", f"f {a_} {c} {d}")]
+    path.write_text("\n".join(verts + faces) + "\n")
+    return path
+
+
+def test_import_scan_sets_the_room(ui, tmp_path):
+    page = ui["page"]
+    page.get_by_role("tab", name="Room").click()
+    with page.expect_file_chooser() as fc:
+        page.get_by_role("button", name="Import a 3D scan…").click()
+    fc.value.set_files(str(room_obj(tmp_path / "hall.obj")))
+    page.wait_for_selector(".dialog .scan-preview", timeout=20000)
+    page.wait_for_function("document.querySelector('.dialog [aria-label=\"Stage to back\"]').value !== ''", timeout=20000)
+    time.sleep(0.5)
+    shot(page, "09-scan-dialog")
+    dims = sorted(float(page.locator(f".dialog [aria-label='{k}']").input_value()) for k in ("Stage to back", "Width"))
+    assert dims == pytest.approx([12.0, 20.0], abs=0.4)
+    assert float(page.locator(".dialog [aria-label='Height']").input_value()) == pytest.approx(5.0, abs=0.2)
+    page.locator(".dialog .btn.primary").click()
+    page.wait_for_selector(".dialog", state="detached", timeout=20000)
+    page.wait_for_selector(".view3d canvas", timeout=15000)
+    time.sleep(2.5)
+    shot(page, "10-scan-3d")
+    page.locator(".view-buttons button", has_text="3D").click()
+    time.sleep(1.2)
+    shot(page, "11-scan-orbit")
+    page.get_by_role("tab", name="Room").click()
+    assert page.locator(".scan-card .name").inner_text() == "hall"
+    length = float(page.locator("input[aria-label='Stage to back']").first.input_value())
+    assert length == pytest.approx(20.0, abs=0.4)
+    # undo removes the scan and restores the room; redo brings it back
+    page.locator("body").click(position={"x": 700, "y": 20})
+    page.keyboard.press("Control+z")
+    time.sleep(0.8)
+    assert page.locator(".scan-card").count() == 0
+    page.keyboard.press("Control+y")
+    time.sleep(0.8)
+    assert page.locator(".scan-card").count() == 1
+    page.locator("#stage-toolbar .seg button", has_text="Plan").click()
+
+
 def test_delete_saved_and_discard_prompt(ui):
     page = ui["page"]
     ui["dialogs"].clear()

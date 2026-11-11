@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Literal
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse, JSONResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -24,6 +24,7 @@ from ..engine.materials import MATERIALS
 from ..engine.metrics import BANDS, Weights
 from ..engine.model import Project, Speaker
 from ..engine.optimize import auto_eq, deep_optimize, diff_speakers, evaluate, link_units, quick_align
+from ..engine.scanfit import fit_box
 from ..engine.simulate import point_response, room_report, simulate
 from ..export import FORMATS
 from ..report import render_report
@@ -63,6 +64,11 @@ class ExportIn(ProjectIn):
 
 class ReportIn(ProjectIn):
     baseline: Project | None = None
+
+
+class ScanFitIn(BaseModel):
+    points: list[float] = Field(max_length=3 * 120_000)  # flat x, y, z (metres, z up)
+    normals: list[float] | None = Field(None, max_length=3 * 120_000)
 
 
 class SessionIn(BaseModel):
@@ -247,6 +253,45 @@ def create_app() -> FastAPI:
     @app.post("/api/report", response_class=HTMLResponse)
     def api_report(body: ReportIn) -> str:
         return render_report(body.project, body.baseline)
+
+    # ------------------------------------------------------------------------ scans
+    @app.post("/api/scans")
+    async def api_scan_upload(request: Request, ext: str) -> dict:
+        ext = ext.lower().lstrip(".")
+        if ext not in storage.SCAN_TYPES:
+            raise HTTPException(415, "Scans can be GLB, OBJ or PLY files.")
+        size = int(request.headers.get("content-length") or 0)
+        if size > storage.MAX_SCAN_BYTES:
+            raise HTTPException(413, f"The scan is {size / 1e6:.0f} MB; the limit is {storage.MAX_SCAN_BYTES // 1_000_000} MB.")
+        data = bytearray()
+        async for chunk in request.stream():
+            data += chunk
+            if len(data) > storage.MAX_SCAN_BYTES:
+                raise HTTPException(413, f"The scan is larger than {storage.MAX_SCAN_BYTES // 1_000_000} MB.")
+        if len(data) < 64:
+            raise HTTPException(422, "The file is empty.")
+        return storage.save_scan(bytes(data), ext)
+
+    @app.get("/api/scans/{scan_id}.{ext}")
+    def api_scan_file(scan_id: str, ext: str) -> FileResponse:
+        try:
+            path = storage.scan_file(scan_id, ext)
+        except (FileNotFoundError, ValueError):
+            raise HTTPException(404, "Scan not found. It may have been made on another computer.") from None
+        return FileResponse(path, media_type=storage.SCAN_TYPES[ext], headers={"Cache-Control": "max-age=31536000, immutable"})
+
+    @app.post("/api/scan-fit")
+    def api_scan_fit(body: ScanFitIn) -> dict:
+        import numpy as np
+
+        pts = np.asarray(body.points, dtype=float)
+        if len(pts) % 3:
+            raise HTTPException(422, "points must be x, y, z triples")
+        nrm = np.asarray(body.normals, dtype=float).reshape(-1, 3) if body.normals else None
+        try:
+            return fit_box(pts.reshape(-1, 3), nrm)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from None
 
     # ---------------------------------------------------------------------- storage
     @app.get("/api/projects")

@@ -10,6 +10,8 @@ import { on, select, setProbe, state } from './store.js';
 import { clamp, clear, fmt, h } from './util.js';
 import { cssVar, isDark, seriesColor } from './theme.js';
 import { currentScale, heatImage, mapKey, MAPS, shownSim, valueAt } from './stage.js';
+import { scanObject as loadScan } from './scan.js';
+import { toast } from './util.js';
 
 const P = (x, y, z) => new THREE.Vector3(y, z, x);
 const toRoom = (v) => ({ x: v.z, y: v.x, z: v.y });
@@ -45,6 +47,7 @@ export function create3D(root) {
   renderer.toneMapping = THREE.NeutralToneMapping; // keeps the map and speaker colours true
   renderer.toneMappingExposure = 1.0;
   renderer.shadowMap.enabled = true;
+  renderer.localClippingEnabled = true; // cut-away of the scan's near walls and ceiling
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   host.prepend(renderer.domElement);
   renderer.domElement.setAttribute('aria-label', '3D view of the venue. Drag to orbit, scroll to zoom, right-drag to pan. Click the map to move the probe.');
@@ -75,6 +78,23 @@ export function create3D(root) {
   const pickables = []; // speaker and mic meshes
   const labelEls = [];
   let scanObject = null;
+  // Planes that slice away whichever scanned walls (and ceiling) stand between the camera and the room.
+  const OFF = 1e6;
+  const clip = {
+    back: new THREE.Plane(new THREE.Vector3(-1, 0, 0), OFF), front: new THREE.Plane(new THREE.Vector3(1, 0, 0), OFF),
+    right: new THREE.Plane(new THREE.Vector3(0, 0, -1), OFF), left: new THREE.Plane(new THREE.Vector3(0, 0, 1), OFF),
+    ceiling: new THREE.Plane(new THREE.Vector3(0, -1, 0), OFF),
+  };
+  const clipList = Object.values(clip);
+  function updateClip() {
+    const r = state.project.room, c = camera.position, inset = 0.45;
+    clip.back.constant = c.x > r.length ? r.length - inset : OFF;
+    clip.front.constant = c.x < 0 ? -inset : OFF;
+    clip.right.constant = c.z > r.width ? r.width - inset : OFF;
+    clip.left.constant = c.z < 0 ? -inset : OFF;
+    clip.ceiling.constant = c.y > r.height - 0.3 ? r.height - 0.3 : OFF;
+  }
+  let scanSig = '';
 
   const requestRender = () => { dirty = true; };
   controls.addEventListener('change', requestRender);
@@ -108,6 +128,7 @@ export function create3D(root) {
     const c = palette();
     scene.background = c.bg;
     disposeGroup(groups.room);
+    const showScan = !!(scanObject && state.project.scan?.visible !== false);
     const geo = new THREE.BoxGeometry(r.length, r.height, r.width);
     const mats = SURFACES.map(([key]) => {
       const base = key === 'front' ? c.stage : key === 'floor' ? c.floor : c.wall;
@@ -116,7 +137,7 @@ export function create3D(root) {
       const mid = a.length ? (a[2] + a[3] + a[4]) / 3 : 0.1;
       const col = base.clone().lerp(new THREE.Color(isDark() ? '#2b2a27' : '#b9b3a5'), clamp(mid, 0, 1) * 0.5);
       return new THREE.MeshStandardMaterial({ color: col, side: THREE.BackSide, roughness: 0.92, metalness: 0,
-        transparent: !!scanObject, opacity: scanObject ? 0.25 : 1, depthWrite: !scanObject });
+        transparent: showScan, opacity: showScan ? 0.18 : 1, depthWrite: !showScan });
     });
     const box = new THREE.Mesh(geo, mats);
     box.position.copy(P(r.width / 2, r.length / 2, r.height / 2));
@@ -435,6 +456,7 @@ export function create3D(root) {
     if (controls.update()) dirty = true;
     if (!dirty || W < 10 || H < 10) return;
     dirty = false;
+    if (scanObject) updateClip();
     renderer.render(scene, camera);
     placeLabels();
   }
@@ -457,7 +479,7 @@ export function create3D(root) {
   function refreshAll() {
     if (!state.project || !visible) return;
     const r = state.project.room;
-    const sig = JSON.stringify([r, state.project.audience, isDark(), !!scanObject, state.meta?.materials?.length]);
+    const sig = JSON.stringify([r, state.project.audience, isDark(), !!(scanObject && state.project.scan?.visible !== false), state.meta?.materials?.length]);
     if (sig !== roomSig) {
       roomSig = sig;
       buildRoom();
@@ -465,8 +487,29 @@ export function create3D(root) {
     }
     buildHeat();
     buildSpeakers();
-    if (scanObject) scanObject.visible = true;
+    syncScan();
     requestRender();
+  }
+
+  function syncScan() {
+    const ref = state.project.scan;
+    const sig = JSON.stringify(ref || null);
+    if (sig === scanSig) return;
+    scanSig = sig;
+    if (!ref) { if (scanObject) api3d.setScan(null); return; }
+    loadScan(ref).then((obj) => {
+      if (JSON.stringify(state.project.scan || null) !== sig) return; // changed while loading
+      obj.traverse((o) => {
+        if (!o.material) return;
+        (Array.isArray(o.material) ? o.material : [o.material]).forEach((m) => {
+          if (m.clippingPlanes !== clipList) { m.clippingPlanes = clipList; m.needsUpdate = true; }
+        });
+      });
+      if (obj !== scanObject) api3d.setScan(obj);
+      else { roomSig = ''; schedule(); }
+      if (!obj.visible && scanObject) roomSig = '';
+      requestRender();
+    }).catch((e) => toast(`The 3D scan could not be shown: ${e.message}`, { error: true }));
   }
 
   let pending = false;
@@ -478,7 +521,7 @@ export function create3D(root) {
   on('project sim selection probe ui theme', schedule);
   on('project', (d) => { if (d?.source === 'load') { fitted = false; roomSig = ''; } });
 
-  return {
+  const api3d = {
     show() {
       if (visible) return;
       visible = true;
@@ -494,7 +537,7 @@ export function create3D(root) {
     },
     /** Show an imported scan (a THREE.Object3D already placed in three.js space), or null to remove it. */
     setScan(obj) {
-      disposeGroup(groups.scan);
+      groups.scan.clear(); // detach only: scans are cached by file so undo/redo can bring them back instantly
       scanObject = obj;
       if (obj) groups.scan.add(obj);
       roomSig = '';
@@ -502,4 +545,5 @@ export function create3D(root) {
     },
     flyTo,
   };
+  return api3d;
 }

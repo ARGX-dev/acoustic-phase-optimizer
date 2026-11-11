@@ -110,6 +110,24 @@ class Settings(BaseModel):
     link_symmetric: bool = True  # mirror-image pairs always receive identical DSP
 
 
+class ScanRef(BaseModel):
+    """An imported 3D scan, shown in the 3D view. The file lives in the data folder; only this reference travels.
+
+    To place it: convert to z-up metres (up axis, unit scale), then room = Rz(yaw_deg) @ p + t.
+    The acoustic model still uses the fitted box (Room); the scan is for looking at.
+    """
+
+    id: str = Field(pattern=r"^[0-9a-f]{16,64}$")
+    name: str = "scan"
+    ext: Literal["glb", "obj", "ply"]
+    up: Literal["y", "z"] = "y"
+    unit_scale: float = Field(1.0, gt=0, le=10)
+    yaw_deg: float = 0.0
+    t: tuple[float, float, float] = (0.0, 0.0, 0.0)
+    visible: bool = True
+    opacity: float = Field(1.0, ge=0.05, le=1)
+
+
 class Project(BaseModel):
     version: int = 2
     name: str = "Untitled venue"
@@ -120,6 +138,7 @@ class Project(BaseModel):
     mics: list[Mic] = Field(default_factory=list)
     settings: Settings = Field(default_factory=Settings)
     notes: str = ""
+    scan: ScanRef | None = None
 
     @model_validator(mode="after")
     def _clamp_audience(self) -> Project:

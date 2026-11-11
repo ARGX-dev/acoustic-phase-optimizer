@@ -332,3 +332,26 @@ table.data td:first-child { display: flex; align-items: center; gap: 6px; }
   .tab-body { max-height: none; }
 }
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+
+/* ----------------------------------------------------------------- dialogs */
+.backdrop { position: fixed; inset: 0; z-index: 150; background: rgba(0, 0, 0, 0.45); display: grid; place-items: center;
+  padding: 24px; animation: fade-in 0.14s ease-out; }
+.dialog { background: var(--surface); border: 1px solid var(--line-strong); border-radius: 12px; box-shadow: var(--shadow);
+  width: min(440px, 100%); max-height: calc(100vh - 48px); display: flex; flex-direction: column; animation: pop-in 0.16s ease-out; }
+.dialog.wide { width: min(920px, 100%); }
+.dialog-head { display: flex; align-items: center; gap: 8px; padding: 14px 16px 6px; }
+.dialog-head h2 { font-size: 15px; font-weight: 650; flex: 1; }
+.dialog-body { padding: 6px 16px 4px; overflow: auto; color: var(--ink-2); }
+.dialog-body p { margin-bottom: 6px; }
+.dialog-actions { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 16px 16px; }
+.btn.danger-solid { background: var(--critical); border-color: var(--critical); color: #fff; }
+.btn.danger-solid:hover:not(:disabled) { filter: brightness(1.08); background: var(--critical); }
+@keyframes fade-in { from { opacity: 0; } }
+@keyframes pop-in { from { opacity: 0; transform: translateY(6px) scale(0.985); } }
+.scan-dialog { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 18px; color: var(--ink); }
+.scan-preview { width: 100%; height: auto; border-radius: 8px; border: 1px solid var(--line); display: block; }
+.scan-card { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px;
+  background: var(--page); margin-bottom: 8px; }
+.scan-card svg { width: 16px; height: 16px; color: var(--accent); flex: none; }
+.scan-card .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+@media (max-width: 760px) { .scan-dialog { grid-template-columns: 1fr; } }

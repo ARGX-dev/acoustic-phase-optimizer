@@ -6,6 +6,7 @@ import {
   removeSpeaker, select, state, themeChanged, undo,
 } from './store.js';
 import { clear, download, h, icon, toast } from './util.js';
+import { ask, currentDialog } from './dialog.js';
 import { isDark, toggleTheme } from './theme.js';
 import { createStage } from './stage.js';
 import { createStageBar } from './stagebar.js';
@@ -59,12 +60,13 @@ const item = (label, run, { hint = null, ico = null, danger = false } = {}) =>
   ico ? icon(ico) : null, h('span', { class: 'grow', text: label }), hint ? h('small', { text: hint }) : null);
 
 // --------------------------------------------------------------- file actions
-function confirmDiscard() {
-  return !state.dirty || window.confirm('This venue has changes that are not saved. Continue and lose them?');
+async function confirmDiscard() {
+  return !state.dirty || ask('This venue has changes that are not saved. If you continue they will be lost.',
+    { title: 'Discard changes?', yes: 'Discard changes', danger: true });
 }
 
 async function openVenue(id) {
-  if (!confirmDiscard()) return;
+  if (!(await confirmDiscard())) return;
   try {
     loadProject(await api.venue(id));
     toast(id === 'blank' ? 'Started an empty room.' : `Loaded the ${state.project.name} example.`);
@@ -72,7 +74,7 @@ async function openVenue(id) {
 }
 
 async function openSaved(key) {
-  if (!confirmDiscard()) return;
+  if (!(await confirmDiscard())) return;
   try {
     loadProject(await api.loadProject(key), { saved: true });
     toast(`Opened ${state.project.name}.`);
@@ -86,7 +88,7 @@ async function saveVenue() {
     try {
       const existing = await api.projects();
       const clash = existing.find((p) => p.name.toLowerCase() === name.toLowerCase());
-      if (clash && !window.confirm(`A saved venue called "${clash.name}" already exists. Replace it?`)) return;
+      if (clash && !(await ask(`A saved venue called "${clash.name}" already exists. Saving will replace it.`, { title: 'Replace saved venue?', yes: 'Replace' }))) return;
     } catch (e) { /* listing is only a courtesy check */ }
   }
   try {
@@ -97,7 +99,7 @@ async function saveVenue() {
 }
 
 async function deleteSaved(p) {
-  if (!window.confirm(`Delete the saved venue "${p.name}"? This cannot be undone.`)) return;
+  if (!(await ask(`"${p.name}" will be deleted from this computer. This cannot be undone.`, { title: 'Delete saved venue?', yes: 'Delete', danger: true }))) return;
   try {
     await api.deleteProject(p.key);
     if (state.savedName && state.savedName.toLowerCase() === p.name.toLowerCase()) forgetSaved();
@@ -204,7 +206,7 @@ function editingText(e) {
 }
 
 document.addEventListener('keydown', (e) => {
-  if (!state.project) return;
+  if (!state.project || currentDialog()) return;
   const mod = e.ctrlKey || e.metaKey;
   const k = e.key.toLowerCase();
   if (mod && k === 's') { e.preventDefault(); saveVenue(); return; }

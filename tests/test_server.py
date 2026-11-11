@@ -38,12 +38,13 @@ def api(tmp_path_factory):
         try:
             with urllib.request.urlopen(req, timeout=60) as r:
                 payload = r.read()
-                return (r.status, dict(r.headers), payload.decode()) if raw else json.loads(payload)
+                return (r.status, dict(r.headers), payload.decode(errors="replace")) if raw else json.loads(payload)
         except urllib.error.HTTPError as e:
             if raw:
                 return e.code, dict(e.headers), e.read().decode()
             raise
 
+    call.port = port
     yield call
     server.should_exit = True
     thread.join(5)
@@ -205,3 +206,34 @@ def test_presence_stops_only_after_the_last_window_leaves(monkeypatch):
     assert not q.gone()
     clock[0] += 181
     assert q.gone()  # silent (crashed or killed) browser
+
+
+def test_scan_upload_fetch_and_fit(api):
+    from tests.test_scanfit import scanned_room
+
+    body = b"ply\nformat binary_little_endian 1.0\n" + bytes(range(256)) * 8
+    req = urllib.request.Request(f"http://127.0.0.1:{api.port}/api/scans?ext=ply", data=body, method="POST",
+                                 headers={"Content-Type": "application/octet-stream"})
+    with urllib.request.urlopen(req, timeout=30) as r:
+        ref = json.loads(r.read())
+    assert ref["ext"] == "ply" and ref["bytes"] == len(body)
+    status, headers, _ = api("GET", f"/api/scans/{ref['id']}.ply", raw=True)
+    assert status == 200
+    assert api("GET", "/api/scans/0123456789abcdef0123.ply", raw=True)[0] == 404
+    assert api("GET", "/api/scans/..%2F..%2Fsession.ply", raw=True)[0] == 404
+
+    bad = urllib.request.Request(f"http://127.0.0.1:{api.port}/api/scans?ext=exe", data=body, method="POST")
+    with pytest.raises(urllib.error.HTTPError) as e:
+        urllib.request.urlopen(bad, timeout=30)
+    assert e.value.code == 415
+
+    pts, nrm = scanned_room(n=8000)
+    fit = api("POST", "/api/scan-fit", {"points": pts.ravel().tolist(), "normals": nrm.ravel().tolist()})
+    assert set(fit["options"]) == {"-y", "+x", "+y", "-x"}
+    status, _, text = api("POST", "/api/scan-fit", {"points": [0.0] * 30}, raw=True)
+    assert status == 422 and "too few" in text
+
+    project = small()
+    project["scan"] = {"id": ref["id"], "ext": "ply", "name": "hall", "yaw_deg": 12.5, "t": [1, 2, 0]}
+    sim = api("POST", "/api/simulate", {"project": project, "preview": True})
+    assert sim["metrics"]  # a scan reference rides along without affecting the engine

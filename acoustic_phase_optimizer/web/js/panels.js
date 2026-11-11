@@ -4,7 +4,7 @@ import {
   addMic, addSpeaker, DEFAULT_WEIGHTS, duplicateSpeaker, editSpeaker, mirrorSpeaker, mutate, on, partnerOf,
   removeMic, removeSpeaker, select, setUI, speakerById, state,
 } from './store.js';
-import { clamp, clear, fmt, h, icon, uid } from './util.js';
+import { clamp, clear, fmt, h, icon, toast, uid } from './util.js';
 import { seriesColor } from './theme.js';
 
 const TABS = [['room', 'Room'], ['speakers', 'Speakers'], ['mics', 'Mics'], ['setup', 'Setup']];
@@ -98,6 +98,7 @@ export function createLeftPanel(root) {
     renderStats();
     const mats = state.meta.materials.map((m) => [m.id, m.name]);
     return [
+      scanGroup(),
       group('Room size',
         h('div', { class: 'grid3' },
           num('Stage to back', () => P().room.length, setIn(['room', 'length']), { min: 3, max: 300, step: 0.5, unit: 'm' }),
@@ -127,6 +128,31 @@ export function createLeftPanel(root) {
         return el;
       })()),
     ];
+  }
+
+  function scanGroup() {
+    const sc = P().scan;
+    const pick = () => import('./scan.js').then((m) => m.chooseScanFile()).catch((e) => toast(`Scan import is unavailable: ${e.message}`, { error: true }));
+    if (!sc) {
+      return group('3D scan',
+        h('button', { class: 'btn block', onclick: pick }, icon('cube'), 'Import a 3D scan…'),
+        h('p', { class: 'hint', text: 'GLB, OBJ or PLY from a LiDAR app (Polycam, Scaniverse, 3d Scanner App) or a laser scanner. The room size is measured from it.' }));
+    }
+    const setScan = (k) => (v, o) => mutate((p) => { if (p.scan) p.scan[k] = v; }, o);
+    const out = h('output', { text: `${Math.round(sc.opacity * 100)}%` });
+    const opacity = h('input', { type: 'range', min: 0.1, max: 1, step: 0.05, value: sc.opacity, attrs: { 'aria-label': 'Scan opacity' },
+      oninput: () => { out.textContent = `${Math.round(Number(opacity.value) * 100)}%`; setScan('opacity')(Number(opacity.value), LIVE); },
+      onchange: () => setScan('opacity')(Number(opacity.value), DONE) });
+    return group('3D scan',
+      h('div', { class: 'scan-card' }, icon('cube'), h('span', { class: 'name', text: sc.name }),
+        h('button', { class: 'btn small ghost', onclick: () => { setUI({ view: '3d' }); } }, 'View in 3D')),
+      check('Show the scan in 3D', () => P().scan?.visible !== false, setScan('visible')),
+      h('div', { class: 'slider-row' }, h('span', { text: 'Opacity' }), opacity, out),
+      h('div', { style: { display: 'flex', gap: '6px', marginTop: '8px' } },
+        h('button', { class: 'btn small', onclick: pick }, 'Replace…'),
+        h('span', { style: { flex: 1 } }),
+        h('button', { class: 'btn small danger', onclick: () => mutate((p) => { p.scan = null; }, { structural: true }) }, icon('trash'), 'Remove scan')),
+      h('p', { class: 'hint', text: 'The prediction uses the box below; adjust it if the scan was measured oddly.' }));
   }
 
   function renderStats() {

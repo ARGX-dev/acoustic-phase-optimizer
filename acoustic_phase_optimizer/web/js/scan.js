@@ -1,0 +1,336 @@
+// Importing a 3D scan (GLB, OBJ or PLY): read it in the browser, measure it, let the user confirm the room,
+// then store the file and keep only a small reference in the project. Loaded on demand with three.js.
+
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
+import { PLYLoader } from 'three/addons/loaders/PLYLoader.js';
+import { api } from './api.js';
+import { mutate, setUI } from './store.js';
+import { clamp, fmt, h, round, toast } from './util.js';
+import { cssVar } from './theme.js';
+import { openDialog } from './dialog.js';
+
+export const SCAN_EXTS = ['glb', 'obj', 'ply'];
+const MAX_BYTES = 300 * 1024 * 1024;
+const UNITS = [['1', 'metres'], ['0.01', 'centimetres'], ['0.001', 'millimetres'], ['0.3048', 'feet'], ['0.0254', 'inches']];
+const SIDES = ['-y', '+x', '+y', '-x'];
+
+// ------------------------------------------------------------------ loading
+function friendly(e) {
+  const m = String(e?.message || e);
+  if (/DRACO|Draco/i.test(m)) return 'This GLB uses Draco compression, which the app cannot read yet. Export it again without compression (in Polycam: GLB, "compress" off).';
+  if (/meshopt/i.test(m)) return 'This GLB uses meshopt compression, which the app cannot read yet. Export it again without compression.';
+  if (/KTX2|basis/i.test(m)) return 'This GLB uses compressed (KTX2) textures, which the app cannot read yet. Export it with ordinary textures.';
+  return `The scan could not be read: ${m}`;
+}
+
+/** Parse a scan file into a three.js object (native coordinates, whatever units the file uses). */
+export async function parseScan(buffer, ext) {
+  if (ext === 'glb') {
+    const gltf = await new Promise((res, rej) => new GLTFLoader().parse(buffer, '', res, rej));
+    const root = gltf.scene || gltf.scenes?.[0];
+    if (!root) throw new Error('the file has no scene');
+    root.traverse((o) => { if (o.isMesh) (Array.isArray(o.material) ? o.material : [o.material]).forEach((m) => { m.side = THREE.DoubleSide; }); });
+    return root;
+  }
+  if (ext === 'obj') {
+    const root = new OBJLoader().parse(new TextDecoder().decode(buffer));
+    root.traverse((o) => {
+      if (!o.isMesh) return;
+      const hasColor = !!o.geometry.attributes.color;
+      o.material = new THREE.MeshStandardMaterial({ color: hasColor ? 0xffffff : 0xb9b6ae, vertexColors: hasColor, roughness: 0.9, side: THREE.DoubleSide });
+      if (!o.geometry.attributes.normal) o.geometry.computeVertexNormals();
+    });
+    return root;
+  }
+  const geo = new PLYLoader().parse(buffer);
+  const hasColor = !!geo.attributes.color;
+  if (geo.index) {
+    if (!geo.attributes.normal) geo.computeVertexNormals();
+    return new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: hasColor ? 0xffffff : 0xb9b6ae, vertexColors: hasColor, roughness: 0.9, side: THREE.DoubleSide }));
+  }
+  return new THREE.Points(geo, new THREE.PointsMaterial({ size: 0.035, vertexColors: hasColor, color: hasColor ? 0xffffff : 0xb9b6ae, sizeAttenuation: true }));
+}
+
+/** Points spread evenly over the scanned surfaces (by area), with their normals; vertices for a bare point cloud. */
+export function samplePoints(root, max = 40000) {
+  root.updateMatrixWorld(true);
+  const tris = []; // per mesh: { pos, index, matrix, cum }
+  const clouds = [];
+  let total = 0;
+  const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3(), ab = new THREE.Vector3(), ac = new THREE.Vector3();
+  root.traverse((o) => {
+    const pos = o.geometry?.attributes?.position;
+    if (!pos) return;
+    if (o.isPoints) { clouds.push({ pos, matrix: o.matrixWorld }); return; }
+    if (!o.isMesh) return;
+    const index = o.geometry.index;
+    const n = index ? index.count / 3 : pos.count / 3;
+    const cum = new Float64Array(n);
+    for (let t = 0; t < n; t++) {
+      const i0 = index ? index.getX(3 * t) : 3 * t, i1 = index ? index.getX(3 * t + 1) : 3 * t + 1, i2 = index ? index.getX(3 * t + 2) : 3 * t + 2;
+      a.fromBufferAttribute(pos, i0).applyMatrix4(o.matrixWorld);
+      b.fromBufferAttribute(pos, i1).applyMatrix4(o.matrixWorld);
+      c.fromBufferAttribute(pos, i2).applyMatrix4(o.matrixWorld);
+      total += ab.subVectors(b, a).cross(ac.subVectors(c, a)).length() / 2;
+      cum[t] = total;
+    }
+    if (n) tris.push({ pos, index, matrix: o.matrixWorld, cum, start: total - cum[n - 1] });
+  });
+  const box = new THREE.Box3().setFromObject(root);
+  if (tris.length && total > 0) {
+    const pts = new Float32Array(max * 3), nrm = new Float32Array(max * 3);
+    for (let k = 0; k < max; k++) {
+      const r = Math.random() * total;
+      const m = tris.find((q) => r <= q.cum[q.cum.length - 1]) || tris.at(-1);
+      let lo = 0, hi = m.cum.length - 1; // binary search the triangle
+      while (lo < hi) { const mid = (lo + hi) >> 1; if (m.cum[mid] < r) lo = mid + 1; else hi = mid; }
+      const t = lo;
+      const i0 = m.index ? m.index.getX(3 * t) : 3 * t, i1 = m.index ? m.index.getX(3 * t + 1) : 3 * t + 1, i2 = m.index ? m.index.getX(3 * t + 2) : 3 * t + 2;
+      a.fromBufferAttribute(m.pos, i0).applyMatrix4(m.matrix);
+      b.fromBufferAttribute(m.pos, i1).applyMatrix4(m.matrix);
+      c.fromBufferAttribute(m.pos, i2).applyMatrix4(m.matrix);
+      let u = Math.random(), v = Math.random();
+      if (u + v > 1) { u = 1 - u; v = 1 - v; }
+      const p = a.clone().addScaledVector(ab.subVectors(b, a), u).addScaledVector(ac.subVectors(c, a), v);
+      const n = ab.clone().cross(ac).normalize();
+      pts.set([p.x, p.y, p.z], 3 * k);
+      nrm.set([n.x, n.y, n.z], 3 * k);
+    }
+    return { points: pts, normals: nrm, box };
+  }
+  const all = [];
+  for (const { pos, matrix } of clouds) for (let i = 0; i < pos.count; i++) all.push([pos, i, matrix]);
+  if (all.length < 100) throw new Error('the file has no surfaces or points');
+  const n = Math.min(max, all.length);
+  const pts = new Float32Array(n * 3);
+  for (let k = 0; k < n; k++) {
+    const [pos, i, matrix] = all[Math.floor((k / n) * all.length)];
+    a.fromBufferAttribute(pos, i).applyMatrix4(matrix);
+    pts.set([a.x, a.y, a.z], 3 * k);
+  }
+  return { points: pts, normals: null, box };
+}
+
+/** Native file coordinates -> z-up metres. glTF and most OBJ files are y-up. */
+function toZup(arr, up, scale, isNormal = false) {
+  if (!arr) return null;
+  const out = new Float32Array(arr.length);
+  const s = isNormal ? 1 : scale;
+  for (let i = 0; i < arr.length; i += 3) {
+    if (up === 'y') { out[i] = arr[i] * s; out[i + 1] = -arr[i + 2] * s; out[i + 2] = arr[i + 1] * s; } else { out[i] = arr[i] * s; out[i + 1] = arr[i + 1] * s; out[i + 2] = arr[i + 2] * s; }
+  }
+  return out;
+}
+
+/** The 4x4 matrix that places a scan in the three.js scene (room x, y, z drawn at three.js y, z, x). */
+export function scanMatrix(ref) {
+  const s = ref.unit_scale;
+  const U = ref.up === 'y' ? new THREE.Matrix4().set(1, 0, 0, 0, 0, 0, -1, 0, 0, 1, 0, 0, 0, 0, 0, 1) : new THREE.Matrix4();
+  const S = new THREE.Matrix4().makeScale(s, s, s);
+  const R = new THREE.Matrix4().makeRotationZ((ref.yaw_deg * Math.PI) / 180);
+  const T = new THREE.Matrix4().makeTranslation(ref.t[0], ref.t[1], ref.t[2]);
+  const A = new THREE.Matrix4().set(0, 1, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0, 0, 0, 1);
+  return A.multiply(T).multiply(R).multiply(S).multiply(U);
+}
+
+const loaded = new Map(); // scan id -> Promise<Object3D>
+/** The scan as a ready-to-add object, placed with the reference's transform. Cached per file. */
+export async function scanObject(ref) {
+  if (!loaded.has(ref.id)) {
+    loaded.set(ref.id, (async () => {
+      const res = await fetch(`/api/scans/${ref.id}.${ref.ext}`);
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || 'scan file missing');
+      const obj = await parseScan(await res.arrayBuffer(), ref.ext);
+      const holder = new THREE.Group();
+      holder.add(obj);
+      holder.matrixAutoUpdate = false;
+      obj.traverse((o) => { if (o.isMesh) o.receiveShadow = true; });
+      return holder;
+    })().catch((e) => { loaded.delete(ref.id); throw e; }));
+  }
+  const holder = await loaded.get(ref.id);
+  holder.matrix.copy(scanMatrix(ref));
+  holder.matrixWorldNeedsUpdate = true;
+  holder.visible = ref.visible !== false;
+  holder.traverse((o) => {
+    if (!o.material) return;
+    (Array.isArray(o.material) ? o.material : [o.material]).forEach((m) => {
+      m.transparent = ref.opacity < 1;
+      m.opacity = ref.opacity;
+      m.depthWrite = ref.opacity >= 1;
+    });
+  });
+  return holder;
+}
+
+// ------------------------------------------------------------- the import
+export async function importScan(file) {
+  const ext = (file.name.split('.').pop() || '').toLowerCase();
+  if (!SCAN_EXTS.includes(ext)) {
+    toast(ext === 'usdz' ? 'USDZ scans cannot be read yet. Export the scan as GLB or OBJ instead (Polycam, Scaniverse and 3d Scanner App all can).'
+      : 'Choose a GLB, OBJ or PLY file.', { error: true });
+    return;
+  }
+  if (file.size > MAX_BYTES) { toast(`That scan is ${Math.round(file.size / 1e6)} MB; the limit is 300 MB. Export it at a lower detail level.`, { error: true }); return; }
+  const busy = toast(`Reading ${file.name}…`, { ms: 60000 });
+  let raw, buffer;
+  try {
+    buffer = await file.arrayBuffer();
+    const obj = await parseScan(buffer, ext);
+    raw = samplePoints(obj);
+  } catch (e) {
+    busy.remove();
+    toast(friendly(e), { error: true });
+    return;
+  } finally { busy.remove(); }
+
+  const size = new THREE.Vector3();
+  raw.box.getSize(size);
+  const span = Math.max(size.x, size.y, size.z);
+  const choice = {
+    up: ext === 'ply' && size.z < size.y ? 'z' : 'y',
+    unit: span > 1500 ? '0.001' : span > 150 ? '0.01' : '1',
+    side: null, fit: null, dims: null, error: null,
+  };
+
+  const preview = h('canvas', { class: 'scan-preview', width: 520, height: 300, attrs: { 'aria-label': 'Top view of the scan with the fitted room. The stage is on the left.' } });
+  const status = h('p', { class: 'hint', attrs: { 'aria-live': 'polite' } });
+  const dimInputs = {};
+  const dimField = (key, label) => {
+    const input = h('input', { type: 'number', min: key === 'height' ? 1.6 : 1.1, max: 300, step: 0.1, attrs: { 'aria-label': label },
+      onchange: () => { choice.dims[key] = clamp(parseFloat(input.value) || choice.dims[key], 1.1, 300); draw(); } });
+    dimInputs[key] = input;
+    return h('label', { class: 'field' }, h('span', { text: label }), h('span', { class: 'input-wrap' }, input, h('em', { text: 'm' })));
+  };
+  const unitSel = h('select', { attrs: { 'aria-label': 'Scan units' }, onchange: () => { choice.unit = unitSel.value; refit(); } },
+    UNITS.map(([v, t]) => h('option', { value: v, text: t })));
+  unitSel.value = choice.unit;
+  const upSel = h('select', { attrs: { 'aria-label': 'Up axis' }, onchange: () => { choice.up = upSel.value; refit(); } },
+    h('option', { value: 'y', text: 'Y is up (GLB, most apps)' }), h('option', { value: 'z', text: 'Z is up (CAD, point clouds)' }));
+  upSel.value = choice.up;
+  const turnBtn = h('button', { class: 'btn small', onclick: () => { choice.side = SIDES[(SIDES.indexOf(choice.side) + 1) % 4]; useOption(); } }, 'Use the next wall as the stage');
+
+  async function refit() {
+    status.textContent = 'Measuring the room…';
+    choice.error = null;
+    try {
+      const pts = toZup(raw.points, choice.up, Number(choice.unit));
+      const nrm = toZup(raw.normals, choice.up, 1, true);
+      choice.fit = await api.scanFit(Array.from(pts, (v) => round(v, 3)), nrm && Array.from(nrm, (v) => round(v, 3)));
+      choice.side ??= choice.fit.suggested;
+      choice.pts = pts;
+      useOption();
+    } catch (e) {
+      choice.fit = null;
+      choice.error = e.message;
+      status.textContent = e.message;
+      draw();
+    }
+  }
+
+  function useOption() {
+    const opt = choice.fit.options[choice.side];
+    choice.dims = { ...opt.room };
+    for (const k of ['length', 'width', 'height']) dimInputs[k].value = String(opt.room[k]);
+    const how = choice.fit.method === 'surfaces' ? 'from the wall surfaces' : 'from the outline of the points';
+    status.textContent = `Measured ${how}: ${fmt(opt.room.length, 1)} × ${fmt(opt.room.width, 1)} m, ${fmt(opt.room.height, 1)} m high. The stage is on the left.`;
+    draw();
+  }
+
+  function draw() {
+    const ctx = preview.getContext('2d');
+    const W = preview.width, H = preview.height;
+    ctx.fillStyle = cssVar('--page');
+    ctx.fillRect(0, 0, W, H);
+    if (!choice.fit) return;
+    const opt = choice.fit.options[choice.side];
+    const d = choice.dims;
+    const pad = 26;
+    const sc = Math.min((W - 2 * pad) / d.length, (H - 2 * pad) / d.width);
+    const ox = (W - d.length * sc) / 2, oy = (H - d.width * sc) / 2;
+    const a = (opt.yaw_deg * Math.PI) / 180, ca = Math.cos(a), sa = Math.sin(a);
+    ctx.fillStyle = cssVar('--ink-2');
+    ctx.globalAlpha = 0.5;
+    const p = choice.pts;
+    for (let i = 0; i < p.length; i += 9) { // every third point is plenty for a preview
+      const x = ca * p[i] - sa * p[i + 1] + opt.t[0], y = sa * p[i] + ca * p[i + 1] + opt.t[1], z = p[i + 2] + opt.t[2];
+      if (z < 0.08 * d.height || z > 0.9 * d.height) continue; // walls and furnishings, not floor or ceiling
+      ctx.fillRect(ox + y * sc, oy + x * sc, 1.4, 1.4);
+    }
+    ctx.globalAlpha = 1;
+    ctx.strokeStyle = cssVar('--accent');
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(ox, oy, d.length * sc, d.width * sc);
+    ctx.fillStyle = cssVar('--accent');
+    ctx.fillRect(ox - 5, oy, 5, d.width * sc);
+    ctx.save();
+    ctx.translate(ox - 12, oy + (d.width * sc) / 2);
+    ctx.rotate(-Math.PI / 2);
+    ctx.font = '600 10px system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('STAGE', 0, 0);
+    ctx.restore();
+  }
+
+  const body = h('div', { class: 'scan-dialog' },
+    h('div', { class: 'scan-left' }, preview, h('div', { style: { display: 'flex', gap: '8px', alignItems: 'center', marginTop: '8px' } }, turnBtn), status),
+    h('div', { class: 'scan-right' },
+      h('div', { class: 'grid2' },
+        h('label', { class: 'field wide' }, h('span', { text: 'The scan is in' }), unitSel),
+        h('label', { class: 'field wide' }, h('span', { text: 'Orientation' }), upSel)),
+      h('div', { class: 'grid3', style: { marginTop: '12px' } }, dimField('length', 'Stage to back'), dimField('width', 'Width'), dimField('height', 'Height')),
+      h('p', { class: 'hint', text: 'The sound prediction uses a box of this size. The scan itself is shown in the 3D view so you can place speakers against the real room.' }),
+      h('p', { class: 'hint', text: 'Speakers, mics and the audience area keep their positions relative to the room.' })));
+
+  refit();
+  await openDialog({
+    title: `Use ${file.name} as the room`, body, wide: true,
+    actions: [{ label: 'Cancel' }, {
+      label: 'Use this room', kind: 'primary',
+      run: async () => {
+        if (!choice.fit) { status.textContent = choice.error || 'Still measuring…'; return false; }
+        status.textContent = 'Saving the scan…';
+        try {
+          const res = await fetch(`/api/scans?ext=${ext}`, { method: 'POST', body: buffer, headers: { 'Content-Type': 'application/octet-stream' } });
+          if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || res.statusText);
+          const stored = await res.json();
+          applyScan(file.name, ext, stored.id, choice);
+        } catch (e) { status.textContent = `Could not save the scan: ${e.message}`; return false; }
+        return true;
+      },
+    }],
+  });
+}
+
+function applyScan(name, ext, id, choice) {
+  const opt = choice.fit.options[choice.side];
+  const d = choice.dims;
+  mutate((p) => {
+    const r = p.room;
+    const fx = d.width / r.width, fy = d.length / r.length, fz = d.height / r.height;
+    const a = p.audience;
+    Object.assign(a, { x0: round(a.x0 * fx, 2), x1: round(a.x1 * fx, 2), y0: round(a.y0 * fy, 2), y1: round(a.y1 * fy, 2) });
+    a.ear_height = Math.min(a.ear_height, d.height - 0.2);
+    for (const o of [...p.speakers, ...p.mics]) {
+      o.x = round(clamp(o.x * fx, 0.1, d.width - 0.1), 2);
+      o.y = round(clamp(o.y * fy, 0.1, d.length - 0.1), 2);
+      o.z = round(clamp(o.z * Math.min(1, fz), 0.1, d.height - 0.1), 2);
+    }
+    Object.assign(r, { width: d.width, length: d.length, height: d.height });
+    p.scan = { id, ext, name: name.replace(/\.[^.]+$/, ''), up: choice.up, unit_scale: Number(choice.unit),
+      yaw_deg: opt.yaw_deg, t: opt.t, visible: true, opacity: 1 };
+  }, { structural: true, source: 'scan' });
+  setUI({ view: '3d' });
+  toast(`Room set from the scan: ${fmt(d.length, 1)} × ${fmt(d.width, 1)} × ${fmt(d.height, 1)} m.`);
+}
+
+/** Pick a file and import it. */
+export function chooseScanFile() {
+  const input = h('input', { type: 'file', accept: '.glb,.obj,.ply', style: { display: 'none' },
+    onchange: () => { const f = input.files?.[0]; input.remove(); if (f) importScan(f); } });
+  document.body.append(input);
+  input.click();
+}
+
