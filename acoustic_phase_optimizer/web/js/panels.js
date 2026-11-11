@@ -52,7 +52,34 @@ export function createLeftPanel(root) {
     });
     bound.push({ el: input, get, nd });
     if (bare) return input;
-    return h('label', { class: 'field' + (wide ? ' wide' : ''), title }, h('span', { text: label }),
+    // Drag the label sideways to scrub the value: Shift for big steps, Alt for fine ones.
+    const caption = h('span', { text: label, class: 'scrub', title: title || 'Drag sideways to adjust (Shift: faster, Alt: finer)' });
+    caption.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0) return;
+      e.preventDefault();
+      const start = get() ?? 0, x0 = e.clientX;
+      let moved = false;
+      caption.setPointerCapture(e.pointerId);
+      const move = (ev) => {
+        const steps = Math.round((ev.clientX - x0) / 4);
+        if (!steps && !moved) return;
+        moved = true;
+        const mult = ev.shiftKey ? 10 : ev.altKey ? 0.1 : 1;
+        const v = clamp(Math.round((start + steps * step * mult) / (step * (ev.altKey ? 0.1 : 1))) * step * (ev.altKey ? 0.1 : 1), min ?? -Infinity, max ?? Infinity);
+        input.value = show(v, nd);
+        if (v !== get()) set(v, LIVE);
+      };
+      const up = () => {
+        caption.removeEventListener('pointermove', move);
+        caption.removeEventListener('pointerup', up);
+        caption.removeEventListener('pointercancel', up);
+        if (moved) set(get(), DONE); else input.focus();
+      };
+      caption.addEventListener('pointermove', move);
+      caption.addEventListener('pointerup', up);
+      caption.addEventListener('pointercancel', up);
+    });
+    return h('label', { class: 'field' + (wide ? ' wide' : ''), title }, caption,
       h('span', { class: 'input-wrap' }, input, unit ? h('em', { text: unit }) : null));
   }
 

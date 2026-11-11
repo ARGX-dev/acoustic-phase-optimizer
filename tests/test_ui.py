@@ -384,6 +384,42 @@ def test_line_array_box_count_changes_level(ui):
     time.sleep(0.5)
 
 
+def test_keyboard_nudge_scrub_and_shortcuts(ui):
+    page = ui["page"]
+    page.get_by_role("tab", name="Speakers").click()
+    page.locator(".row-list .row-item").first.click()
+    field = page.locator("input[aria-label='From stage']")
+    y0 = float(field.input_value())
+    page.locator("body").click(position={"x": 700, "y": 20})
+    page.locator(".row-list .row-item").first.click()
+    page.evaluate("document.activeElement.blur()")
+    for _ in range(3):
+        page.keyboard.press("Shift+ArrowRight")
+    time.sleep(0.9)
+    assert float(field.input_value()) == pytest.approx(y0 + 3, abs=0.05)
+    page.keyboard.press("Control+z")  # one undo for the whole burst
+    time.sleep(0.5)
+    assert float(field.input_value()) == pytest.approx(y0, abs=0.05)
+    # scrub the Height label
+    label = page.locator("label.field", has=page.locator("input[aria-label='Height']")).locator(".scrub").first
+    label.scroll_into_view_if_needed()
+    h0 = float(page.locator("input[aria-label='Height']").first.input_value())
+    box = label.bounding_box()
+    page.mouse.move(box["x"] + 5, box["y"] + box["height"] / 2)
+    page.mouse.down()
+    page.mouse.move(box["x"] + 45, box["y"] + box["height"] / 2, steps=5)
+    page.mouse.up()
+    time.sleep(0.4)
+    assert float(page.locator("input[aria-label='Height']").first.input_value()) > h0
+    page.keyboard.press("Control+z")
+    page.evaluate("document.activeElement.blur()")
+    page.keyboard.press("?")
+    page.wait_for_selector(".dialog dl.shortcuts")
+    shot(page, "16-shortcuts")
+    page.keyboard.press("Escape")
+    page.wait_for_selector(".dialog", state="detached")
+
+
 def test_delete_saved_and_discard_prompt(ui):
     page = ui["page"]
     ui["dialogs"].clear()

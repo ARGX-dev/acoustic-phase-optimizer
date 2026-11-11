@@ -2,11 +2,11 @@
 
 import { api } from './api.js';
 import {
-  canRedo, canUndo, commit, flushSession, forgetSaved, loadProject, markSaved, mutate, on, redo, removeMic,
-  removeSpeaker, select, state, themeChanged, undo,
+  canRedo, canUndo, commit, duplicateSpeaker, editSpeaker, flushSession, forgetSaved, loadProject, markSaved, mutate, on, redo, removeMic,
+  removeSpeaker, select, setUI, speakerById, state, themeChanged, undo,
 } from './store.js';
-import { clear, download, h, icon, toast } from './util.js';
-import { ask, currentDialog } from './dialog.js';
+import { clamp, clear, debounce, download, h, icon, toast } from './util.js';
+import { ask, currentDialog, openDialog } from './dialog.js';
 import { isDark, toggleTheme } from './theme.js';
 import { createStage } from './stage.js';
 import { createStageBar } from './stagebar.js';
@@ -216,7 +216,64 @@ document.addEventListener('keydown', (e) => {
     e.preventDefault();
     if (state.selection.kind === 'speaker') removeSpeaker(state.selection.id); else removeMic(state.selection.id);
   } else if (e.key === 'Escape' && state.selection) select(null);
+  else if (mod && k === 'd' && state.selection?.kind === 'speaker') { e.preventDefault(); duplicateSpeaker(state.selection.id); }
+  else if (!mod && e.key.startsWith('Arrow') && state.selection) { e.preventDefault(); nudge(e.key, e.shiftKey ? 1 : 0.1); }
+  else if (!mod && k === 'r' && state.selection?.kind === 'speaker') { e.preventDefault(); turn(e.shiftKey ? -5 : 5); }
+  else if (!mod && k === 'm' && state.selection?.kind === 'speaker') {
+    mutate((p) => { const s = p.speakers.find((x) => x.id === state.selection.id); if (s) s.mute = !s.mute; }, { structural: true });
+  } else if (!mod && k === '1') setUI({ view: 'plan' });
+  else if (!mod && k === '2') setUI({ view: '3d' });
+  else if (!mod && (e.key === '?' || (k === '/' && e.shiftKey))) { e.preventDefault(); showShortcuts(); }
+  else if (!mod && e.key === 'Tab' && !e.altKey && document.activeElement === document.body) cycleSelection(e);
 });
+
+// Nudges and turns land as one undo step per burst of key presses.
+const settle = debounce(() => { commit(); mutate(() => {}, { source: 'keys' }); }, 600);
+function nudge(key, step) {
+  const sel = state.selection;
+  const r = state.project.room;
+  // The plan draws distance-from-stage left to right and across-the-room top to bottom.
+  const [dx, dy] = { ArrowRight: [0, step], ArrowLeft: [0, -step], ArrowDown: [step, 0], ArrowUp: [-step, 0] }[key];
+  const live = { commit: false, interacting: true, source: 'keys' };
+  const fix = (v, hi) => Math.round(clamp(v, 0.1, hi - 0.1) * 10) / 10;
+  if (sel.kind === 'speaker') {
+    const s = speakerById(sel.id);
+    if (s) editSpeaker(sel.id, { x: fix(s.x + dx, r.width), y: fix(s.y + dy, r.length) }, live);
+  } else {
+    mutate((p) => { const m = p.mics.find((o) => o.id === sel.id); if (m) { m.x = fix(m.x + dx, r.width); m.y = fix(m.y + dy, r.length); } }, live);
+  }
+  settle();
+}
+function turn(deg) {
+  const s = speakerById(state.selection.id);
+  if (!s) return;
+  let yaw = s.yaw + deg;
+  if (yaw > 180) yaw -= 360;
+  if (yaw < -180) yaw += 360;
+  editSpeaker(s.id, { yaw }, { commit: false, interacting: true, source: 'keys' });
+  settle();
+}
+function cycleSelection(e) {
+  const all = [...state.project.speakers.map((s) => ['speaker', s.id]), ...state.project.mics.map((m) => ['mic', m.id])];
+  if (!all.length) return;
+  e.preventDefault();
+  const i = all.findIndex(([, id]) => id === state.selection?.id);
+  const next = all[(i + (e.shiftKey ? all.length - 1 : 1)) % all.length];
+  select(next[0], next[1]);
+}
+
+const SHORTCUTS = [
+  ['Ctrl+Z / Ctrl+Y', 'Undo / redo'], ['Ctrl+S', 'Save the venue'], ['Ctrl+D', 'Duplicate the selected speaker'],
+  ['Delete', 'Delete the selection'], ['Arrow keys', 'Nudge 0.1 m (Shift: 1 m)'], ['R / Shift+R', 'Turn 5° right / left'],
+  ['M', 'Mute or unmute the selected speaker'], ['Tab / Shift+Tab', 'Select the next / previous speaker or mic'],
+  ['Esc', 'Clear the selection'], ['1 / 2', 'Plan / 3D view'], ['Scroll, pinch', 'Zoom the plan'],
+  ['Right-drag, Space-drag', 'Pan the plan'], ['0', 'Fit the plan to the room'], ['Drag a field label', 'Scrub a number (Shift faster, Alt finer)'],
+  ['Drag in 3D', 'Move a speaker or mic; orbit on empty space'],
+];
+function showShortcuts() {
+  openDialog({ title: 'Keyboard and mouse', body: h('dl', { class: 'shortcuts' }, SHORTCUTS.flatMap(([k, v]) => [h('dt', null, k.split(' / ').map((x, i) => [i ? ' / ' : '', h('kbd', { text: x })])), h('dd', { text: v })])),
+    actions: [{ label: 'Close', kind: 'primary' }] });
+}
 
 // ------------------------------------------------------------------- startup
 async function boot() {

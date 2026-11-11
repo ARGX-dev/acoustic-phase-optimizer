@@ -6,7 +6,7 @@
 
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { on, select, setProbe, state } from './store.js';
+import { commit, editSpeaker, mutate, on, select, setProbe, state } from './store.js';
 import { clamp, clear, fmt, h } from './util.js';
 import { cssVar, isDark, seriesColor } from './theme.js';
 import { currentScale, heatImage, mapKey, MAPS, shownSim, valueAt } from './stage.js';
@@ -411,6 +411,52 @@ export function create3D(root) {
     return null;
   }
 
+  // Dragging an object moves it across the room at its own height (orbiting stays on empty space).
+  let drag3d = null;
+  const dragPlane = new THREE.Plane();
+  const hitPoint = new THREE.Vector3();
+  host.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0 || e.target !== renderer.domElement) return;
+    const p = pick(e);
+    if (p?.kind !== 'object') return;
+    const obj = p.objKind === 'speaker' ? state.project.speakers.find((q) => q.id === p.id) : state.project.mics.find((q) => q.id === p.id);
+    if (!obj) return;
+    e.stopPropagation(); // keep OrbitControls out of it
+    select(p.objKind, p.id);
+    dragPlane.set(new THREE.Vector3(0, 1, 0), -obj.z); // room z is three.js y
+    drag3d = { kind: p.objKind, id: p.id, moved: false, x: e.clientX, y: e.clientY };
+    renderer.domElement.setPointerCapture(e.pointerId);
+    renderer.domElement.style.cursor = 'grabbing';
+  }, true);
+  host.addEventListener('pointermove', (e) => {
+    if (!drag3d) return;
+    e.stopPropagation();
+    if (!drag3d.moved && Math.hypot(e.clientX - drag3d.x, e.clientY - drag3d.y) < 3) return;
+    const b = renderer.domElement.getBoundingClientRect();
+    ndc.set(((e.clientX - b.left) / b.width) * 2 - 1, -((e.clientY - b.top) / b.height) * 2 + 1);
+    ray.setFromCamera(ndc, camera);
+    if (!ray.ray.intersectPlane(dragPlane, hitPoint)) return;
+    drag3d.moved = true;
+    const r = state.project.room;
+    const q = toRoom(hitPoint);
+    const x = Math.round(clamp(q.x, 0.1, r.width - 0.1) * 10) / 10, y = Math.round(clamp(q.y, 0.1, r.length - 0.1) * 10) / 10;
+    const live = { commit: false, interacting: true, source: 'view3d' };
+    if (drag3d.kind === 'speaker') editSpeaker(drag3d.id, { x, y }, live);
+    else mutate((pr) => { const m = pr.mics.find((o) => o.id === drag3d.id); if (m) { m.x = x; m.y = y; } }, live);
+  }, true);
+  const endDrag3d = (e) => {
+    if (!drag3d) return;
+    e.stopPropagation();
+    const moved = drag3d.moved;
+    drag3d = null;
+    downAt = null;
+    try { renderer.domElement.releasePointerCapture(e.pointerId); } catch (err) { /* released */ }
+    renderer.domElement.style.cursor = 'pointer';
+    if (moved) { commit(); mutate(() => {}, { source: 'view3d' }); }
+  };
+  host.addEventListener('pointerup', endDrag3d, true);
+  host.addEventListener('pointercancel', endDrag3d, true);
+
   let downAt = null;
   renderer.domElement.addEventListener('pointerdown', (e) => { downAt = { x: e.clientX, y: e.clientY }; anim = null; });
   renderer.domElement.addEventListener('pointerup', (e) => {
@@ -424,7 +470,7 @@ export function create3D(root) {
   renderer.domElement.addEventListener('pointermove', (e) => {
     if (e.buttons) { tip.hidden = true; return; }
     const p = pick(e);
-    renderer.domElement.style.cursor = p?.kind === 'object' ? 'pointer' : p ? 'crosshair' : 'grab';
+    renderer.domElement.style.cursor = p?.kind === 'object' ? 'grab' : p ? 'crosshair' : 'grab';
     if (!p) { tip.hidden = true; return; }
     const b = renderer.domElement.getBoundingClientRect();
     const sx = e.clientX - b.left, sy = e.clientY - b.top;

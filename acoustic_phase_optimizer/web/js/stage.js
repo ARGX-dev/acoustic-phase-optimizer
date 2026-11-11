@@ -324,7 +324,14 @@ export function createStage(root, foot) {
     if (!state.project) return;
     e.preventDefault();
     const [sx, sy] = local(e);
-    const k = clamp(zoom.k * Math.exp(-e.deltaY * (e.deltaMode === 1 ? 0.05 : 0.0016)), 1, 12);
+    // A trackpad's two-finger scroll pans (it sends fractional or sideways deltas); a pinch arrives with ctrlKey.
+    const trackpad = !e.ctrlKey && e.deltaMode === 0 && (e.deltaX !== 0 || !Number.isInteger(e.deltaY));
+    if (trackpad && zoom.k > 1) {
+      zoom = { ...zoom, tx: zoom.tx - e.deltaX, ty: zoom.ty - e.deltaY };
+      schedule();
+      return;
+    }
+    const k = clamp(zoom.k * Math.exp(-e.deltaY * (e.deltaMode === 1 ? 0.05 : e.ctrlKey ? 0.01 : 0.0016)), 1, 12);
     if (k === 1) { resetZoom(); return; }
     zoom = { k, tx: sx - (k / zoom.k) * (sx - zoom.tx), ty: sy - (k / zoom.k) * (sy - zoom.ty) };
     fitBtn.hidden = false;
@@ -334,8 +341,11 @@ export function createStage(root, foot) {
   canvas.addEventListener('contextmenu', (e) => e.preventDefault());
   canvas.addEventListener('keydown', (e) => { if (e.key === '0' && !e.ctrlKey) resetZoom(); });
 
+  let spaceHeld = false;
+  window.addEventListener('keydown', (e) => { if (e.code === 'Space' && !e.repeat && document.activeElement?.tagName !== 'INPUT' && document.activeElement?.tagName !== 'TEXTAREA') { spaceHeld = true; canvas.style.cursor = 'grab'; } });
+  window.addEventListener('keyup', (e) => { if (e.code === 'Space') { spaceHeld = false; canvas.style.cursor = 'default'; } });
   canvas.addEventListener('pointerdown', (e) => {
-    if ((e.button === 1 || e.button === 2) && state.project) { // pan
+    if ((e.button === 1 || e.button === 2 || (e.button === 0 && spaceHeld)) && state.project) { // pan
       const [sx, sy] = local(e);
       drag = { mode: 'pan', sx, sy, tx: zoom.tx, ty: zoom.ty };
       canvas.setPointerCapture(e.pointerId);
@@ -432,8 +442,8 @@ export function createStage(root, foot) {
     } else if (state.simError) foot.append(h('span', { text: 'No result: ' + state.simError }));
     else foot.append(h('span', { text: state.project?.speakers.length ? 'Calculating…' : 'Add a speaker to see coverage.' }));
     if (sim?.preview) foot.append(h('span', { class: 'badge', text: 'Preview quality while editing' }));
-    const help = state.ui.view === '3d' ? 'Drag to orbit · right-drag to pan · scroll to zoom · click a speaker to select it'
-      : 'Drag speakers and mics · click to move the probe · scroll to zoom, right-drag to pan';
+    const help = state.ui.view === '3d' ? 'Drag speakers and mics to move them · drag empty space to orbit · right-drag to pan · scroll to zoom'
+      : 'Drag speakers and mics · click to move the probe · scroll or pinch to zoom · right-drag or Space-drag to pan · ? for shortcuts';
     foot.append(h('span', { class: 'readout', text: hover?.readout || help }));
   }
 
