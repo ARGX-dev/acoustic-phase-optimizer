@@ -212,7 +212,8 @@ export function partnerOf(id) {
 }
 
 const MIRRORED = new Set(['y', 'z', 'pitch', 'coverage_h', 'coverage_v', 'level_db', 'hp_hz', 'lp_hz', 'directivity_hz',
-  'role', 'model', 'delay_ms', 'gain_db', 'invert', 'lock_delay', 'lock_gain']);
+  'role', 'model', 'delay_ms', 'gain_db', 'invert', 'lock_delay', 'lock_gain',
+  'array_boxes', 'array_splay', 'array_box_h', 'array_box_curve']);
 
 /** Edit a speaker; a linked partner follows as a mirror image so the pair stays matched. */
 export function editSpeaker(id, patch, opts) {

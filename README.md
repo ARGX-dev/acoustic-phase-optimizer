@@ -60,6 +60,10 @@ strict Content-Security-Policy.
 - **See the result live.** Maps of direct level (all frequencies or one octave, Z, A or C weighted), total
   level, clarity, speech intelligibility (an STI estimate), summation and cancellation, and arrival-time
   spread. Click anywhere for the magnitude, phase and arrivals at that seat, or add measurement-mic positions.
+- **Aim at the audience.** One click points a speaker at the seats it serves: a single box at the back
+  third; a line-array hang with its top box on the last row and its bottom box on the first, solving the
+  tilt and the splay (capped at what the box allows, and the app says when it falls short). Aim every
+  speaker at once, in one undoable step. Linked left/right pairs follow, including their hang.
 - **Raked seating.** Set how much higher the back row sits; the maps, the probe, the section and the 3D
   view follow the slope.
 - **Metric or imperial.** Choose metres or feet in the Setup tab; every field, axis and readout follows.

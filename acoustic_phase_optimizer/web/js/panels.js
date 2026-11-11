@@ -10,6 +10,7 @@ import { openDialog } from './dialog.js';
 import { api } from './api.js';
 import { matchOffset, parseResponse } from './measure.js';
 import { seriesColor } from './theme.js';
+import { aimPatch } from './aim.js';
 import { area, dispStep, fromDisp, len, lenUnit, speed, toDisp, volume } from './units.js';
 
 const TABS = [['room', 'Room'], ['speakers', 'Speakers'], ['mics', 'Mics'], ['setup', 'Setup']];
@@ -395,7 +396,14 @@ export function createLeftPanel(root) {
         num('Across', g('x'), set('x'), { min: 0.1, max: r.width - 0.1, step: 0.1, unit: 'm' }),
         num('Height', g('z'), set('z'), { min: 0.1, max: r.height - 0.05, step: 0.1, unit: 'm' }),
         num('Turn', g('yaw'), set('yaw'), { min: -180, max: 180, step: 1, unit: '°', nd: 0, title: '0° faces the audience. Positive turns toward the bottom of the plan.' }),
-        num('Tilt', g('pitch'), set('pitch'), { min: -90, max: 90, step: 1, unit: '°', nd: 0, title: 'Negative tilts down toward the seats.' }))),
+        num('Tilt', g('pitch'), set('pitch'), { min: -90, max: 90, step: 1, unit: '°', nd: 0, title: 'Negative tilts down toward the seats.' })),
+        s.role === 'sub' || s.coverage_h >= 300 ? null : h('button', { class: 'btn small', style: { marginTop: '8px' },
+          title: 'Point it at the seats it serves: the back third for a single box; for a hang, the top box on the last row and the bottom box on the first',
+          onclick: () => {
+            const { patch, note } = aimPatch(speakerById(s.id), P(), type);
+            if (patch) editSpeaker(s.id, patch, { structural: true });
+            toast(note, { ms: 7000 });
+          } }, icon('target'), 'Aim at the audience')),
       arrayGroup,
       subArray,
       group('Processor output', h('div', { class: 'grid2' },
@@ -494,7 +502,19 @@ export function createLeftPanel(root) {
           h('span', { style: { flex: 1 } }),
           h('a', { class: 'btn small ghost', href: '/api/speakers/template.csv', download: 'speakers-template.csv', title: 'A CSV with the columns the import expects' }, 'Template'),
           h('button', { class: 'btn small', onclick: importSpeakers, title: 'Add your own loudspeakers from a CSV or JSON file' }, 'Import list…'))),
-      group(`Speakers (${P().speakers.length})`, listBox),
+      group(`Speakers (${P().speakers.length})`, listBox,
+        P().speakers.some((q) => q.role !== 'sub') ? h('button', { class: 'btn small', style: { marginTop: '8px' },
+          title: 'Aim every speaker except subs at the seats it serves, in one step you can undo',
+          onclick: () => {
+            const notes = [];
+            mutate((p) => {
+              for (const q of p.speakers) {
+                const { patch } = aimPatch(q, p, speakerType(q.model));
+                if (patch) { Object.assign(q, patch); notes.push(q.name); }
+              }
+            }, { structural: true });
+            toast(notes.length ? `Aimed ${notes.length} speaker${notes.length > 1 ? 's' : ''} at the audience. Ctrl+Z undoes it.` : 'Nothing to aim.', { ms: 6000 });
+          } }, 'Aim every speaker at the audience') : null),
       sel ? speakerEditor(sel) : (P().speakers.length ? h('p', { class: 'hint', text: 'Select a speaker here or on the plan to edit it.' }) : null),
     ];
   }

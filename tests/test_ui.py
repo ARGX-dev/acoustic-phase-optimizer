@@ -751,6 +751,44 @@ def test_raked_seating(ui):
     rake.press("Enter")
 
 
+def test_aim_at_the_audience(ui):
+    page = ui["page"]
+    # the rule itself: a 12-box hang 12 m up, 2 m from the stage; seats 8..60 m, ears 1.2 m rising 2 m
+    r = page.evaluate("""async () => {
+        const { aimPatch } = await import('/js/aim.js');
+        const type = { spec: { kind: 'element', splay_max: 10, box_spl: 140, constant_curvature: false } };
+        const s = { name: 'Main', role: 'main', x: 10, y: 2, z: 12, coverage_h: 70, array_boxes: 12, array_splay: 2 };
+        const p = { audience: { x0: 0, x1: 20, y0: 8, y1: 60, ear_height: 1.2, rake: 2 } };
+        const out = aimPatch(s, p, type);
+        const el = (y, ear) => Math.atan2(ear - 12, y - 2) * 180 / Math.PI; // on the centre line: straight ahead
+        return { ...out, back: el(60, 3.2), front: el(8, 1.2), sub: aimPatch({ ...s, role: 'sub' }, p, type).patch };
+    }""")
+    n, splay, pitch = 12, r["patch"]["array_splay"], r["patch"]["pitch"]
+    assert pitch + (n - 1) / 2 * splay == pytest.approx(r["back"], abs=0.6)  # top box on the last row
+    assert r["patch"]["yaw"] == 0
+    # bottom box at the first row, within the 0.5 degree splay steps rigging allows
+    assert pitch - (n - 1) / 2 * splay == pytest.approx(r["front"], abs=(n - 1) * 0.25 + 0.1)
+    assert r["sub"] is None
+    # in the app: the linked partner follows (turn mirrored, splay the same), one undo step
+    page.get_by_role("tab", name="Speakers").click()
+    page.locator(".row-list .row-item", has_text="Hang L").click()
+    tilt0 = page.get_by_role("spinbutton", name="Tilt").input_value()
+    page.get_by_role("button", name="Aim at the audience").click()
+    page.wait_for_selector(".toast:has-text('Hang L')")
+    note = page.locator(".toast:has-text('Hang L')").last.inner_text()
+    assert note.startswith("Aimed Hang L: turn"), note  # a generic box here: the hang rule is checked above
+    tilt = page.get_by_role("spinbutton", name="Tilt").input_value()
+    turn = float(page.get_by_role("spinbutton", name="Turn").input_value())
+    page.locator(".row-list .row-item", has_text="Hang R").click()
+    assert page.get_by_role("spinbutton", name="Tilt").input_value() == tilt
+    assert float(page.get_by_role("spinbutton", name="Turn").input_value()) == pytest.approx(-turn)
+    page.locator("body").click(position={"x": 700, "y": 20})
+    page.keyboard.press("Control+z")
+    time.sleep(0.5)
+    page.locator(".row-list .row-item", has_text="Hang L").click()
+    assert page.get_by_role("spinbutton", name="Tilt").input_value() == tilt0
+
+
 def test_imperial_units(ui):
     page = ui["page"]
     page.get_by_role("tab", name="Setup").click()
