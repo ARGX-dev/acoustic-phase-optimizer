@@ -390,9 +390,10 @@ def test_venue_type_materials_and_air(ui):
     rt = lambda: page.locator(".stat-grid div", has_text="Reverb time").locator("b").inner_text()  # noqa: E731
     page.wait_for_function("document.querySelector('.stat-grid b').textContent.includes(' s')", timeout=15000)
     indoor = float(rt().split()[0])
+    assert indoor > 0.3
     page.get_by_role("radio", name="Open air").click()
-    page.wait_for_function(f"!document.querySelector('.stat-grid b').textContent.startsWith('{rt().split()[0]}')", timeout=15000)
-    assert float(rt().split()[0]) < indoor
+    page.wait_for_selector(".stat-grid b:has-text('None (open air)')", timeout=15000)
+    assert page.locator(".stat-grid", has_text="Schroeder").count() == 0  # room modes do not apply outdoors
     assert page.locator(".open-surface", has_text="Open sky").count() == 1
     page.get_by_role("radio", name="Indoor room").click()
     page.get_by_role("button", name="Add a material").click()

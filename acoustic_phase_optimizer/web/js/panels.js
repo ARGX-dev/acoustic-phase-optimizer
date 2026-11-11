@@ -246,8 +246,19 @@ export function createLeftPanel(root) {
     if (!statsBox) return;
     const r = state.sim?.room;
     const cell = (label, value, title) => h('div', { title }, h('span', { text: label }), h('b', { text: value }));
+    const room = P().room;
+    if (room.kind === 'outdoor') {
+      // Free field: no room to reverberate, so reverb time, critical distance and room modes do not apply.
+      clear(statsBox).append(
+        cell('Reverberation', 'None (open air)', 'Nothing to reflect from except the ground, which the model includes'),
+        cell('Area', `${Math.round(room.width * room.length).toLocaleString()} m²`),
+        cell('Speed of sound', r ? `${fmt(r.speed_of_sound, 1)} m/s` : '–'),
+        cell('Air loss at 8 kHz', r && r.air_loss_8k_30m_db != null ? `${fmt(r.air_loss_8k_30m_db, 1)} dB / 30 m` : '–', 'Extra treble the air absorbs over 30 m: this is what limits long throws outdoors'),
+        h('p', { class: 'hint', style: { gridColumn: '1 / -1' }, text: 'Level falls 6 dB per doubling of distance, plus the air loss above. Wind and temperature gradients bend sound outdoors and are not modelled.' }));
+      return;
+    }
     clear(statsBox).append(
-      cell('Reverb time (mid)', r ? `${fmt(r.rt60_mid, 2)} s` : '–', 'Eyring, average of 500 Hz and 1 kHz'),
+      cell('Reverb time (mid)', r ? `${fmt(r.rt60_mid, 2)} s` : '–', room.kind === 'stadium' ? 'Eyring, with the roof open: walls and stands still reflect' : 'Eyring, average of 500 Hz and 1 kHz'),
       cell('Critical distance', r ? `${fmt(r.critical_distance_m[3], 1)} m` : '–', 'Where direct and reverberant sound are equal, for an omni source at 1 kHz'),
       cell('Volume', r ? `${Math.round(r.volume_m3).toLocaleString()} m³` : '–'),
       cell('Speed of sound', r ? `${fmt(r.speed_of_sound, 1)} m/s` : '–'),
