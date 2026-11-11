@@ -544,3 +544,19 @@ def test_optimizer_keeps_a_sub_array_pattern():
     subs_after = [s for s in spk if s.role == "sub"]
     assert [(s.array_delay_ms, s.array_invert) for s in subs_after] == before
     assert len({(s.delay_ms, s.invert) for s in subs_after}) == 1  # moved together
+
+
+def test_weighting_curves_and_maps():
+    from acoustic_phase_optimizer.engine.metrics import weighting_db
+
+    f = np.array([31.5, 63, 125, 1000, 4000, 10000])
+    a = weighting_db(f, "A")
+    assert a == pytest.approx([-39.5, -26.2, -16.1, 0.0, 1.0, -2.5], abs=0.2)
+    assert weighting_db(np.array([1000.0, 63.0]), "C") == pytest.approx([0.0, -0.8], abs=0.2)
+    p = presets.theater()
+    z = simulate(p)
+    p.settings.weighting = "A"
+    w = simulate(p)
+    assert w["weighting"] == "A"
+    assert np.mean(w["maps"]["direct"]) < np.mean(z["maps"]["direct"])
+    assert w["metrics"]["score"] == z["metrics"]["score"]  # weighting is reporting, not optimisation

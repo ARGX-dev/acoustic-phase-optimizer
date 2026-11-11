@@ -18,6 +18,13 @@ export const MAPS = {
     help: 'Time between the first and last audible speaker at each seat. Beyond 30 ms it is heard as an echo.' },
 };
 
+/** The unit a map's values are in: broadband level maps follow the venue's A/C/Z weighting. */
+export function unitOf(def) {
+  const w = state.project?.settings?.weighting;
+  const broadband = (def === MAPS.direct && state.ui.band === 'all') || def === MAPS.total;
+  return broadband && w && w !== 'Z' ? `dB(${w})` : def.unit;
+}
+
 export const mapKey = () => (MAPS[state.ui.map].bands && state.ui.band !== 'all' ? `direct_${state.ui.band}` : state.ui.map);
 
 export function levelRange(values) {
@@ -315,11 +322,11 @@ export function createStage(root, foot) {
     const def = MAPS[state.ui.map];
     const where = `${fmt(y, 1)} m from stage, ${fmt(x, 1)} m across`;
     if (!cell || cell.value == null) return { rows: [h('div', { class: 'l', text: where }), h('div', { class: 'l', text: 'Outside the audience area' })], readout: where };
-    rows.push(h('div', { class: 'v', text: `${fmt(cell.value, def.unit === 'ms' ? 0 : 1, def.kind === 'diverging')} ${def.unit}` }));
+    rows.push(h('div', { class: 'v', text: `${fmt(cell.value, def.unit === 'ms' ? 0 : 1, def.kind === 'diverging')} ${unitOf(def)}` }));
     rows.push(h('div', { class: 'l', text: def.label + (state.ui.band !== 'all' && def.bands ? `, ${state.ui.band} Hz band` : '') }));
     rows.push(h('div', { class: 'l', text: where }));
     if (cell.dominant) rows.push(h('div', { class: 'row' }, h('span', { class: 'swatch', style: { background: seriesColor(cell.dominant.color) } }), h('span', { class: 'l', text: `Loudest here: ${cell.dominant.name}` })));
-    return { rows, readout: `${where}: ${fmt(cell.value, 1, def.kind === 'diverging')} ${def.unit}` };
+    return { rows, readout: `${where}: ${fmt(cell.value, 1, def.kind === 'diverging')} ${unitOf(def)}` };
   }
 
   const local = (e) => { const b = canvas.getBoundingClientRect(); return [e.clientX - b.left, e.clientY - b.top]; };
@@ -441,8 +448,8 @@ export function createStage(root, foot) {
     if (sim?.maps?.[mapKey()]) {
       const sc = currentScale();
       const d = def.unit === 'ms' ? 0 : 0;
-      const lo = def.kind === 'diverging' ? `${fmt(sc.lo, d)} ${def.unit} cancelling` : `${fmt(sc.lo, d)} ${def.unit}`;
-      const hi = def.kind === 'diverging' ? `${fmt(sc.hi, d, true)} ${def.unit} adding` : `${fmt(sc.hi, d)} ${def.unit}`;
+      const lo = def.kind === 'diverging' ? `${fmt(sc.lo, d)} ${unitOf(def)} cancelling` : `${fmt(sc.lo, d)} ${unitOf(def)}`;
+      const hi = def.kind === 'diverging' ? `${fmt(sc.hi, d, true)} ${unitOf(def)} adding` : `${fmt(sc.hi, d)} ${unitOf(def)}`;
       foot.append(h('div', { class: 'scale', title: def.help },
         h('span', { text: lo }), h('div', { class: 'bar', style: { background: sc.css } }), h('span', { text: hi })));
     } else if (state.simError) foot.append(h('span', { text: 'No result: ' + state.simError }));

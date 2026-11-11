@@ -131,6 +131,7 @@ class Settings(BaseModel):
     precedence_ms: float = Field(0.0, ge=0, le=30)  # extra delay on fills so the image stays on stage
     target_tilt_db_per_oct: float = Field(-1.0, ge=-6, le=3)
     link_symmetric: bool = True  # mirror-image pairs always receive identical DSP
+    weighting: Literal["Z", "A", "C"] = "Z"  # frequency weighting of broadband levels (maps, section, average)
 
 
 class ScanRef(BaseModel):

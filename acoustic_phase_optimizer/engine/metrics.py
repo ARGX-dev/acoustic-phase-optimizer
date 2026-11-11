@@ -44,6 +44,22 @@ def band_masks(freqs: np.ndarray, centres: list[float] = BANDS) -> list[np.ndarr
     return [(freqs >= fc / np.sqrt(2)) & (freqs < fc * np.sqrt(2)) for fc in centres]
 
 
+def weighting_db(freqs: np.ndarray, kind: str) -> np.ndarray:
+    """IEC 61672 A or C weighting in dB (Z = flat)."""
+    f2 = np.asarray(freqs, float) ** 2
+    if kind == "A":
+        ra = 12194.0 ** 2 * f2 ** 2 / ((f2 + 20.6 ** 2) * np.sqrt((f2 + 107.7 ** 2) * (f2 + 737.9 ** 2)) * (f2 + 12194.0 ** 2))
+        return 20 * np.log10(ra) + 2.00
+    if kind == "C":
+        rc = 12194.0 ** 2 * f2 / ((f2 + 20.6 ** 2) * (f2 + 12194.0 ** 2))
+        return 20 * np.log10(rc) + 0.06
+    return np.zeros_like(f2)
+
+
+def weighting_gain(freqs: np.ndarray, kind: str) -> np.ndarray:
+    return 10 ** (weighting_db(freqs, kind) / 10)
+
+
 def band_levels(power: np.ndarray, freqs: np.ndarray, centres: list[float] = BANDS) -> np.ndarray:
     """Band SPL per point, shape (P, n_bands). Bands with no grid frequencies get NaN."""
     out = np.full((power.shape[0], len(centres)), np.nan)

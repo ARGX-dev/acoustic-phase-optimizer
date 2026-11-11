@@ -24,7 +24,7 @@ from .field import (
     speaker_field,
 )
 from .materials import OCTAVE_BANDS, room_stats, surface_alphas
-from .metrics import BANDS, analyse, arrivals, band_levels, db, smooth, spl, summarise, tone_floor
+from .metrics import BANDS, analyse, arrivals, band_levels, db, smooth, spl, summarise, tone_floor, weighting_gain
 from .model import Project
 
 F_LO, F_HI = 100.0, 10000.0
@@ -63,17 +63,21 @@ def simulate(project: Project, preview: bool = False) -> dict:
     a = analyse(c.early, c.early_psum, c.late, spread, freqs,
                 project.settings.target_tilt_db_per_oct, tone_floor(project.speakers))
     bb = (freqs >= F_LO) & (freqs <= F_HI)
+    wt = weighting_gain(freqs[bb], project.settings.weighting)[None, :]
     direct_bands = band_levels(c.early, freqs)
+    out["weighting"] = project.settings.weighting
     out["maps"] = {
-        "direct": _r(spl(c.early[:, bb].mean(1))),
+        "direct": _r(spl((c.early[:, bb] * wt).mean(1))),
         **{f"direct_{int(b)}": _r(direct_bands[:, i]) for i, b in enumerate(BANDS)},
-        "total": _r(spl(c.total[:, bb].mean(1))),
+        "total": _r(spl((c.total[:, bb] * wt).mean(1))),
         "interference": _r(a["_rip_point"], 2),
         "clarity": _r(a["_clarity_point"], 1),
         "spread": _r(spread, 1),
         "dominant": [int(v) for v in dominant],
     }
     out["metrics"] = summarise(a)
+    if project.settings.weighting != "Z":  # reported level only; the optimizer always works unweighted
+        out["metrics"]["mean_spl"] = round(float(spl((c.total[:, bb] * wt).mean())), 3)
     out["average"] = {  # audience-average direct response and the target it is judged against
         "spl": _r(spl(smooth(c.early.mean(0), freqs)), 2),
         "total": _r(spl(smooth(c.total.mean(0), freqs)), 2),
@@ -136,7 +140,8 @@ def section(project: Project, axis: str = "length", at: float | None = None, ban
     else:
         fc = float(band)
         sel = (freqs >= fc / np.sqrt(2)) & (freqs < fc * np.sqrt(2))
-    level = spl(early[:, sel].mean(1)) if sel.any() else np.full(len(pts), np.nan)
+    wt = weighting_gain(freqs[sel], project.settings.weighting)[None, :] if band == "all" else 1.0
+    level = spl((early[:, sel] * wt).mean(1)) if sel.any() else np.full(len(pts), np.nan)
     return {
         "axis": axis, "at": round(at, 2), "band": band,
         "nu": nu, "nz": nz, "u0": float(us[0]), "u1": float(us[-1]), "z0": float(zs[0]), "z1": float(zs[-1]),

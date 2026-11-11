@@ -17,7 +17,10 @@ const METRICS = [
     help: 'Share of seat-and-frequency combinations where the speakers lose more than 3 dB against each other.' },
   { key: 'tonal', label: 'Off the target curve', show: (v) => `${fmt(v, 1)} dB`, better: 'low',
     help: 'RMS deviation of the audience-average response from the target tilt. Auto EQ reduces it.' },
-  { key: 'mean_spl', label: 'Average level', show: (v) => `${fmt(v, 1)} dB SPL`, better: null,
+  { key: 'mean_spl', label: 'Average level', show: (v) => {
+    const w = state.project?.settings?.weighting;
+    return `${fmt(v, 1)} ${w && w !== 'Z' ? `dB(${w})` : 'dB SPL'}`;
+  }, better: null,
     help: 'Average level over the audience with every speaker at full output.' },
 ];
 const LOST = [['coverage', 'Coverage', 0], ['clarity', 'Clarity', 1], ['timing', 'Timing', 2], ['interference', 'Interference', 3], ['tonal', 'Tone', 4]];

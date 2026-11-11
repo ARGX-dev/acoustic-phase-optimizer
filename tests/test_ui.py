@@ -508,6 +508,16 @@ def test_sub_array_builder(ui):
     page.wait_for_function(f"document.querySelectorAll('.row-list .row-item').length === {n0}", timeout=10000)
 
 
+def test_a_weighting(ui):
+    page = ui["page"]
+    page.locator("select[aria-label='Frequency weighting']").select_option("A")
+    page.wait_for_function("document.querySelector('#stage-foot .scale').textContent.includes('dB(A)')", timeout=20000)
+    assert "dB(A)" in page.locator(".metric-row, .right", has_text="Average level").first.inner_text()
+    page.locator("body").click(position={"x": 700, "y": 20})
+    page.keyboard.press("Control+z")
+    page.wait_for_function("!document.querySelector('#stage-foot .scale').textContent.includes('dB(A)')", timeout=20000)
+
+
 def test_delete_saved_and_discard_prompt(ui):
     page = ui["page"]
     ui["dialogs"].clear()

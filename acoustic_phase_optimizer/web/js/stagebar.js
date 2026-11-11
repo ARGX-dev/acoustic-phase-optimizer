@@ -1,6 +1,6 @@
 // Toolbar above the coverage view: which map, which band, plan or 3D.
 
-import { on, setUI, state } from './store.js';
+import { mutate, on, setUI, state } from './store.js';
 import { clear, h, toast } from './util.js';
 import { MAPS } from './stage.js';
 
@@ -59,9 +59,18 @@ export function createStageBar(bar, stageRoot) {
     const bandSel = inSection ? h('label', { class: 'band' }, h('span', { text: 'Band, Hz' }),
       h('select', { attrs: { 'aria-label': 'Frequency band' }, onchange: (e) => setUI({ band: e.target.value }) },
         BANDS.map(([v, t]) => h('option', { value: v, text: t, selected: state.ui.band === v })))) : band;
-    bar.append(h('span', { class: 'title', text: 'Coverage' }), mapSel, bandSel, h('span', { class: 'spacer' }), views);
+    const levelMap = inSection || state.ui.map === 'direct' || state.ui.map === 'total';
+    const wsel = levelMap ? h('label', { class: 'band', title: 'Frequency weighting of broadband levels: Z is flat, A follows the ear at moderate levels (and most noise limits), C keeps the low end and suits loud music.' },
+      h('span', { text: 'Weighting' }),
+      h('select', { attrs: { 'aria-label': 'Frequency weighting' }, onchange: (e) => mutate((p) => { p.settings.weighting = e.target.value; }) },
+        ['Z', 'A', 'C'].map((w) => h('option', { value: w, text: w === 'Z' ? 'Z (flat)' : `${w}`, selected: (state.project?.settings?.weighting || 'Z') === w })))) : null;
+    bar.append(h('span', { class: 'title', text: 'Coverage' }), mapSel, bandSel, wsel, h('span', { class: 'spacer' }), views);
   }
 
+  on('project', () => {
+    const sel = bar.querySelector("select[aria-label='Frequency weighting']");
+    if (sel && sel.value !== (state.project?.settings?.weighting || 'Z')) render();
+  });
   on('ui', (patch) => {
     if (!patch || 'map' in patch || 'band' in patch || 'view' in patch || Object.keys(patch).length === 0) render();
     if (!patch || 'view' in patch || Object.keys(patch).length === 0) applyView();

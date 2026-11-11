@@ -23,6 +23,10 @@ export function createSection(root) {
   let view = { s: 1, ox: 0, oy: 0 };
   let drag = null, hover = null, raf = 0;
 
+  const unit = () => {
+    const w = state.project?.settings?.weighting;
+    return (state.ui.band || 'all') === 'all' && w && w !== 'Z' ? `dB(${w})` : 'dB';
+  };
   const axis = () => (state.ui.sectionAxis === 'width' ? 'width' : 'length');
   const at = () => (axis() === 'length' ? state.probe.x : state.probe.y);
   const along = (o) => (axis() === 'length' ? o.y : o.x);
@@ -255,7 +259,7 @@ export function createSection(root) {
     if (data?.values?.length) {
       const sc = scale();
       items.push(h('div', { class: 'scale', title: 'Direct sound and early reflections, as in the plan’s Direct level map.' },
-        h('span', { text: `${fmt(sc.lo, 0)} dB` }), h('div', { class: 'bar', style: { background: sc.css } }), h('span', { text: `${fmt(sc.hi, 0)} dB` })));
+        h('span', { text: `${fmt(sc.lo, 0)} ${unit()}` }), h('div', { class: 'bar', style: { background: sc.css } }), h('span', { text: `${fmt(sc.hi, 0)} ${unit()}` })));
     }
     if (pending) items.push(h('span', { class: 'badge', text: 'Updating' }));
     items.push(h('span', { class: 'readout', text: hover || 'Direct level on a vertical slice through the probe · drag a speaker to move it, drag its aim handle to tilt · click to move the probe' }));
@@ -324,7 +328,7 @@ export function createSection(root) {
     if (t) {
       const s = state.project.speakers.find((q) => q.id === t.id);
       hover = t.kind === 'aim' ? `${s.name}: tilt ${fmt(s.pitch, 0)}° · drag to tilt` : `${s.name}: ${fmt(along(s), 1)} m, ${fmt(s.z, 1)} m high · drag to move`;
-    } else hover = v == null ? null : `${fmt(v, 1)} dB at ${fmt(u, 1)} m ${axis() === 'length' ? 'from the stage' : 'across'}, ${fmt(z, 1)} m high`;
+    } else hover = v == null ? null : `${fmt(v, 1)} ${unit()} at ${fmt(u, 1)} m ${axis() === 'length' ? 'from the stage' : 'across'}, ${fmt(z, 1)} m high`;
     tip.hidden = true;
     renderFoot();
   });

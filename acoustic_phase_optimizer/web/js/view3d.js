@@ -9,7 +9,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { commit, editSpeaker, mutate, on, select, setProbe, state } from './store.js';
 import { clamp, clear, fmt, h } from './util.js';
 import { cssVar, isDark, seriesColor } from './theme.js';
-import { currentScale, heatImage, mapKey, MAPS, shownSim, valueAt } from './stage.js';
+import { currentScale, heatImage, mapKey, MAPS, shownSim, unitOf, valueAt } from './stage.js';
 import { scanObject as loadScan } from './scan.js';
 import { toast } from './util.js';
 
@@ -486,7 +486,7 @@ export function create3D(root) {
       const cell = valueAt(p.x, p.y);
       const def = MAPS[state.ui.map];
       if (cell?.value != null) {
-        rows.push(h('div', { class: 'v', text: `${fmt(cell.value, def.unit === 'ms' ? 0 : 1, def.kind === 'diverging')} ${def.unit}` }),
+        rows.push(h('div', { class: 'v', text: `${fmt(cell.value, def.unit === 'ms' ? 0 : 1, def.kind === 'diverging')} ${unitOf(def)}` }),
           h('div', { class: 'l', text: def.label }));
         if (cell.dominant) rows.push(h('div', { class: 'row' }, h('span', { class: 'swatch', style: { background: seriesColor(cell.dominant.color) } }), h('span', { class: 'l', text: `Loudest here: ${cell.dominant.name}` })));
       }
