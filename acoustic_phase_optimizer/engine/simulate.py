@@ -7,6 +7,7 @@ import time
 import numpy as np
 
 from .air import air_absorption_db_per_m, speed_of_sound
+from .eq import total_delay_ms
 from .field import (
     MIN_DISTANCE,
     Context,
@@ -57,7 +58,7 @@ def simulate(project: Project, preview: bool = False) -> dict:
     w = dsp_weights(project.speakers, freqs)
     full = combine(field, w)
     c = full.rows(g)
-    delays = np.array([s.delay_ms for s in project.speakers])
+    delays = np.array([total_delay_ms(s) for s in project.speakers])
     _, _, spread, dominant = arrivals(field, w, delays, g)
     a = analyse(c.early, c.early_psum, c.late, spread, freqs,
                 project.settings.target_tilt_db_per_oct, tone_floor(project.speakers))
@@ -170,11 +171,11 @@ def point_response(project: Project, x: float, y: float, z: float | None = None,
         psum += np.abs(h) ** 2
         late += e
         dist = float(sf.dist[0])
-        arrival = dist / ctx.c * 1000.0 + s.delay_ms
+        arrival = dist / ctx.c * 1000.0 + total_delay_ms(s)
         traces.append({"id": s.id, "h": h, "late": e, "arrival_ms": round(arrival, 2), "distance_m": round(dist, 2),
                        "muted": s.mute})
         if not s.mute:
-            events += _events(s, i, pt[0], ctx, f_ref, s.delay_ms, 10 ** (s.gain_db / 20))
+            events += _events(s, i, pt[0], ctx, f_ref, total_delay_ms(s), 10 ** (s.gain_db / 20))
     active = [t["arrival_ms"] for t in traces if not t["muted"]]
     t_first = min(active) if active else 0.0
     unwind = np.exp(2j * np.pi * freqs * t_first * 1e-3)  # remove the bulk propagation delay

@@ -48,6 +48,22 @@ def biquad_response(b: np.ndarray, a: np.ndarray, freqs: np.ndarray, fs: float =
     return (b[0] + b[1] * z1 + b[2] * z2) / (a[0] + a[1] * z1 + a[2] * z2)
 
 
+def pattern_response(spk, freqs: np.ndarray) -> np.ndarray:
+    """A sub-array box's fixed pattern offset (delay and polarity from the array builder)."""
+    sign = -1.0 if getattr(spk, "array_invert", False) else 1.0
+    d = getattr(spk, "array_delay_ms", 0.0) or 0.0
+    return sign * np.exp(-2j * np.pi * np.asarray(freqs, float) * d * 1e-3)
+
+
+def processing(spk, freqs: np.ndarray) -> np.ndarray:
+    """Everything in a speaker's processing the optimizer does not set: its EQ and any array offset."""
+    return peq_response(spk.peq, freqs) * pattern_response(spk, freqs)
+
+
+def total_delay_ms(spk) -> float:
+    return spk.delay_ms + (getattr(spk, "array_delay_ms", 0.0) or 0.0)
+
+
 def peq_response(bands: Iterable[PEQBand], freqs: np.ndarray) -> np.ndarray:
     """Complex response of a chain of PEQ bands."""
     h = np.ones(len(freqs), dtype=complex)

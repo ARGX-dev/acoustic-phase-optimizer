@@ -485,3 +485,62 @@ def test_section_matches_plan_at_ear_height():
     assert sec["nu"] * sec["nz"] <= 5200
     across = section(p, "width", y, "1000")
     assert across["axis"] == "width" and len(across["values"]) == across["nu"] * across["nz"]
+
+
+def _lf_level(p, x, y):
+    r = point_response(p, x, y, 1.2, ppo=24)
+    f = np.array(r["freqs"])
+    m = (f > 50) & (f < 80)
+    return float(np.mean(np.array(r["spl"])[m]))
+
+
+def _outdoor_with(speakers):
+    p = presets.festival()
+    p.speakers = speakers
+    return p
+
+
+def test_cardioid_sub_pair_cancels_behind_and_adds_in_front():
+    from acoustic_phase_optimizer.engine import subarray
+
+    p = presets.festival()
+    x, y = p.room.width / 2, 12.0
+    single = _outdoor_with(subarray.build(p, "line", "sub_18", 1, 1.0, x, y))
+    card = _outdoor_with(subarray.build(p, "cardioid", "sub_18", 1, 1.0, x, y, depth=1.0))
+    assert [s.array_invert for s in card.speakers] == [False, True]
+    assert card.speakers[1].array_delay_ms == pytest.approx(1000 / 343.5, rel=0.03)
+    front_gain = _lf_level(card, x, y + 15) - _lf_level(single, x, y + 15)
+    rear_gain = _lf_level(card, x, y - 9) - _lf_level(single, x, y - 9)
+    assert front_gain > 2.0, front_gain  # the pair still adds up in front at 63 Hz
+    assert front_gain - rear_gain > 15.0, (front_gain, rear_gain)  # and leaves a deep null behind
+
+
+def test_endfire_and_arc_delays():
+    from acoustic_phase_optimizer.engine import subarray
+
+    p = presets.festival()
+    ef = subarray.build(p, "endfire", "sub_18", 4, 1.0, 30, 14)
+    ys = [s.y for s in ef]
+    assert ys == sorted(ys) and ef[0].array_delay_ms == 0
+    assert ef[-1].array_delay_ms == pytest.approx(3 * 1000 / 343.5, rel=0.03)
+    arc = subarray.build(p, "line", "sub_18", 6, 1.2, 30, 3, spread_deg=60)
+    d = [s.array_delay_ms for s in arc]
+    assert d == pytest.approx(d[::-1]) and d[0] > d[2] > 0  # symmetric, outer boxes delayed most
+    assert len({s.array_group for s in arc}) == 1
+
+
+def test_optimizer_keeps_a_sub_array_pattern():
+    from acoustic_phase_optimizer.engine import subarray
+    from acoustic_phase_optimizer.engine.optimize import link_units, quick_align
+
+    p = presets.festival()
+    p.speakers = [s for s in p.speakers if s.role != "sub"] + subarray.build(p, "cardioid", "sub_18", 2, 2.0, 30, 6)
+    subs = [i for i, s in enumerate(p.speakers) if s.role == "sub"]
+    assert subs in link_units(p)
+    before = [(s.array_delay_ms, s.array_invert) for s in p.speakers if s.role == "sub"]
+    from acoustic_phase_optimizer.engine.field import get_field
+
+    spk, _ = quick_align(p, get_field(p))
+    subs_after = [s for s in spk if s.role == "sub"]
+    assert [(s.array_delay_ms, s.array_invert) for s in subs_after] == before
+    assert len({(s.delay_ms, s.invert) for s in subs_after}) == 1  # moved together

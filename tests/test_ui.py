@@ -483,6 +483,31 @@ def test_section_view_and_tilt_by_handle(ui):
     page.locator("#stage-toolbar .seg button", has_text="Plan").click()
 
 
+def test_sub_array_builder(ui):
+    page = ui["page"]
+    page.get_by_role("tab", name="Speakers").click()
+    n0 = page.locator(".row-list .row-item").count()
+    page.get_by_role("button", name="Build a sub array…").click()
+    page.wait_for_selector(".dialog .sub-sketch")
+    page.get_by_role("radio", name="Cardioid").click()
+    assert page.locator(".sub-sketch .box.inv").count() == 2  # two pairs, two inverted rear boxes
+    shot(page, "20-sub-builder")
+    page.get_by_role("button", name="Add the array").click()
+    page.wait_for_selector(".dialog", state="detached")
+    page.wait_for_function(f"document.querySelectorAll('.row-list .row-item').length !== {n0}", timeout=10000)
+    names = page.locator(".row-list .row-item").all_inner_texts()
+    assert sum("rear" in t for t in names) == 2
+    assert page.locator(".group", has_text="Sub array").count() >= 1
+    page.locator("#stage-toolbar .seg button", has_text="Section").click()
+    page.wait_for_function("document.querySelector('#stage-foot .scale') !== null", timeout=20000)
+    time.sleep(2.0)
+    shot(page, "21-cardioid-section")
+    page.locator("#stage-toolbar .seg button", has_text="Plan").click()
+    page.locator("body").click(position={"x": 700, "y": 20})
+    page.keyboard.press("Control+z")
+    page.wait_for_function(f"document.querySelectorAll('.row-list .row-item').length === {n0}", timeout=10000)
+
+
 def test_delete_saved_and_discard_prompt(ui):
     page = ui["page"]
     ui["dialogs"].clear()

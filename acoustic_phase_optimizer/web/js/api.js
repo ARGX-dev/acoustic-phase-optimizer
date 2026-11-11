@@ -39,6 +39,7 @@ export const api = {
   venue: (id) => request('GET', `/api/venues/${encodeURIComponent(id)}`),
   simulate: (project, preview = false, signal) => request('POST', '/api/simulate', { project, preview }, { signal }),
   section: (project, axis, at, band, signal) => request('POST', '/api/section', { project, axis, at, band }, { signal }),
+  subarray: (project, opts) => request('POST', '/api/subarray', { project, ...opts }),
   point: (project, x, y, z) => request('POST', '/api/point', { project, x, y, z }),
   align: (project) => request('POST', '/api/align', { project }),
   autoEq: (project, max_bands) => request('POST', '/api/autoeq', { project, max_bands }),

@@ -239,7 +239,7 @@ export function createSection(root) {
       ctx.globalAlpha = 1;
     }
     if (pending && !data) text('Calculating the section…', (x0 + x1) / 2, (yTop + yFloor) / 2, { color: c.ink2, align: 'center', size: 13 });
-    if (error) text(`No section: ${error}`, (x0 + x1) / 2, (yTop + yFloor) / 2, { color: cssVar('--bad'), align: 'center', size: 13 });
+    if (error) text(`No section: ${error}`, (x0 + x1) / 2, (yTop + yFloor) / 2, { color: cssVar('--critical'), align: 'center', size: 13 });
     text(`Slice ${axis() === 'length' ? 'away from the stage' : 'across the room'} at ${fmt(at(), 1)} m ${axis() === 'length' ? 'across' : 'from the stage'} · through the probe`,
       x0, yTop - 8, { color: c.ink2, size: 11 });
   }

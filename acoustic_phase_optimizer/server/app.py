@@ -56,6 +56,18 @@ class SectionIn(ProjectIn):
     band: Literal["all", "63", "125", "250", "500", "1000", "2000", "4000", "8000"] = "all"
 
 
+class SubArrayIn(ProjectIn):
+    kind: Literal["line", "cardioid", "endfire"]
+    model: str = "sub_18"
+    count: int = Field(4, ge=1, le=24)
+    spacing: float = Field(1.2, ge=0.3, le=10)
+    depth: float = Field(1.0, ge=0.3, le=4)
+    spread_deg: float = Field(0.0, ge=0, le=170)
+    x: float
+    y: float
+    replace: bool = True
+
+
 class AutoEqIn(ProjectIn):
     max_bands: int = Field(5, ge=1, le=10)
 
@@ -241,6 +253,23 @@ def create_app() -> FastAPI:
     @app.post("/api/section")
     def api_section(body: SectionIn) -> dict:
         return section(body.project, body.axis, body.at, body.band)
+
+    @app.post("/api/subarray")
+    def api_subarray(body: SubArrayIn) -> dict:
+        from ..engine import subarray
+        from ..engine.library import BY_ID
+        from ..engine.presets import SPEAKER_TYPES
+
+        if body.model not in SPEAKER_TYPES and body.model not in BY_ID:
+            raise HTTPException(422, f"Unknown loudspeaker model {body.model!r}.")
+        p = body.project
+        new = subarray.build(p, body.kind, body.model, body.count, body.spacing, body.x, body.y,
+                             depth=body.depth, spread_deg=body.spread_deg)
+        keep = [s for s in p.speakers if not (body.replace and s.role == "sub")]
+        if len(keep) + len(new) > 64:
+            raise HTTPException(422, "That would make more than 64 speakers.")
+        return {"speakers": [s.model_dump() for s in keep + new], "added": len(new),
+                "removed": len(p.speakers) - len(keep)}
 
     @app.post("/api/point")
     def api_point(body: PointIn) -> dict:

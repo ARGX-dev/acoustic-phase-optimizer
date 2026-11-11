@@ -35,7 +35,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from .air import air_absorption_db_per_m, speed_of_sound
-from .eq import peq_response
+from .eq import processing
 from .materials import SURFACES, RoomStats, room_stats, surface_alphas
 from .model import Project, Speaker
 
@@ -420,7 +420,7 @@ def dsp_weights(speakers: list[Speaker], freqs: np.ndarray) -> np.ndarray:
         if s.mute:
             continue
         g = 10 ** (s.gain_db / 20) * (-1.0 if s.invert else 1.0)
-        w[i] = g * np.exp(-2j * np.pi * freqs * s.delay_ms * 1e-3) * peq_response(s.peq, freqs)
+        w[i] = g * np.exp(-2j * np.pi * freqs * s.delay_ms * 1e-3) * processing(s, freqs)
     return w
 
 

@@ -25,7 +25,7 @@ from dataclasses import dataclass
 import numpy as np
 from scipy.optimize import least_squares, minimize
 
-from .eq import bell_db, peq_response
+from .eq import bell_db, peq_response, processing, total_delay_ms
 from .field import FieldModel, combine, dsp_weights
 from .metrics import EPS, Weights, _spread, analyse, arrivals, db, penalty, smooth, summarise, tone_floor
 from .model import PEQBand, Project, Speaker
@@ -73,6 +73,14 @@ def link_units(project: Project, speakers: list[Speaker] | None = None) -> list[
     spks = speakers if speakers is not None else project.speakers
     used: set[int] = set()
     units: list[list[int]] = []
+    groups: dict[str, list[int]] = {}
+    for i, s in enumerate(spks):
+        if s.array_group and not s.mute:
+            groups.setdefault(s.array_group, []).append(i)
+    for members in groups.values():  # a sub array is one unit, whatever its size
+        if len(members) > 1:
+            units.append(members)
+            used.update(members)
     for i, s in enumerate(spks):
         if i in used or s.mute:
             continue
@@ -127,7 +135,7 @@ def analyse_project(project: Project, field: FieldModel, speakers: list[Speaker]
     w = dsp_weights(spks, field.freqs)
     g = field.grid_slice
     c = combine(field, w).rows(g)
-    delays = np.array([s.delay_ms for s in spks])
+    delays = np.array([total_delay_ms(s) for s in spks])
     _, _, spread, _ = arrivals(field, w, delays, g)
     return analyse(c.early, c.early_psum, c.late, spread, field.freqs,
                    project.settings.target_tilt_db_per_oct, tone_floor(spks))
@@ -192,14 +200,14 @@ def quick_align(project: Project, field: FieldModel) -> tuple[list[Speaker], lis
         """Arrival time of the first audible main at each seat, ms."""
         w2 = (np.abs(w) ** 2).astype(np.float32)
         pw = np.stack([H2g[m][:, mid] @ w2[m, mid] for m in mains])
-        t = np.stack([dist[m] / c * 1000.0 + spks[m].delay_ms for m in mains])
+        t = np.stack([dist[m] / c * 1000.0 + total_delay_ms(spks[m]) for m in mains])
         first, _, ok = _spread(pw, t)
         return np.where(ok, first, t.min(0))
 
     def overlap(unit: list[int], base_idx: list[int], zone: np.ndarray, fmask: np.ndarray, w: np.ndarray):
         f = freqs[fmask]
         base = sum(w[m, fmask][None, :] * Hg[m][zone][:, fmask] for m in base_idx)
-        own = sum((10 ** (spks[i].gain_db / 20) * peq_response(spks[i].peq, f))[None, :] * Hg[i][zone][:, fmask]
+        own = sum((10 ** (spks[i].gain_db / 20) * processing(spks[i], f))[None, :] * Hg[i][zone][:, fmask]
                   for i in unit)
         pb, pu = np.abs(base) ** 2, np.abs(own) ** 2
         ovl = np.minimum(pb, pu) / np.maximum(pb + pu, EPS)
@@ -362,7 +370,7 @@ class BatchObjective:
         self.LEf = np.ascontiguousarray(field.LE[:, idx].transpose(2, 0, 1))
         self.t_geo = field.dist[:, idx] / field.c * 1000.0  # (S, P)
         self.mid = _band(self.freqs, 500, 4000)
-        self.eq = np.stack([peq_response(s.peq, self.freqs) for s in speakers])
+        self.eq = np.stack([processing(s, self.freqs) for s in speakers])
         self.active = np.array([0.0 if s.mute else 1.0 for s in speakers])
         self.weights, self.tilt, self.tone_lo = weights, tilt, tone_floor(speakers)
         self.ref_level: float | None = None

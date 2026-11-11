@@ -107,6 +107,11 @@ class Speaker(BaseModel):
     # Optimizer locks
     lock_delay: bool = False
     lock_gain: bool = False
+    # Sub arrays (cardioid, end-fire, arc): boxes sharing a group are processed as one unit by the optimizer,
+    # and each keeps its own pattern offset - a delay and polarity on top of the unit's - that nothing alters.
+    array_group: str | None = Field(None, max_length=40)
+    array_delay_ms: float = Field(0.0, ge=0, le=100)
+    array_invert: bool = False
     color: int | None = Field(None, ge=0, le=7)  # chart colour slot; follows the speaker, never its rank
 
 

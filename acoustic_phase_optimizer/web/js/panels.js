@@ -271,7 +271,8 @@ export function createLeftPanel(root) {
     s.role === 'sub' ? h('span', { class: 'swatch', style: { background: seriesColor(s.color), borderRadius: '2px' } })
       : h('span', { class: 'swatch', style: { background: seriesColor(s.color) } }),
     h('span', { class: 'name', text: s.name }),
-    h('span', { class: 'meta', text: `${fmt(s.delay_ms, 1)} ms · ${fmt(s.gain_db, 1, true)} dB${s.invert ? ' · ø' : ''}` }),
+    h('span', { class: 'meta', title: s.array_delay_ms || s.array_invert ? 'Includes the sub array pattern offset' : null,
+      text: `${fmt(s.delay_ms + (s.array_delay_ms || 0), 1)} ms · ${fmt(s.gain_db, 1, true)} dB${s.invert !== !!s.array_invert ? ' · ø' : ''}` }),
     h('button', { class: 'icon-btn small' + (s.mute ? ' on' : ''), title: s.mute ? 'Unmute' : 'Mute',
       attrs: { 'aria-label': (s.mute ? 'Unmute ' : 'Mute ') + s.name, 'aria-pressed': String(!!s.mute) },
       onclick: (e) => { e.stopPropagation(); mutate((p) => { const t = p.speakers.find((x) => x.id === s.id); t.mute = !t.mute; }, { structural: true }); } },
@@ -341,6 +342,18 @@ export function createLeftPanel(root) {
           : num('Splay per box', g('array_splay'), (v, o) => editSpeaker(s.id, hangFields(type, speakerById(s.id).array_boxes, clamp(v, 0, type.spec.splay_max)), o),
             { min: 0, max: type.spec.splay_max, step: 0.5, unit: '°', nd: 1, title: `0° to ${type.spec.splay_max}° between boxes` })),
       h('p', { class: 'hint', text: `${s.array_boxes} × ${type.label.replace(/, hang of \d+$/, '')}: ${fmt(s.level_db, 0)} dB peak at 1 m, ${fmt(s.coverage_v, 0)}° vertical. Each box ${type.spec.box_spl} dB.` })) : null;
+    const mates = s.array_group ? P().speakers.filter((q) => q.array_group === s.array_group) : [];
+    const subArray = mates.length > 1 ? group('Sub array',
+      h('p', { class: 'hint', text: `One of ${mates.length} boxes in an array. Its pattern offset is ${fmt(s.array_delay_ms, 2)} ms${s.array_invert ? ', polarity inverted' : ''}; the optimizer moves the whole array together and never changes the offsets.` }),
+      h('button', { class: 'btn small', title: 'Fold each box\'s offset into its own delay and polarity, and let the optimizer treat them separately',
+        onclick: () => mutate((p) => {
+          for (const q of p.speakers) {
+            if (q.array_group !== s.array_group) continue;
+            q.delay_ms = Math.round((q.delay_ms + q.array_delay_ms) * 100) / 100;
+            q.invert = q.invert !== q.array_invert;
+            q.array_group = null; q.array_delay_ms = 0; q.array_invert = false;
+          }
+        }, { structural: true }) }, 'Break up the array')) : null;
     return h('div', { class: 'editor' },
       partner ? h('div', { class: 'linked', title: 'Mirror-image pairs share every setting. Turn this off under Setup.' }, icon('link'),
         h('span', { text: `Linked with ${partner.name}: edits apply to both.` })) : null,
@@ -357,6 +370,7 @@ export function createLeftPanel(root) {
         num('Turn', g('yaw'), set('yaw'), { min: -180, max: 180, step: 1, unit: '°', nd: 0, title: '0° faces the audience. Positive turns toward the bottom of the plan.' }),
         num('Tilt', g('pitch'), set('pitch'), { min: -90, max: 90, step: 1, unit: '°', nd: 0, title: 'Negative tilts down toward the seats.' }))),
       arrayGroup,
+      subArray,
       group('Processor output', h('div', { class: 'grid2' },
         num('Delay', g('delay_ms'), set('delay_ms'), { min: 0, max: 500, step: 0.1, unit: 'ms' }),
         num('Gain', g('gain_db'), set('gain_db'), { min: -40, max: 20, step: 0.5, unit: 'dB', nd: 1 })),
@@ -446,7 +460,9 @@ export function createLeftPanel(root) {
           h('span', { class: 'hint', text: `${state.meta.speaker_types.filter((t) => t.spec && !t.spec.user).length} library models · ${state.meta.speaker_types.filter((t) => t.spec?.user).length} of yours` }),
           h('span', { style: { flex: 1 } }),
           h('a', { class: 'btn small ghost', href: '/api/speakers/template.csv', download: 'speakers-template.csv', title: 'A CSV with the columns the import expects' }, 'Template'),
-          h('button', { class: 'btn small', onclick: importSpeakers, title: 'Add your own loudspeakers from a CSV or JSON file' }, 'Import list…'))),
+          h('button', { class: 'btn small', onclick: importSpeakers, title: 'Add your own loudspeakers from a CSV or JSON file' }, 'Import list…')),
+        h('button', { class: 'btn small wide-btn', onclick: () => import('./subarray.js').then((m) => m.openSubArrayBuilder()),
+          title: 'Cardioid, end-fire or arc-delayed sub arrays' }, icon('plus'), 'Build a sub array…')),
       group(`Speakers (${P().speakers.length})`, listBox),
       sel ? speakerEditor(sel) : (P().speakers.length ? h('p', { class: 'hint', text: 'Select a speaker here or on the plan to edit it.' }) : null),
     ];
