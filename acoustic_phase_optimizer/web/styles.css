@@ -355,3 +355,36 @@ table.data td:first-child { display: flex; align-items: center; gap: 6px; }
 .scan-card svg { width: 16px; height: 16px; color: var(--accent); flex: none; }
 .scan-card .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
 @media (max-width: 760px) { .scan-dialog { grid-template-columns: 1fr; } }
+
+/* ------------------------------------------------------- loudspeaker picker */
+.picker { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.picker .search { position: relative; }
+.picker .search svg { position: absolute; left: 9px; top: 50%; transform: translateY(-50%); width: 15px; height: 15px; color: var(--muted); pointer-events: none; }
+.picker input[type="search"] { width: 100%; padding: 7px 10px 7px 30px; border: 1px solid var(--line-strong); border-radius: var(--radius);
+  background: var(--surface-2); color: var(--ink); font: inherit; }
+.picker input[type="search"]:focus { outline: none; border-color: var(--accent); }
+.chips { display: flex; gap: 4px; flex-wrap: wrap; }
+.chip { font: inherit; font-size: 11.5px; padding: 3px 9px; border-radius: 999px; border: 1px solid var(--line-strong);
+  background: transparent; color: var(--ink-2); cursor: pointer; }
+.chip:hover { color: var(--ink); }
+.chip.on { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.picker-list { max-height: 240px; overflow: auto; border: 1px solid var(--line); border-radius: var(--radius); background: var(--page); padding: 4px 0; }
+.picker-list.tall { max-height: min(56vh, 460px); }
+.picker-group { font-size: 10.5px; font-weight: 650; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted);
+  padding: 8px 10px 3px; position: sticky; top: -4px; background: var(--page); }
+.picker-item { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "name tag" "meta meta";
+  column-gap: 6px; padding: 5px 10px; cursor: pointer; border-left: 2px solid transparent; }
+.picker-item .name { grid-area: name; font-weight: 600; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.picker-item .meta { grid-area: meta; font-size: 11.5px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.picker-item .tag { grid-area: tag; font-size: 10.5px; color: var(--ink-2); border: 1px solid var(--warning); border-radius: 4px; padding: 0 5px; align-self: center; }
+.picker-item.active { background: var(--accent-wash); }
+.picker-item.current { border-left-color: var(--accent); }
+.picker .empty { padding: 10px; }
+.type-btn { justify-content: space-between; width: 100%; font-weight: 600; }
+.type-btn span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.type-btn svg { width: 14px; height: 14px; flex: none; color: var(--muted); }
+dl.spec { display: grid; grid-template-columns: auto 1fr; gap: 3px 12px; margin: 0 0 6px; font-variant-numeric: tabular-nums; }
+dl.spec dt { color: var(--ink-2); }
+dl.spec dd { margin: 0; color: var(--ink); }
+a.link { color: var(--accent); text-decoration: none; }
+a.link:hover { text-decoration: underline; }

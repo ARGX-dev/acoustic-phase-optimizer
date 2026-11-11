@@ -20,6 +20,7 @@ from .. import __version__
 from ..engine import presets
 from ..engine.advice import advise
 from ..engine.field import get_field
+from ..engine.library import LIBRARY
 from ..engine.materials import MATERIALS
 from ..engine.metrics import BANDS, Weights
 from ..engine.model import Project, Speaker
@@ -155,7 +156,7 @@ def create_app() -> FastAPI:
             "version": __version__,
             "bands": BANDS,
             "materials": [{"id": m.id, "name": m.name, "alpha": list(m.alpha)} for m in MATERIALS.values()],
-            "speaker_types": [{"id": k, **v} for k, v in presets.SPEAKER_TYPES.items()],
+            "speaker_types": [{"id": k, "group": "Generic", **v} for k, v in presets.SPEAKER_TYPES.items()] + LIBRARY,
             "venues": [{"id": k, "name": v[0]} for k, v in presets.VENUES.items()],
             "data_dir": str(storage.data_dir()),
         }

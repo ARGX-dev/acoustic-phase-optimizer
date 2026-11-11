@@ -2,9 +2,10 @@
 
 import {
   addMic, addSpeaker, DEFAULT_WEIGHTS, duplicateSpeaker, editSpeaker, mirrorSpeaker, mutate, on, partnerOf,
-  removeMic, removeSpeaker, select, setUI, speakerById, state,
+  removeMic, removeSpeaker, select, setUI, speakerById, speakerType, state, typeFields,
 } from './store.js';
 import { clamp, clear, fmt, h, icon, toast, uid } from './util.js';
+import { pickSpeakerType, speakerPicker } from './picker.js';
 import { seriesColor } from './theme.js';
 
 const TABS = [['room', 'Room'], ['speakers', 'Speakers'], ['mics', 'Mics'], ['setup', 'Setup']];
@@ -228,20 +229,22 @@ export function createLeftPanel(root) {
     const g = (k) => () => speakerById(s.id)?.[k];
     const set = (k) => (v, opts) => editSpeaker(s.id, { [k]: v }, opts);
     const partner = partnerOf(s.id);
-    const types = state.meta.speaker_types;
     const applyType = (id, opts) => {
-      const t = types.find((x) => x.id === id);
+      const t = speakerType(id);
       if (!t) return;
-      const { label, id: model, ...acoustic } = t;
-      editSpeaker(s.id, { model, ...acoustic }, opts);
+      const { role, ...acoustic } = typeFields(t); // keep the role the user gave it (a delay stays a delay)
+      editSpeaker(s.id, { model: t.id, ...acoustic, ...(t.role === 'sub' || s.role === 'sub' ? { role } : {}) }, { ...opts, structural: true });
     };
+    const type = speakerType(s.model);
     const r = P().room;
     return h('div', { class: 'editor' },
       partner ? h('div', { class: 'linked', title: 'Mirror-image pairs share every setting. Turn this off under Setup.' }, icon('link'),
         h('span', { text: `Linked with ${partner.name}: edits apply to both.` })) : null,
       group(null, h('div', { class: 'grid2' },
         textField('Name', g('name'), set('name')),
-        choice('Type', [...types.map((t) => [t.id, t.label]), ...(types.some((t) => t.id === s.model) ? [] : [[s.model, 'Custom']])], g('model'), applyType, { wide: true }),
+        h('div', { class: 'field wide' }, h('span', { text: 'Model' }),
+          h('button', { class: 'btn type-btn', attrs: { 'aria-label': 'Change loudspeaker model' }, onclick: () => pickSpeakerType(s.model, (id) => applyType(id, DONE)) },
+            h('span', { text: type?.label || 'Custom' }), icon('chevron'))),
         choice('Role', ROLES, g('role'), set('role'), { wide: true, title: 'Mains are the time reference. Fills, delays and subs are aligned to them.' }))),
       group('Position and aim', h('div', { class: 'grid3' },
         num('From stage', g('y'), set('y'), { min: 0.1, max: r.length - 0.1, step: 0.1, unit: 'm' }),
@@ -259,6 +262,7 @@ export function createLeftPanel(root) {
         check('Lock gain', g('lock_gain'), set('lock_gain'))),
       h('p', { class: 'hint', text: 'Locked values are never changed by the optimizer.' })),
       eqEditor(s),
+      type?.spec ? specCard(type) : null,
       h('details', { class: 'group' }, h('summary', { class: 'hint', style: { cursor: 'pointer', marginBottom: '8px' }, text: 'Loudspeaker model' }),
         h('div', { class: 'grid2' },
           num('Coverage, horizontal', g('coverage_h'), set('coverage_h'), { min: 5, max: 360, step: 5, unit: '°', nd: 0 }),
@@ -275,15 +279,26 @@ export function createLeftPanel(root) {
         h('button', { class: 'btn small danger', onclick: () => removeSpeaker(s.id) }, icon('trash'), 'Delete')));
   }
 
+  function specCard(t) {
+    const sp = t.spec;
+    const low = sp.low_limit ? `${sp.low_limit} Hz${sp.low_limit_db ? ` (${sp.low_limit_db} dB)` : ''}` : '–';
+    return group('Datasheet',
+      h('dl', { class: 'spec' },
+        h('dt', { text: 'Coverage' }), h('dd', { text: sp.coverage }),
+        h('dt', { text: 'Max SPL' }), h('dd', { text: `${sp.max_spl} dB at 1 m${sp.kind === 'element' ? ', one box' : ''}` }),
+        h('dt', { text: 'Low limit' }), h('dd', { text: low })),
+      sp.note ? h('p', { class: 'hint', text: sp.note }) : null,
+      h('p', { class: 'hint', text: `Estimated for the simulation: ${sp.estimated.join('; ')}.` }),
+      h('a', { class: 'hint link', href: sp.source, target: '_blank', rel: 'noopener', text: 'Manufacturer source ↗' }));
+  }
+
   function speakersTab() {
-    const types = state.meta.speaker_types;
-    const pick = h('select', { attrs: { 'aria-label': 'Speaker type to add' } }, types.map((t) => h('option', { value: t.id, text: t.label })));
+    const pick = speakerPicker({ onPick: (id) => addSpeaker(id) });
     listBox = h('div', { class: 'row-list' });
     renderList();
     const sel = state.selection?.kind === 'speaker' ? speakerById(state.selection.id) : null;
     return [
-      group('Add a speaker', h('div', { style: { display: 'flex', gap: '6px' } }, pick,
-        h('button', { class: 'btn primary', onclick: () => addSpeaker(pick.value) }, icon('plus'), 'Add'))),
+      group('Add a speaker', pick),
       group(`Speakers (${P().speakers.length})`, listBox),
       sel ? speakerEditor(sel) : (P().speakers.length ? h('p', { class: 'hint', text: 'Select a speaker here or on the plan to edit it.' }) : null),
     ];

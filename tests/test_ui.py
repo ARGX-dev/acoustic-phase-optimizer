@@ -287,6 +287,37 @@ def test_import_scan_sets_the_room(ui, tmp_path):
     page.locator("#stage-toolbar .seg button", has_text="Plan").click()
 
 
+def test_speaker_library_search_add_and_change_model(ui):
+    page = ui["page"]
+    page.get_by_role("tab", name="Speakers").click()
+    before = page.locator(".row-list .row-item").count()
+    search = page.get_by_role("combobox", name="Search loudspeakers")
+    search.fill("ks28")
+    items = page.locator(".picker-item")
+    assert items.count() == 1 and "KS28" in items.first.inner_text()
+    search.press("Enter")
+    time.sleep(0.6)
+    assert page.locator(".row-list .row-item").count() == before + 1
+    assert "datasheet" in page.locator(".tab-body").inner_text().lower()
+    assert page.locator("a.link", has_text="Manufacturer source").get_attribute("href").startswith("https://")
+    # change the new speaker's model through the dialog, filtering by kind
+    page.get_by_role("button", name="Change loudspeaker model").click()
+    page.locator(".dialog .chip", has_text="Subwoofer").click()
+    page.locator(".dialog input[type=search]").fill("srx")
+    shot(page, "12-speaker-picker")
+    page.locator(".dialog .picker-item", has_text="SRX828SP").click()
+    page.wait_for_selector(".dialog", state="detached")
+    assert "SRX828SP" in page.locator(".type-btn").inner_text()
+    level = float(page.locator("input[aria-label='Max SPL at 1 m']").input_value())
+    assert level == 141
+    page.keyboard.press("Escape")
+    page.locator("body").click(position={"x": 700, "y": 20})
+    page.keyboard.press("Control+z")
+    page.keyboard.press("Control+z")
+    time.sleep(0.6)
+    assert page.locator(".row-list .row-item").count() == before
+
+
 def test_delete_saved_and_discard_prompt(ui):
     page = ui["page"]
     ui["dialogs"].clear()

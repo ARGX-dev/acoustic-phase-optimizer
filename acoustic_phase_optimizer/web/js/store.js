@@ -238,11 +238,19 @@ function uniqueName(p, base) {
   return base;
 }
 
+const TYPE_FIELDS = ['coverage_h', 'coverage_v', 'level_db', 'hp_hz', 'lp_hz', 'directivity_hz', 'role'];
+/** The acoustic settings a speaker type puts on a speaker (never its label, brand or datasheet notes). */
+export function typeFields(type) {
+  return Object.fromEntries(TYPE_FIELDS.filter((k) => k in type).map((k) => [k, type[k]]));
+}
+export const speakerType = (id) => state.meta.speaker_types.find((t) => t.id === id);
+
 export function addSpeaker(typeId) {
-  const type = state.meta.speaker_types.find((t) => t.id === typeId) || state.meta.speaker_types[0];
+  const type = speakerType(typeId) || state.meta.speaker_types[0];
   const id = uid();
   mutate((p) => {
-    const { label, id: model, ...acoustic } = type;
+    const model = type.id;
+    const acoustic = typeFields(type);
     const sub = acoustic.role === 'sub';
     p.speakers.push({
       id, name: uniqueName(p, sub ? 'Sub' : acoustic.role === 'main' ? 'Main' : 'Fill'), model,

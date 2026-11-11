@@ -398,3 +398,18 @@ def test_audience_is_clamped_into_the_room():
     a = p.audience
     assert (a.x0, a.x1, a.y0, a.y1) == (0, 10, 2, 12)
     assert a.ear_height < 4
+
+
+def test_speaker_library_entries_are_valid_and_sourced():
+    from acoustic_phase_optimizer.engine.library import LIBRARY
+    from acoustic_phase_optimizer.engine.model import Speaker
+    from acoustic_phase_optimizer.engine.presets import SPEAKER_TYPES
+
+    ids = [t["id"] for t in LIBRARY]
+    assert len(ids) == len(set(ids)) and not set(ids) & set(SPEAKER_TYPES)
+    fields = ("coverage_h", "coverage_v", "level_db", "hp_hz", "lp_hz", "directivity_hz", "role")
+    for t in LIBRARY:
+        Speaker(model=t["id"], **{k: t[k] for k in fields})
+        assert t["spec"]["source"].startswith("https://"), t["id"]
+        if t["role"] == "sub":
+            assert t["lp_hz"] > 0
