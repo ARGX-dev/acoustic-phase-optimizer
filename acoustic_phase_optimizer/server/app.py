@@ -6,6 +6,7 @@ there is nothing to get out of sync between the UI and the engine.
 
 from __future__ import annotations
 
+import json
 import threading
 import time
 from pathlib import Path
@@ -20,7 +21,7 @@ from .. import __version__
 from ..engine import presets
 from ..engine.advice import advise
 from ..engine.field import get_field
-from ..engine.library import LIBRARY
+from ..engine.library import LIBRARY, ROW_BY_ID, SpeakerRow, to_speaker_type
 from ..engine.materials import MATERIALS
 from ..engine.metrics import BANDS, Weights
 from ..engine.model import Project, Speaker
@@ -156,7 +157,7 @@ def create_app() -> FastAPI:
             "version": __version__,
             "bands": BANDS,
             "materials": [{"id": m.id, "name": m.name, "alpha": list(m.alpha)} for m in MATERIALS.values()],
-            "speaker_types": [{"id": k, "group": "Generic", **v} for k, v in presets.SPEAKER_TYPES.items()] + LIBRARY,
+            "speaker_types": [{"id": k, "group": "Generic", **v} for k, v in presets.SPEAKER_TYPES.items()],
             "venues": [{"id": k, "name": v[0]} for k, v in presets.VENUES.items()],
             "data_dir": str(storage.data_dir()),
         }
@@ -254,6 +255,83 @@ def create_app() -> FastAPI:
     @app.post("/api/report", response_class=HTMLResponse)
     def api_report(body: ReportIn) -> str:
         return render_report(body.project, body.baseline)
+
+    # --------------------------------------------------------------------- speakers
+    def user_rows() -> list[SpeakerRow]:
+        out = []
+        for r in storage.load_user_speakers():
+            try:
+                out.append(SpeakerRow(**{**r, "user": True}))
+            except ValueError:
+                continue  # skip a row edited by hand into something invalid
+        return out
+
+    @app.get("/api/speakers")
+    def api_speakers() -> dict:
+        """Every real loudspeaker: the checked library, then the user's own models."""
+        return {"library": LIBRARY, "user": [to_speaker_type(r) for r in user_rows()],
+                "fields": list(SpeakerRow.model_fields)}
+
+    @app.post("/api/speakers/user")
+    def api_speaker_save(row: SpeakerRow) -> dict:
+        if row.id in ROW_BY_ID:
+            raise HTTPException(409, "That id belongs to a library model. Choose another name.")
+        rows = [r for r in user_rows() if r.id != row.id] + [row.model_copy(update={"user": True})]
+        storage.save_user_speakers([r.model_dump() for r in rows])
+        return to_speaker_type(rows[-1])
+
+    @app.delete("/api/speakers/user/{row_id}")
+    def api_speaker_delete(row_id: str) -> dict:
+        rows = user_rows()
+        keep = [r for r in rows if r.id != row_id]
+        storage.save_user_speakers([r.model_dump() for r in keep])
+        return {"deleted": len(rows) - len(keep)}
+
+    @app.post("/api/speakers/import")
+    async def api_speaker_import(request: Request) -> dict:
+        """CSV (with a header row) or JSON (a list of rows). Valid rows are added; each bad row is reported."""
+        import csv
+        import io
+        import re as _re
+
+        text = (await request.body()).decode("utf-8-sig", errors="replace")
+        if len(text) > 5_000_000:
+            raise HTTPException(413, "The file is larger than 5 MB.")
+        try:
+            raw = json.loads(text) if text.lstrip().startswith(("[", "{")) else list(csv.DictReader(io.StringIO(text)))
+        except ValueError as exc:
+            raise HTTPException(422, f"Could not read the file: {exc}") from None
+        if isinstance(raw, dict):
+            raw = raw.get("speakers", [])
+        existing = {r.id: r for r in user_rows()}
+        added, errors = 0, []
+        for i, r in enumerate(raw, start=2 if not text.lstrip().startswith(("[", "{")) else 1):
+            if not isinstance(r, dict):
+                errors.append({"row": i, "error": "not a row"})
+                continue
+            r = {k.strip().lower(): (v.strip() if isinstance(v, str) else v) for k, v in r.items() if k}
+            r = {k: v for k, v in r.items() if v not in ("", None)}
+            if "id" not in r and r.get("brand") and r.get("model"):
+                r["id"] = _re.sub(r"[^a-z0-9]+", "_", f"{r['brand']} {r['model']}".lower()).strip("_")[:60]
+            try:
+                row = SpeakerRow(**{**r, "user": True})
+                if row.id in ROW_BY_ID:
+                    raise ValueError("id is already used by a library model")
+            except ValueError as exc:
+                msg = str(exc).splitlines()
+                errors.append({"row": i, "error": " ".join(m.strip() for m in msg[1:3]) or msg[0]})
+                continue
+            existing[row.id] = row
+            added += 1
+        storage.save_user_speakers([r.model_dump() for r in existing.values()])
+        return {"added": added, "errors": errors[:50], "error_count": len(errors)}
+
+    @app.get("/api/speakers/template.csv")
+    def api_speaker_template() -> Response:
+        head = ",".join(f for f in SpeakerRow.model_fields if f not in ("user", "approximate"))
+        example = "my_top_12,MyBrand,Top 12,point,12,90,60,130,peak,50,-10,,,https://example.com/datasheet.pdf,,"
+        return Response(head + "\n" + example + "\n", media_type="text/csv",
+                        headers={"Content-Disposition": 'attachment; filename="speakers-template.csv"'})
 
     # ------------------------------------------------------------------------ scans
     @app.post("/api/scans")

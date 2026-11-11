@@ -49,7 +49,7 @@ version = {attr = "acoustic_phase_optimizer.__version__"}
 include = ["acoustic_phase_optimizer*"]
 
 [tool.setuptools.package-data]
-acoustic_phase_optimizer = ["web/*.html", "web/*.css", "web/js/*.js", "web/vendor/three/LICENSE",
+acoustic_phase_optimizer = ["engine/data/*.json", "web/*.html", "web/*.css", "web/js/*.js", "web/vendor/three/LICENSE",
                             "web/vendor/three/build/*.js", "web/vendor/three/examples/jsm/*/*.js"]
 
 [tool.ruff]

@@ -133,11 +133,12 @@ export function create3D(root) {
     const mats = SURFACES.map(([key]) => {
       const base = key === 'front' ? c.stage : key === 'floor' ? c.floor : c.wall;
       // more absorptive surfaces read a little darker, like soft furnishings
-      const a = state.meta?.materials.find((m) => m.id === r.materials[key])?.alpha || [];
+      const a = (state.meta?.materials.find((m) => m.id === r.materials[key]) || state.project.custom_materials?.find((m) => m.id === r.materials[key]))?.alpha || [];
       const mid = a.length ? (a[2] + a[3] + a[4]) / 3 : 0.1;
       const col = base.clone().lerp(new THREE.Color(isDark() ? '#2b2a27' : '#b9b3a5'), clamp(mid, 0, 1) * 0.5);
+      const open = (r.kind !== 'indoor' && r.kind && key === 'ceiling') || (r.kind === 'outdoor' && key !== 'floor');
       return new THREE.MeshStandardMaterial({ color: col, side: THREE.BackSide, roughness: 0.92, metalness: 0,
-        transparent: showScan, opacity: showScan ? 0.18 : 1, depthWrite: !showScan });
+        transparent: showScan || open, opacity: open ? 0 : showScan ? 0.18 : 1, depthWrite: !showScan && !open, visible: !open });
     });
     const box = new THREE.Mesh(geo, mats);
     box.position.copy(P(r.width / 2, r.length / 2, r.height / 2));
@@ -491,7 +492,7 @@ export function create3D(root) {
   function refreshAll() {
     if (!state.project || !visible) return;
     const r = state.project.room;
-    const sig = JSON.stringify([r, state.project.audience, isDark(), !!(scanObject && state.project.scan?.visible !== false), state.meta?.materials?.length]);
+    const sig = JSON.stringify([r, state.project.custom_materials, state.project.audience, isDark(), !!(scanObject && state.project.scan?.visible !== false), state.meta?.materials?.length]);
     if (sig !== roomSig) {
       roomSig = sig;
       buildRoom();

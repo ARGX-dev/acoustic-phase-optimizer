@@ -222,7 +222,9 @@ document.addEventListener('keydown', (e) => {
 async function boot() {
   const bootEl = $('boot');
   try {
-    state.meta = await api.meta();
+    const [meta, lib] = await Promise.all([api.meta(), api.speakers().catch(() => null)]);
+    state.meta = meta;
+    if (lib) state.meta.speaker_types = [...meta.speaker_types, ...lib.library, ...lib.user];
     let session = null;
     try { session = await api.session(); } catch (e) { /* first run */ }
     const fresh = session?.project ? null : await api.venue(state.meta.venues[0]?.id || 'blank');

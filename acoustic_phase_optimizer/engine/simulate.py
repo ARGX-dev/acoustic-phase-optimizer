@@ -22,7 +22,7 @@ from .field import (
     speaker_amplitude,
     speaker_field,
 )
-from .materials import OCTAVE_BANDS, room_stats
+from .materials import OCTAVE_BANDS, room_stats, surface_alphas
 from .metrics import BANDS, analyse, arrivals, band_levels, db, smooth, spl, summarise, tone_floor
 from .model import Project
 
@@ -165,7 +165,7 @@ def room_report(project: Project) -> dict:
     """Statistical room acoustics per octave band."""
     env, r = project.environment, project.room
     air = air_absorption_db_per_m(OCTAVE_BANDS, env.temperature_c, env.humidity_pct, env.pressure_kpa)
-    st = room_stats(r.width, r.length, r.height, r.materials.model_dump(), OCTAVE_BANDS, air)
+    st = room_stats(r.width, r.length, r.height, surface_alphas(project, OCTAVE_BANDS), OCTAVE_BANDS, air)
     rt_mid = float(np.mean(st.rt60_eyring[2:4]))
     return {
         "bands": OCTAVE_BANDS.tolist(),
@@ -178,6 +178,10 @@ def room_report(project: Project) -> dict:
         "critical_distance_m": _r(st.critical_distance, 2),
         "speed_of_sound": round(speed_of_sound(env.temperature_c, env.humidity_pct, env.pressure_kpa), 2),
         "schroeder_hz": round(float(2000 * np.sqrt(rt_mid / st.volume)), 1),
+        # what the air itself takes away over 30 m, per band (ISO 9613-1, this temperature and humidity)
+        "air_loss_30m_db": _r(air * 30.0, 1),
+        "air_loss_8k_30m_db": round(float(air_absorption_db_per_m(np.array([8000.0]), env.temperature_c, env.humidity_pct,
+                                                                  env.pressure_kpa)[0] * 30.0), 1),
     }
 
 

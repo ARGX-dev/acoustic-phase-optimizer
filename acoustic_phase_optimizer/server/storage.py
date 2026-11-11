@@ -117,6 +117,26 @@ def _write_bytes(path: Path, data: bytes) -> None:
     os.replace(tmp, path)
 
 
+# ------------------------------------------------------------ the user's own loudspeakers
+def _user_speakers_path() -> Path:
+    return data_dir() / "my_speakers.json"
+
+
+def load_user_speakers() -> list[dict]:
+    path = _user_speakers_path()
+    if not path.exists():
+        return []
+    try:
+        rows = json.loads(path.read_text(encoding="utf-8"))
+        return rows if isinstance(rows, list) else []
+    except (OSError, ValueError):
+        return []
+
+
+def save_user_speakers(rows: list[dict]) -> None:
+    _write(_user_speakers_path(), json.dumps(rows, indent=1, ensure_ascii=False))
+
+
 def save_session(payload: dict) -> None:
     _write(data_dir() / "session.json", json.dumps(payload))
 

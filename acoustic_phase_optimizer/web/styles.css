@@ -391,3 +391,21 @@ a.link:hover { text-decoration: underline; }
 
 .fit-btn { position: absolute; top: 10px; right: 10px; z-index: 2; }
 .stage-wrap.is-3d .fit-btn { display: none; }
+
+/* ------------------------------------------------------- venue and materials */
+.seg.block { display: flex; width: 100%; }
+.seg.block button { flex: 1; }
+.open-surface { padding: 6px 10px; border: 1px dashed var(--line-strong); border-radius: var(--radius); color: var(--muted); font-size: 12.5px; }
+.mat-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.mat-alpha { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 4px; }
+.mat-alpha label { display: flex; flex-direction: column; gap: 2px; font-size: 10.5px; color: var(--muted); text-align: center; }
+.mat-alpha input { text-align: center; padding: 4px 2px; }
+.rt-bands { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; align-items: end; margin-top: 6px; }
+.rt-band { display: flex; flex-direction: column; align-items: center; gap: 3px; }
+.rt-band i { width: 70%; background: var(--accent); border-radius: 4px 4px 0 0; }
+.rt-band b { font-size: 11px; font-variant-numeric: tabular-nums; }
+.rt-band span { font-size: 10.5px; color: var(--muted); }
+
+.lib-actions { display: flex; align-items: center; gap: 6px; margin-top: 8px; }
+.lib-actions a.btn { text-decoration: none; }
+.picker-item .tag.mine { border-color: var(--accent); }

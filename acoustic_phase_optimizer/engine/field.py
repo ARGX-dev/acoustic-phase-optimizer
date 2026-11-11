@@ -36,7 +36,7 @@ import numpy as np
 
 from .air import air_absorption_db_per_m, speed_of_sound
 from .eq import peq_response
-from .materials import SURFACES, RoomStats, reflection_amplitude, room_stats
+from .materials import SURFACES, RoomStats, room_stats, surface_alphas
 from .model import Project, Speaker
 
 P_REF = 20e-6
@@ -221,10 +221,11 @@ def make_context(project: Project, freqs: np.ndarray | None = None) -> Context:
         freqs = freq_grid(st.f_min, min(st.f_max, 20000.0))
     c = speed_of_sound(env.temperature_c, env.humidity_pct, env.pressure_kpa)
     air_db = air_absorption_db_per_m(freqs, env.temperature_c, env.humidity_pct, env.pressure_kpa)
-    mats = room.materials.model_dump()
-    log_beta = {s: np.log(reflection_amplitude(mats[s], freqs)) for s in SURFACES}
-    stats = room_stats(room.width, room.length, room.height, mats, freqs, air_db)
-    key = "|".join([room.model_dump_json(), env.model_dump_json(), str(st.reflection_order),
+    alphas = surface_alphas(project, freqs)
+    log_beta = {s: 0.5 * np.log(1.0 - alphas[s]) for s in SURFACES}
+    stats = room_stats(room.width, room.length, room.height, alphas, freqs, air_db)
+    mat_key = ",".join(f"{v:.4f}" for s in SURFACES for v in alphas[s][:: max(1, len(freqs) // 24)])
+    key = "|".join([room.model_dump_json(), env.model_dump_json(), str(st.reflection_order), mat_key,
                     f"{freqs[0]:.3f}", f"{freqs[-1]:.3f}", str(len(freqs))])
     return Context(freqs, c, air_db / 20.0 * np.log(10.0), 2 * np.pi * freqs / c, log_beta,
                    (room.width, room.length, room.height), st.reflection_order, stats, key)

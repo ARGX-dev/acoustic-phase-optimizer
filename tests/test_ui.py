@@ -339,6 +339,51 @@ def test_plan_zoom_and_pan(ui):
     assert not page.locator(".fit-btn").is_visible()
 
 
+def test_venue_type_materials_and_air(ui):
+    page = ui["page"]
+    page.get_by_role("tab", name="Room").click()
+    rt = lambda: page.locator(".stat-grid div", has_text="Reverb time").locator("b").inner_text()  # noqa: E731
+    page.wait_for_function("document.querySelector('.stat-grid b').textContent.includes(' s')", timeout=15000)
+    indoor = float(rt().split()[0])
+    page.get_by_role("radio", name="Open air").click()
+    page.wait_for_function(f"!document.querySelector('.stat-grid b').textContent.startsWith('{rt().split()[0]}')", timeout=15000)
+    assert float(rt().split()[0]) < indoor
+    assert page.locator(".open-surface", has_text="Open sky").count() == 1
+    page.get_by_role("radio", name="Indoor room").click()
+    page.get_by_role("button", name="Add a material").click()
+    assert page.locator(".mat-row").count() == 1
+    page.locator("input[aria-label='Altitude']").fill("1600")
+    page.locator("input[aria-label='Altitude']").press("Enter")
+    time.sleep(0.4)
+    assert float(page.locator("input[aria-label='Pressure']").input_value()) == pytest.approx(83.5, abs=0.6)
+    page.locator("input[aria-label='Audience occupancy']").fill("1")
+    time.sleep(1.0)
+    shot(page, "14-room-tab")
+    for _ in range(4):
+        page.locator("body").click(position={"x": 700, "y": 20})
+        page.keyboard.press("Control+z")
+    time.sleep(0.6)
+
+
+def test_line_array_box_count_changes_level(ui):
+    page = ui["page"]
+    page.get_by_role("tab", name="Speakers").click()
+    page.get_by_role("combobox", name="Search loudspeakers").fill("kara")
+    page.get_by_role("combobox", name="Search loudspeakers").press("Enter")
+    page.wait_for_selector("input[aria-label='Boxes']")
+    level8 = float(page.locator("input[aria-label='Max SPL at 1 m']").input_value())
+    page.locator("input[aria-label='Boxes']").fill("12")
+    page.locator("input[aria-label='Boxes']").press("Enter")
+    time.sleep(0.5)
+    level12 = float(page.locator("input[aria-label='Max SPL at 1 m']").input_value())
+    assert level12 == pytest.approx(level8 + 10 * __import__("math").log10(12 / 8), abs=0.6)
+    shot(page, "15-line-array")
+    page.locator("body").click(position={"x": 700, "y": 20})
+    page.keyboard.press("Control+z")
+    page.keyboard.press("Control+z")
+    time.sleep(0.5)
+
+
 def test_delete_saved_and_discard_prompt(ui):
     page = ui["page"]
     ui["dialogs"].clear()

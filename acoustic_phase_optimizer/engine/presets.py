@@ -26,7 +26,13 @@ SPEAKER_TYPES: dict[str, dict] = {
 
 def make_speaker(model: str, name: str, x: float, y: float, z: float, yaw: float = 0.0,
                  pitch: float = 0.0, **kw) -> Speaker:
-    t = {k: v for k, v in SPEAKER_TYPES[model].items() if k != "label"}
+    if model in SPEAKER_TYPES:
+        t = {k: v for k, v in SPEAKER_TYPES[model].items() if k != "label"}
+    else:  # a real model from the library
+        from .library import BY_ID
+
+        src = BY_ID[model]
+        t = {k: src[k] for k in ("coverage_h", "coverage_v", "level_db", "hp_hz", "lp_hz", "directivity_hz", "role")}
     t.update(kw)
     return Speaker(model=model, name=name, x=x, y=y, z=z, yaw=yaw, pitch=pitch, **t)
 
@@ -108,11 +114,55 @@ def conference() -> Project:
     )
 
 
+def festival() -> Project:
+    return Project(
+        name="Festival field",
+        room=Room(kind="outdoor", width=60, length=90, height=20,
+                  materials=Materials(floor="grass")),
+        environment=Environment(temperature_c=24, humidity_pct=35),
+        audience=Audience(x0=4, y0=8, x1=56, y1=86, ear_height=1.7),
+        speakers=[
+            make_speaker("lacoustics_k2", "Main L", 18, 2.0, 13, yaw=6, pitch=-4),
+            make_speaker("lacoustics_k2", "Main R", 42, 2.0, 13, yaw=-6, pitch=-4),
+            make_speaker("lacoustics_ks28", "Sub L", 26, 1.5, 0.6),
+            make_speaker("lacoustics_ks28", "Sub R", 34, 1.5, 0.6),
+            make_speaker("lacoustics_kara2", "Delay L", 16, 48, 10, yaw=0, pitch=-6, role="delay"),
+            make_speaker("lacoustics_kara2", "Delay R", 44, 48, 10, yaw=0, pitch=-6, role="delay"),
+        ],
+        mics=[Mic(name="FOH", x=30, y=40, z=1.7), Mic(name="Front", x=24, y=12, z=1.7),
+              Mic(name="Behind delays", x=36, y=70, z=1.7)],
+        settings=Settings(reflection_order=1, grid_resolution=1.5),
+    )
+
+
+def stadium() -> Project:
+    return Project(
+        name="Stadium",
+        room=Room(kind="stadium", width=90, length=120, height=35,
+                  materials=Materials(floor="grass", front="concrete", back="seats_empty",
+                                      left="seats_empty", right="seats_empty")),
+        environment=Environment(temperature_c=18, humidity_pct=60),
+        audience=Audience(x0=8, y0=12, x1=82, y1=110, ear_height=1.7),
+        speakers=[
+            make_speaker("db_gsl8", "Main L", 30, 3, 20, yaw=8, pitch=-5),
+            make_speaker("db_gsl8", "Main R", 60, 3, 20, yaw=-8, pitch=-5),
+            make_speaker("db_sl_sub", "Sub L", 40, 2, 0.6),
+            make_speaker("db_sl_sub", "Sub R", 50, 2, 0.6),
+            make_speaker("db_ksl8", "Delay L", 25, 60, 15, pitch=-6, role="delay"),
+            make_speaker("db_ksl8", "Delay R", 65, 60, 15, pitch=-6, role="delay"),
+        ],
+        mics=[Mic(name="FOH", x=45, y=50, z=1.7), Mic(name="Pitch rear", x=45, y=100, z=1.7)],
+        settings=Settings(reflection_order=1, grid_resolution=2.0),
+    )
+
+
 VENUES = {
     "gymnasium": ("High school gymnasium", gymnasium),
     "theater": ("Proscenium theater", theater),
     "worship": ("House of worship", worship),
     "conference": ("Conference room", conference),
+    "festival": ("Festival field (open air)", festival),
+    "stadium": ("Stadium (open roof)", stadium),
 }
 
 

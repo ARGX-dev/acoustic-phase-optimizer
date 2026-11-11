@@ -84,8 +84,9 @@ def test_absorption_interpolates_and_clamps():
 
 
 def test_room_stats_sabine_by_hand():
-    mats = Materials(floor="concrete", ceiling="concrete", front="concrete", back="concrete",
-                     left="concrete", right="concrete").model_dump()
+    from acoustic_phase_optimizer.engine.materials import SURFACES, absorption
+
+    mats = {s: absorption("concrete", np.array([1000.0])) for s in SURFACES}
     st = room_stats(10, 20, 5, mats, np.array([1000.0]), np.array([0.0]))
     surface = 2 * (10 * 20 + 10 * 5 + 20 * 5)
     assert st.surface == pytest.approx(surface)
@@ -413,3 +414,28 @@ def test_speaker_library_entries_are_valid_and_sourced():
         assert t["spec"]["source"].startswith("https://"), t["id"]
         if t["role"] == "sub":
             assert t["lp_hz"] > 0
+
+
+def test_occupancy_and_custom_materials_change_the_room():
+    from acoustic_phase_optimizer.engine.model import CustomMaterial
+
+    empty = room_report(presets.theater())
+    p = presets.theater()
+    p.audience.occupancy = 1.0
+    full = room_report(p)
+    assert full["rt60_mid"] < empty["rt60_mid"]
+    p = presets.theater()
+    p.custom_materials = [CustomMaterial(id="custom_felt", name="Felt", alpha=(0.9,) * 6)]
+    p.room.materials.ceiling = "custom_felt"
+    assert room_report(p)["rt60_mid"] < empty["rt60_mid"]
+    # unknown ids still fall back instead of failing
+    p.room.materials.left = "custom_missing"
+    assert room_report(p)["rt60_mid"] > 0
+
+
+def test_air_loss_grows_with_dry_air():
+    p = presets.theater()
+    p.environment.humidity_pct = 70
+    humid = room_report(p)["air_loss_8k_30m_db"]
+    p.environment.humidity_pct = 15
+    assert room_report(p)["air_loss_8k_30m_db"] > humid

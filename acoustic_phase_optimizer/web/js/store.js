@@ -238,10 +238,27 @@ function uniqueName(p, base) {
   return base;
 }
 
-const TYPE_FIELDS = ['coverage_h', 'coverage_v', 'level_db', 'hp_hz', 'lp_hz', 'directivity_hz', 'role'];
+const TYPE_FIELDS = ['coverage_h', 'coverage_v', 'level_db', 'hp_hz', 'lp_hz', 'directivity_hz', 'role', 'array_boxes', 'array_splay'];
 /** The acoustic settings a speaker type puts on a speaker (never its label, brand or datasheet notes). */
 export function typeFields(type) {
-  return Object.fromEntries(TYPE_FIELDS.filter((k) => k in type).map((k) => [k, type[k]]));
+  return { array_boxes: 0, array_splay: 0, ...Object.fromEntries(TYPE_FIELDS.filter((k) => k in type).map((k) => [k, type[k]])) };
+}
+
+/** A line-array hang's level and vertical coverage from its box spec (same rule as engine/library.py). */
+export function hangFields(type, boxes, splay) {
+  const n = Math.max(1, Math.round(boxes));
+  return { array_boxes: n, array_splay: splay,
+    level_db: Math.min(160, Math.round((type.spec.box_spl + 10 * Math.log10(n)) * 10) / 10),
+    coverage_v: Math.max(5, Math.min(180, Math.round(n * splay * 10) / 10)) };
+}
+
+/** Fetch the real loudspeakers (library + the user's own) and add them after the generic types. */
+export async function loadSpeakerLibrary(api) {
+  const res = await api.speakers();
+  const generic = state.meta.speaker_types.filter((t) => t.group === 'Generic');
+  state.meta.speaker_types = [...generic, ...res.library, ...res.user];
+  emit('library', {});
+  return res;
 }
 export const speakerType = (id) => state.meta.speaker_types.find((t) => t.id === id);
 

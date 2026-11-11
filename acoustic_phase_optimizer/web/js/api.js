@@ -53,6 +53,15 @@ export const api = {
   session: () => request('GET', '/api/session'),
   saveSession: (payload, keepalive = false) => request('PUT', '/api/session', payload, { keepalive }),
   ping: () => request('POST', '/api/ping'),
+  speakers: () => request('GET', '/api/speakers'),
+  saveUserSpeaker: (row) => request('POST', '/api/speakers/user', row),
+  deleteUserSpeaker: (id) => request('DELETE', `/api/speakers/user/${encodeURIComponent(id)}`),
+  importSpeakers: async (text) => {
+    const res = await fetch('/api/speakers/import', { method: 'POST', body: text, headers: { 'Content-Type': 'text/plain' } });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(typeof body.detail === 'string' ? body.detail : 'Import failed');
+    return body;
+  },
   scanFit: (points, normals) => request('POST', '/api/scan-fit', { points, normals }),
   bye: () => navigator.sendBeacon('/api/bye'),
 };

@@ -20,6 +20,7 @@ function detail(t) {
   return `${kindOf(t)} · ${cov} · ${spl} dB`;
 }
 
+const LIMIT = 150;
 const norm = (s) => s.toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, ' ');
 
 /**
@@ -50,6 +51,8 @@ export function speakerPicker({ onPick, current = null, autofocus = false, tall 
     });
     list.replaceChildren();
     if (!shown.length) { list.append(h('p', { class: 'hint empty', text: 'No loudspeaker matches. Try a brand or a size, like “15”.' })); return; }
+    const total = shown.length;
+    shown = shown.slice(0, LIMIT); // keep the list quick however big the library gets
     active = Math.min(active, shown.length - 1);
     let group = null;
     shown.forEach((t, i) => {
@@ -60,9 +63,11 @@ export function speakerPicker({ onPick, current = null, autofocus = false, tall 
         id: `spk-${t.id}`, attrs: { role: 'option', 'aria-selected': String(i === active) },
         onpointerdown: (e) => e.preventDefault(), onclick: () => onPick(t.id), onpointermove: () => { if (active !== i) { active = i; mark(); } },
       }, h('span', { class: 'name', text: label }),
-      t.spec?.approximate ? h('span', { class: 'tag', text: 'approx.', title: 'Some figures could not be confirmed on the manufacturer datasheet' }) : null,
+      t.spec?.approximate ? h('span', { class: 'tag', text: 'approx.', title: 'Some figures could not be confirmed on the manufacturer datasheet' })
+        : t.spec?.user ? h('span', { class: 'tag mine', text: 'yours' }) : null,
       h('span', { class: 'meta', text: detail(t) })));
     });
+    if (total > LIMIT) list.append(h('p', { class: 'hint empty', text: `${total - LIMIT} more. Type to narrow the list.` }));
     mark();
   }
 

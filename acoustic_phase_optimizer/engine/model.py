@@ -33,6 +33,8 @@ class Materials(BaseModel):
 
 
 class Room(BaseModel):
+    # indoor: every surface reflects; stadium: no roof; outdoor: only the ground reflects
+    kind: Literal["indoor", "stadium", "outdoor"] = "indoor"
     width: float = Field(20.0, gt=1, le=200)
     length: float = Field(30.0, gt=1, le=300)
     height: float = Field(8.0, gt=1.5, le=60)
@@ -45,12 +47,26 @@ class Environment(BaseModel):
     pressure_kpa: float = Field(101.325, ge=60, le=110)
 
 
+class CustomMaterial(BaseModel):
+    """A material the user typed in: absorption at 125, 250, 500, 1k, 2k and 4k Hz."""
+
+    id: str = Field(default_factory=lambda: "custom_" + _id(), pattern=r"^custom_[0-9a-z_]{1,40}$")
+    name: str = Field("My material", max_length=60)
+    alpha: tuple[float, float, float, float, float, float] = (0.1, 0.1, 0.1, 0.1, 0.1, 0.1)
+
+    @model_validator(mode="after")
+    def _clip(self):
+        self.alpha = tuple(min(1.0, max(0.0, float(a))) for a in self.alpha)
+        return self
+
+
 class Audience(BaseModel):
     x0: float = 1.0
     y0: float = 4.0
     x1: float = 19.0
     y1: float = 28.0
     ear_height: float = Field(1.2, ge=0.3, le=20)
+    occupancy: float = Field(0.0, ge=0, le=1)  # share of seats filled; blends audience absorption into the floor
 
 
 class PEQBand(BaseModel):
@@ -80,6 +96,8 @@ class Speaker(BaseModel):
     hp_hz: float = Field(60.0, ge=0, le=2000)  # 0 = no high-pass
     lp_hz: float = Field(0.0, ge=0, le=24000)  # 0 = no low-pass
     directivity_hz: float = Field(900.0, ge=50, le=10000)  # pattern control above this
+    array_boxes: int = Field(0, ge=0, le=32)  # line-array hang: number of boxes (0 = not an array)
+    array_splay: float = Field(0.0, ge=0, le=30)  # degrees between boxes
     # DSP (what the optimizer adjusts)
     delay_ms: float = Field(0.0, ge=0, le=500)
     gain_db: float = Field(0.0, ge=-40, le=20)
@@ -139,6 +157,7 @@ class Project(BaseModel):
     settings: Settings = Field(default_factory=Settings)
     notes: str = ""
     scan: ScanRef | None = None
+    custom_materials: list[CustomMaterial] = Field(default_factory=list, max_length=40)
 
     @model_validator(mode="after")
     def _clamp_audience(self) -> Project:

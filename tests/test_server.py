@@ -237,3 +237,32 @@ def test_scan_upload_fetch_and_fit(api):
     project["scan"] = {"id": ref["id"], "ext": "ply", "name": "hall", "yaw_deg": 12.5, "t": [1, 2, 0]}
     sim = api("POST", "/api/simulate", {"project": project, "preview": True})
     assert sim["metrics"]  # a scan reference rides along without affecting the engine
+
+
+def test_speaker_library_and_user_import(api):
+    lib = api("GET", "/api/speakers")
+    assert len(lib["library"]) >= 40 and all(t["spec"]["source"].startswith("http") for t in lib["library"])
+    csv_text = (
+        "brand,model,kind,coverage_h,coverage_v,max_spl,spl_basis,lf_hz,lf_db,source\n"
+        "Acme,Box 12,point,90,60,128,continuous,55,-10,https://example.com/a.pdf\n"
+        "Acme,Broken,point,90,60,999,peak,55,-10,\n"
+        "L,KS28 clash,sub,360,360,140,peak,30,-10,\n"
+    )
+    req = urllib.request.Request(f"http://127.0.0.1:{api.port}/api/speakers/import", data=csv_text.encode(), method="POST")
+    with urllib.request.urlopen(req, timeout=30) as r:
+        res = json.loads(r.read())
+    assert res["added"] == 2 and res["error_count"] == 1 and res["errors"][0]["row"] == 3
+    mine = {t["id"]: t for t in api("GET", "/api/speakers")["user"]}
+    assert mine["acme_box_12"]["level_db"] == 134  # continuous + 6 dB
+    assert mine["acme_box_12"]["group"] == "My speakers"
+    status, _, _ = api("POST", "/api/speakers/user", {"id": "lacoustics_ks28", "brand": "x", "model": "y", "max_spl": 120, "lf_hz": 40}, raw=True)
+    assert status == 409
+    assert api("DELETE", "/api/speakers/user/acme_box_12")["deleted"] == 1
+
+
+def test_outdoor_venue_has_no_reverb(api):
+    project = small("theater")
+    indoor = api("POST", "/api/simulate", {"project": project, "preview": True})["room"]["rt60_mid"]
+    project["room"]["kind"] = "outdoor"
+    outdoor = api("POST", "/api/simulate", {"project": project, "preview": True})["room"]["rt60_mid"]
+    assert outdoor < 0.3 * indoor

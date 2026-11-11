@@ -2,10 +2,12 @@
 
 import {
   addMic, addSpeaker, DEFAULT_WEIGHTS, duplicateSpeaker, editSpeaker, mirrorSpeaker, mutate, on, partnerOf,
-  removeMic, removeSpeaker, select, setUI, speakerById, speakerType, state, typeFields,
+  hangFields, loadSpeakerLibrary, removeMic, removeSpeaker, select, setUI, speakerById, speakerType, state, typeFields,
 } from './store.js';
-import { clamp, clear, fmt, h, icon, toast, uid } from './util.js';
+import { clamp, clear, fmt, fmtHz, h, icon, toast, uid } from './util.js';
 import { pickSpeakerType, speakerPicker } from './picker.js';
+import { openDialog } from './dialog.js';
+import { api } from './api.js';
 import { seriesColor } from './theme.js';
 
 const TABS = [['room', 'Room'], ['speakers', 'Speakers'], ['mics', 'Mics'], ['setup', 'Setup']];
@@ -97,17 +99,34 @@ export function createLeftPanel(root) {
   function roomTab() {
     statsBox = h('div', { class: 'stat-grid' });
     renderStats();
-    const mats = state.meta.materials.map((m) => [m.id, m.name]);
+    const mats = [...state.meta.materials.map((m) => [m.id, m.name]), ...(P().custom_materials || []).map((m) => [m.id, `★ ${m.name}`])];
+    const kind = P().room.kind || 'indoor';
+    const openSurface = (k) => (kind !== 'indoor' && k === 'ceiling') || (kind === 'outdoor' && k !== 'floor');
+    const altitude = () => Math.round(44330.8 * (1 - (P().environment.pressure_kpa / 101.325) ** 0.190263));
+    const setAltitude = (v, o) => setIn(['environment', 'pressure_kpa'])(Math.round(101.325 * (1 - 2.25577e-5 * clamp(v, -400, 5000)) ** 5.25588 * 100) / 100, o);
+    const occOut = h('output', { text: `${Math.round((P().audience.occupancy || 0) * 100)}%` });
+    const occ = h('input', { type: 'range', min: 0, max: 1, step: 0.05, value: P().audience.occupancy || 0, attrs: { 'aria-label': 'Audience occupancy' },
+      oninput: () => { occOut.textContent = `${Math.round(occ.value * 100)}%`; setIn(['audience', 'occupancy'])(Number(occ.value), LIVE); },
+      onchange: () => setIn(['audience', 'occupancy'])(Number(occ.value), DONE) });
+    const KINDS = [['indoor', 'Indoor room', 'Walls, floor and ceiling all reflect'], ['stadium', 'Stadium', 'Open roof: walls and stands reflect'],
+      ['outdoor', 'Open air', 'Only the ground reflects']];
+    const kindSeg = h('div', { class: 'seg block', attrs: { role: 'radiogroup', 'aria-label': 'Venue type' } }, KINDS.map(([id, label, tip]) =>
+      h('button', { class: kind === id ? 'on' : '', title: tip, attrs: { role: 'radio', 'aria-checked': String(kind === id) },
+        onclick: () => setIn(['room', 'kind'])(id, { ...DONE, structural: true }) }, label)));
     return [
       scanGroup(),
-      group('Room size',
+      group('Venue type', kindSeg,
+        h('p', { class: 'hint', text: KINDS.find((k) => k[0] === kind)[2] + '. The box still sets the size of the area you are covering.' })),
+      group(kind === 'outdoor' ? 'Area' : 'Room size',
         h('div', { class: 'grid3' },
           num('Stage to back', () => P().room.length, setIn(['room', 'length']), { min: 3, max: 300, step: 0.5, unit: 'm' }),
           num('Width', () => P().room.width, setIn(['room', 'width']), { min: 3, max: 200, step: 0.5, unit: 'm' }),
           num('Height', () => P().room.height, setIn(['room', 'height']), { min: 2, max: 60, step: 0.1, unit: 'm' }))),
-      group('Surfaces', h('div', { class: 'grid2' }, SURFACES.map(([k, label]) =>
-        choice(label, mats, () => P().room.materials[k], setIn(['room', 'materials', k])))),
-      h('p', { class: 'hint', text: 'Empty rooms are live. Set the floor to "Audience, seated" to see the room with people in it.' })),
+      group('Surfaces', h('div', { class: 'grid2' }, SURFACES.map(([k, label]) => (openSurface(k)
+        ? h('div', { class: 'field' }, h('span', { text: label }), h('div', { class: 'open-surface', text: kind === 'outdoor' && k !== 'ceiling' ? 'Open side' : 'Open sky' }))
+        : choice(label, mats, () => P().room.materials[k], setIn(['room', 'materials', k]))))),
+      h('p', { class: 'hint', text: 'Each surface sets how strongly reflections come back, band by band, and the reverb time. ★ marks your own materials.' })),
+      customMaterialsGroup(),
       group('Audience area',
         h('div', { class: 'grid2' },
           num('Starts, from stage', () => P().audience.y0, setIn(['audience', 'y0']), { min: 0, step: 0.5, unit: 'm' }),
@@ -115,12 +134,16 @@ export function createLeftPanel(root) {
           num('Starts, across', () => P().audience.x0, setIn(['audience', 'x0']), { min: 0, step: 0.5, unit: 'm' }),
           num('Ends, across', () => P().audience.x1, setIn(['audience', 'x1']), { min: 0, step: 0.5, unit: 'm' }),
           num('Ear height', () => P().audience.ear_height, setIn(['audience', 'ear_height']), { min: 0.3, max: 20, step: 0.1, unit: 'm',
-            title: '1.2 m seated, 1.7 m standing' }))),
+            title: '1.2 m seated, 1.7 m standing' })),
+        h('div', { class: 'slider-row', style: { marginTop: '10px' } }, h('span', { text: 'Seats filled' }), occ, occOut),
+        h('p', { class: 'hint', text: 'People absorb sound. Soundcheck in an empty room, then set the expected crowd to see the show.' })),
       group('Air',
         h('div', { class: 'grid2' },
           num('Temperature', () => P().environment.temperature_c, setIn(['environment', 'temperature_c']), { min: -20, max: 50, step: 1, unit: '°C' }),
-          num('Humidity', () => P().environment.humidity_pct, setIn(['environment', 'humidity_pct']), { min: 0, max: 100, step: 5, unit: '%' })),
-        h('p', { class: 'hint', text: 'Temperature changes the speed of sound, and with it every delay time.' })),
+          num('Humidity', () => P().environment.humidity_pct, setIn(['environment', 'humidity_pct']), { min: 0, max: 100, step: 5, unit: '%' }),
+          num('Pressure', () => P().environment.pressure_kpa, setIn(['environment', 'pressure_kpa']), { min: 60, max: 110, step: 0.5, unit: 'kPa' }),
+          num('Altitude', altitude, setAltitude, { min: -400, max: 5000, step: 50, unit: 'm', nd: 0, title: 'Sets the pressure of a standard atmosphere at this height' })),
+        h('p', { class: 'hint', text: 'Temperature, humidity and pressure set the speed of sound (every delay time) and how much treble the air absorbs on every path (ISO 9613-1).' })),
       group('Predicted room acoustics', statsBox),
       group('Notes', (() => {
         const el = h('textarea', { value: P().notes || '', placeholder: 'Anything worth remembering about this venue…', attrs: { 'aria-label': 'Notes' },
@@ -156,15 +179,47 @@ export function createLeftPanel(root) {
       h('p', { class: 'hint', text: 'The prediction uses the box below; adjust it if the scan was measured oddly.' }));
   }
 
+  function customMaterialsGroup() {
+    const list = P().custom_materials || [];
+    const BANDS = ['125', '250', '500', '1k', '2k', '4k'];
+    const setMat = (id, fn) => mutate((p) => { const m = (p.custom_materials || []).find((x) => x.id === id); if (m) fn(m); }, { ...DONE, structural: true });
+    const rows = list.map((m) => h('div', { class: 'mat-row' },
+      h('input', { type: 'text', value: m.name, maxLength: 60, attrs: { 'aria-label': 'Material name' },
+        onchange: (e) => setMat(m.id, (x) => { x.name = e.target.value.trim() || 'My material'; }) }),
+      h('button', { class: 'icon-btn small', title: 'Delete material', attrs: { 'aria-label': `Delete ${m.name}` },
+        onclick: () => mutate((p) => {
+          p.custom_materials = p.custom_materials.filter((x) => x.id !== m.id);
+          for (const k of Object.keys(p.room.materials)) if (p.room.materials[k] === m.id) p.room.materials[k] = 'concrete';
+        }, { structural: true }) }, icon('trash')),
+      h('div', { class: 'mat-alpha' }, m.alpha.map((a, i) => h('label', null, h('span', { text: BANDS[i] }),
+        h('input', { type: 'number', min: 0, max: 1, step: 0.01, value: a, class: 'bare', attrs: { 'aria-label': `${m.name} absorption at ${BANDS[i]} Hz` },
+          onchange: (e) => setMat(m.id, (x) => { x.alpha = x.alpha.map((v, j) => (j === i ? clamp(Number(e.target.value) || 0, 0, 1) : v)); }) }))))));
+    return group('My materials', rows,
+      h('button', { class: 'btn small', onclick: () => mutate((p) => {
+        p.custom_materials = [...(p.custom_materials || []), { id: `custom_${uid()}`, name: 'My material', alpha: [0.1, 0.1, 0.1, 0.1, 0.1, 0.1] }];
+      }, { structural: true }) }, icon('plus'), 'Add a material'),
+      h('p', { class: 'hint', text: 'Absorption coefficients per octave band (0 reflects everything, 1 absorbs everything), from the product datasheet.' }));
+  }
+
   function renderStats() {
     if (!statsBox) return;
     const r = state.sim?.room;
-    const cell = (label, value) => h('div', null, h('span', { text: label }), h('b', { text: value }));
+    const cell = (label, value, title) => h('div', { title }, h('span', { text: label }), h('b', { text: value }));
     clear(statsBox).append(
-      cell('Reverb time (mid)', r ? `${fmt(r.rt60_mid, 2)} s` : '–'),
-      cell('Critical distance', r ? `${fmt(r.critical_distance_m[3], 1)} m` : '–'),
+      cell('Reverb time (mid)', r ? `${fmt(r.rt60_mid, 2)} s` : '–', 'Eyring, average of 500 Hz and 1 kHz'),
+      cell('Critical distance', r ? `${fmt(r.critical_distance_m[3], 1)} m` : '–', 'Where direct and reverberant sound are equal, for an omni source at 1 kHz'),
       cell('Volume', r ? `${Math.round(r.volume_m3).toLocaleString()} m³` : '–'),
-      cell('Speed of sound', r ? `${fmt(r.speed_of_sound, 1)} m/s` : '–'));
+      cell('Speed of sound', r ? `${fmt(r.speed_of_sound, 1)} m/s` : '–'),
+      cell('Schroeder frequency', r ? `${Math.round(r.schroeder_hz)} Hz` : '–', 'Below this, room modes dominate'),
+      cell('Air loss at 8 kHz', r && r.air_loss_8k_30m_db != null ? `${fmt(r.air_loss_8k_30m_db, 1)} dB / 30 m` : '–', 'Extra treble the air absorbs over 30 m'));
+    if (r) {
+      const max = Math.max(...r.rt60_eyring, 0.1);
+      statsBox.append(h('div', { class: 'rt-bands', attrs: { role: 'img', 'aria-label': 'Reverb time per octave band: ' + r.bands.map((b, i) => `${fmtHz(b)} ${fmt(r.rt60_eyring[i], 2)} s`).join(', ') } },
+        r.bands.map((b, i) => h('div', { class: 'rt-band', title: `${fmtHz(b)}: ${fmt(r.rt60_eyring[i], 2)} s` },
+          h('b', { text: fmt(r.rt60_eyring[i], 1) }),
+          h('i', { style: { height: `${Math.max(4, (r.rt60_eyring[i] / max) * 56)}px` } }),
+          h('span', { text: fmtHz(b).replace(' kHz', 'k').replace(' Hz', '') })))));
+    }
   }
 
   // -------------------------------------------------------------- speakers
@@ -237,6 +292,15 @@ export function createLeftPanel(root) {
     };
     const type = speakerType(s.model);
     const r = P().room;
+    const arrayGroup = type?.spec?.kind === 'element' && s.array_boxes > 0 ? group('Line array hang',
+      h('div', { class: 'grid2' },
+        num('Boxes', g('array_boxes'), (v, o) => editSpeaker(s.id, hangFields(type, clamp(v, 1, 32), speakerById(s.id).array_splay), o),
+          { min: 1, max: 32, step: 1, nd: 0 }),
+        type.spec.constant_curvature
+          ? h('div', { class: 'field' }, h('span', { text: 'Splay' }), h('div', { class: 'open-surface', text: `${type.spec.splay_max}° fixed per box` }))
+          : num('Splay per box', g('array_splay'), (v, o) => editSpeaker(s.id, hangFields(type, speakerById(s.id).array_boxes, clamp(v, 0, type.spec.splay_max)), o),
+            { min: 0, max: type.spec.splay_max, step: 0.5, unit: '°', nd: 1, title: `0° to ${type.spec.splay_max}° between boxes` })),
+      h('p', { class: 'hint', text: `${s.array_boxes} × ${type.label.replace(/, hang of \d+$/, '')}: ${fmt(s.level_db, 0)} dB peak at 1 m, ${fmt(s.coverage_v, 0)}° vertical. Each box ${type.spec.box_spl} dB.` })) : null;
     return h('div', { class: 'editor' },
       partner ? h('div', { class: 'linked', title: 'Mirror-image pairs share every setting. Turn this off under Setup.' }, icon('link'),
         h('span', { text: `Linked with ${partner.name}: edits apply to both.` })) : null,
@@ -252,6 +316,7 @@ export function createLeftPanel(root) {
         num('Height', g('z'), set('z'), { min: 0.1, max: r.height - 0.05, step: 0.1, unit: 'm' }),
         num('Turn', g('yaw'), set('yaw'), { min: -180, max: 180, step: 1, unit: '°', nd: 0, title: '0° faces the audience. Positive turns toward the bottom of the plan.' }),
         num('Tilt', g('pitch'), set('pitch'), { min: -90, max: 90, step: 1, unit: '°', nd: 0, title: 'Negative tilts down toward the seats.' }))),
+      arrayGroup,
       group('Processor output', h('div', { class: 'grid2' },
         num('Delay', g('delay_ms'), set('delay_ms'), { min: 0, max: 500, step: 0.1, unit: 'ms' }),
         num('Gain', g('gain_db'), set('gain_db'), { min: -40, max: 20, step: 0.5, unit: 'dB', nd: 1 })),
@@ -275,6 +340,7 @@ export function createLeftPanel(root) {
       h('div', { style: { display: 'flex', gap: '6px', flexWrap: 'wrap' } },
         h('button', { class: 'btn small', title: 'Add a mirror-image partner on the other side of the room', onclick: () => mirrorSpeaker(s.id) }, icon('mirror'), 'Mirror'),
         h('button', { class: 'btn small', onclick: () => duplicateSpeaker(s.id) }, icon('copy'), 'Duplicate'),
+        h('button', { class: 'btn small', title: 'Keep these coverage and level figures as one of your models', onclick: () => saveAsModel(speakerById(s.id)) }, icon('save'), 'Save as my model'),
         h('span', { style: { flex: 1 } }),
         h('button', { class: 'btn small danger', onclick: () => removeSpeaker(s.id) }, icon('trash'), 'Delete')));
   }
@@ -292,13 +358,55 @@ export function createLeftPanel(root) {
       h('a', { class: 'hint link', href: sp.source, target: '_blank', rel: 'noopener', text: 'Manufacturer source ↗' }));
   }
 
+  async function saveAsModel(s) {
+    const name = h('input', { type: 'text', value: s.name, maxLength: 60, autofocus: true, attrs: { 'aria-label': 'Model name' } });
+    const brand = h('input', { type: 'text', value: 'My speakers', maxLength: 60, attrs: { 'aria-label': 'Brand' } });
+    const r = await openDialog({ title: 'Save as my model', wide: false,
+      body: h('div', { class: 'grid2' }, h('label', { class: 'field' }, h('span', { text: 'Brand' }), brand), h('label', { class: 'field' }, h('span', { text: 'Model' }), name),
+        h('p', { class: 'hint', style: { gridColumn: '1 / -1' }, text: `Saves ${fmt(s.coverage_h, 0)}° × ${fmt(s.coverage_v, 0)}°, ${fmt(s.level_db, 0)} dB, high-pass ${fmt(s.hp_hz, 0)} Hz and pattern control from ${fmt(s.directivity_hz, 0)} Hz.` })),
+      actions: [{ label: 'Cancel' }, { label: 'Save', kind: 'primary' }] });
+    if (r !== 'Save') return;
+    const id = `${brand.value} ${name.value}`.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '').slice(0, 60) || `my_${uid()}`;
+    try {
+      await api.saveUserSpeaker({ id: `my_${id}`.slice(0, 60), brand: brand.value.trim() || 'My speakers', model: name.value.trim() || s.name,
+        kind: s.role === 'sub' ? 'sub' : 'point', coverage_h: s.coverage_h, coverage_v: s.coverage_v, max_spl: s.level_db, spl_basis: 'peak',
+        lf_hz: Math.max(10, s.hp_hz || 40), lf_db: -3, hf_hz: s.lp_hz || null, pattern_hz: s.directivity_hz, note: 'Saved from a speaker in the app.' });
+      await loadSpeakerLibrary(api);
+      toast(`Saved "${name.value}" to your speakers.`);
+      render();
+    } catch (e) { toast(`Could not save: ${e.message}`, { error: true }); }
+  }
+
+  function importSpeakers() {
+    const input = h('input', { type: 'file', accept: '.csv,.json,text/csv,application/json', style: { display: 'none' },
+      onchange: async () => {
+        const f = input.files?.[0];
+        input.remove();
+        if (!f) return;
+        try {
+          const res = await api.importSpeakers(await f.text());
+          await loadSpeakerLibrary(api);
+          render();
+          const bad = res.error_count ? ` ${res.error_count} row(s) skipped: ${res.errors.slice(0, 3).map((e) => `row ${e.row}: ${e.error}`).join('; ')}` : '';
+          toast(`Imported ${res.added} speaker(s).${bad}`, { error: !res.added, ms: bad ? 12000 : 5000 });
+        } catch (e) { toast(e.message, { error: true }); }
+      } });
+    document.body.append(input);
+    input.click();
+  }
+
   function speakersTab() {
     const pick = speakerPicker({ onPick: (id) => addSpeaker(id) });
     listBox = h('div', { class: 'row-list' });
     renderList();
     const sel = state.selection?.kind === 'speaker' ? speakerById(state.selection.id) : null;
     return [
-      group('Add a speaker', pick),
+      group('Add a speaker', pick,
+        h('div', { class: 'lib-actions' },
+          h('span', { class: 'hint', text: `${state.meta.speaker_types.filter((t) => t.spec && !t.spec.user).length} library models · ${state.meta.speaker_types.filter((t) => t.spec?.user).length} of yours` }),
+          h('span', { style: { flex: 1 } }),
+          h('a', { class: 'btn small ghost', href: '/api/speakers/template.csv', download: 'speakers-template.csv', title: 'A CSV with the columns the import expects' }, 'Template'),
+          h('button', { class: 'btn small', onclick: importSpeakers, title: 'Add your own loudspeakers from a CSV or JSON file' }, 'Import list…'))),
       group(`Speakers (${P().speakers.length})`, listBox),
       sel ? speakerEditor(sel) : (P().speakers.length ? h('p', { class: 'hint', text: 'Select a speaker here or on the plan to edit it.' }) : null),
     ];
