@@ -76,6 +76,21 @@ def fit_box(points, normals=None, lo_pct: float = 1.0, hi_pct: float = 99.0) -> 
     xy = wall_pts[:, :2] @ rot.T
     x0, y0 = np.percentile(xy, lo_pct, axis=0)
     x1, y1 = np.percentile(xy, hi_pct, axis=0)
+    # A CAD venue (MVR, 3DS) can have tall walls only round the stage house while the auditorium in front is low
+    # floor and seating. Where the walls cover much less of an axis than the whole model does, use the whole model.
+    all_xy = p[:, :2] @ rot.T
+    ax0, ay0 = np.percentile(all_xy, lo_pct, axis=0)
+    ax1, ay1 = np.percentile(all_xy, hi_pct, axis=0)
+    note = stage = None
+    if (x1 - x0) < 0.6 * (ax1 - ax0) or (y1 - y0) < 0.6 * (ay1 - ay0):
+        # the tall part (the stage house) marks the stage end
+        if (x1 - x0) < 0.6 * (ax1 - ax0):
+            stage = "+x" if (x0 + x1) / 2 > (ax0 + ax1) / 2 else "-x"
+            x0, x1 = ax0, ax1
+        if (y1 - y0) < 0.6 * (ay1 - ay0):
+            stage = "+y" if (y0 + y1) / 2 > (ay0 + ay1) / 2 else "-y"
+            y0, y1 = ay0, ay1
+        note = "The walls cover only part of the model, so the room is sized to the whole model"
     ex, ey = float(x1 - x0), float(y1 - y0)
 
     options = {}
@@ -95,8 +110,8 @@ def fit_box(points, normals=None, lo_pct: float = 1.0, hi_pct: float = 99.0) -> 
         }
     return {
         "height": round(height, 2), "extent": [round(ex, 2), round(ey, 2)], "angle_deg": round(float(np.degrees(angle)), 2),
-        "method": method, "points": int(len(p)), "options": options,
-        "suggested": "-y" if ey >= ex else "-x",  # the stage usually sits on a short wall
+        "method": method, "points": int(len(p)), "options": options, "note": note,
+        "suggested": stage or ("-y" if ey >= ex else "-x"),  # otherwise the stage usually sits on a short wall
     }
 
 

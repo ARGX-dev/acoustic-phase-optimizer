@@ -737,16 +737,24 @@ def test_rake_changes_the_prediction_and_old_files_are_flat():
 
 
 def test_hang_room_energy_follows_the_power_the_boxes_radiate():
+    from dataclasses import replace
+
     from acoustic_phase_optimizer.engine import field as F
 
-    p = presets.stadium()
+    p = presets.festival()  # outdoors: the ground bounce is an early reflection
     s = p.speakers[0]
+    lumped_spk = s.model_copy(update={"array_boxes": 0})
     ctx = F.make_context(p)
-    pts = np.array([[45.0, 60.0, 1.7]])
-    hang = F.speaker_field(s, pts, ctx)
-    lumped = F.speaker_field(s.model_copy(update={"array_boxes": 0}), pts, ctx)
+    pts = np.array([[30.0, 40.0, 1.7], [24.0, 12.0, 1.7]])
+    c0, c1 = replace(ctx, order=0), replace(ctx, order=1)
+
+    def reflections(spk):
+        return F.speaker_field(spk, pts, c1, early_ms=np.inf).H - F.speaker_field(spk, pts, c0, early_ms=np.inf).H
+
     ratio = F.hang_power_ratio(s, ctx)
-    assert np.allclose(hang.E, lumped.E * ratio)
+    hang, lumped = reflections(s), reflections(lumped_spk)
+    assert np.allclose(hang, lumped * np.sqrt(ratio)[None, :], rtol=1e-3, atol=1e-9)
+    assert np.allclose(F.speaker_field(s, pts, ctx).E, F.speaker_field(lumped_spk, pts, ctx).E * ratio)
     lo, hi = int(np.argmin(abs(ctx.freqs - 63))), int(np.argmin(abs(ctx.freqs - 8000)))
     assert 10 * np.log10(ratio[lo]) > 5  # boxes couple at low frequency
     assert ratio[hi] < ratio[lo]
@@ -766,3 +774,21 @@ def test_hang_direct_arrival_matches_the_summed_boxes():
     direct = abs(F.hang_direct(s, pt[None, :], F.source_position(s, ctx.dims), ctx)[0, i]) * F.speaker_amplitude(s)
     direct *= abs(F.box_response(s, ctx.freqs[i:i + 1])[0])
     assert ev["db"] == pytest.approx(float(spl(direct ** 2)), abs=0.1)
+
+
+def test_scan_fit_sizes_a_cad_venue_to_the_whole_model():
+    from acoustic_phase_optimizer.engine.scanfit import fit_box
+
+    rng = np.random.default_rng(1)
+    # a stage house 18 x 8 x 12 m at y 0..8, and a low auditorium floor and seating in front, y -12..0
+    walls = []
+    for _ in range(6000):
+        z = rng.uniform(0, 12)
+        side = rng.integers(4)
+        x, y = [(rng.uniform(-9, 9), 0.0), (rng.uniform(-9, 9), 8.0), (-9.0, rng.uniform(0, 8)), (9.0, rng.uniform(0, 8))][side]
+        walls.append((x, y, z))
+    floor = np.column_stack([rng.uniform(-9, 9, 6000), rng.uniform(-12, 8, 6000), rng.uniform(0, 0.8, 6000)])
+    r = fit_box(np.vstack([walls, floor]))
+    assert r["note"] and r["suggested"] == "+y"
+    assert r["options"]["+y"]["room"]["length"] == pytest.approx(20, abs=0.6)
+    assert r["options"]["+y"]["room"]["width"] == pytest.approx(18, abs=0.6)

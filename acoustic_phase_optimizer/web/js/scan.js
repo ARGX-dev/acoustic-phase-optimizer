@@ -300,7 +300,8 @@ export async function importScan(file) {
     choice.dims = { ...opt.room };
     for (const k of ['length', 'width', 'height']) dimInputs[k].value = String(round(toDisp(opt.room[k]), 2));
     const how = choice.fit.method === 'surfaces' ? 'from the wall surfaces' : 'from the outline of the points';
-    status.textContent = `Measured ${how}: ${lenNum(opt.room.length)} × ${len(opt.room.width)}, ${len(opt.room.height)} high. The stage is on the left.`;
+    status.textContent = `Measured ${how}: ${lenNum(opt.room.length)} × ${len(opt.room.width)}, ${len(opt.room.height)} high. The stage is on the left.`
+      + (choice.fit.note ? ` ${choice.fit.note}; check the sizes.` : '');
     draw();
   }
 

@@ -129,17 +129,17 @@ def directivity(spk: Speaker, dirs: np.ndarray, freqs: np.ndarray) -> np.ndarray
     return np.exp(log_directivity(spk, dirs, freqs))
 
 
-_SPHERE: np.ndarray | None = None
+_SPHERES: dict[int, np.ndarray] = {}
 
 
 def _sphere(n: int = 1500) -> np.ndarray:
-    global _SPHERE
-    if _SPHERE is None:
+    """n directions spread evenly over the sphere (Fibonacci lattice)."""
+    if n not in _SPHERES:
         i = np.arange(n) + 0.5
         phi = np.arccos(1 - 2 * i / n)
         th = np.pi * (1 + 5 ** 0.5) * i
-        _SPHERE = np.column_stack([np.cos(th) * np.sin(phi), np.sin(th) * np.sin(phi), np.cos(phi)])
-    return _SPHERE
+        _SPHERES[n] = np.column_stack([np.cos(th) * np.sin(phi), np.sin(th) * np.sin(phi), np.cos(phi)])
+    return _SPHERES[n]
 
 
 def directivity_factor(spk: Speaker, freqs: np.ndarray) -> np.ndarray:
@@ -303,6 +303,7 @@ def hang_direct(spk: Speaker, points: np.ndarray, centre: np.ndarray, ctx: Conte
 
 
 _POWER_CACHE: dict[str, np.ndarray] = {}
+_RATIO_FREQS = 15.0 * 2.0 ** (np.arange(0, 11 * 12 + 1) / 12)  # 15 Hz to 30 kHz, 1/12 octave
 
 
 def hang_power_ratio(spk: Speaker, ctx: Context) -> np.ndarray:
@@ -312,20 +313,29 @@ def hang_power_ratio(spk: Speaker, ctx: Context) -> np.ndarray:
     room's energy consistent with the direct sound the boxes produce (more at low frequency, where the boxes
     couple, and usually less at high frequency, where each box is narrow).
     """
-    key = repr((sorted(spk.model_dump(include=_GEOMETRY_FIELDS - {"x", "y", "z", "yaw", "pitch"}).items()),
-                float(ctx.freqs[0]), float(ctx.freqs[-1]), len(ctx.freqs), round(ctx.c, 2)))
-    if key not in _POWER_CACHE:
+    key = repr((sorted(spk.model_dump(include=_GEOMETRY_FIELDS - {"x", "y", "z", "yaw", "pitch"}).items()), round(ctx.c, 1)))
+    log_ratio = _POWER_CACHE.get(key)
+    if log_ratio is None:
+        # On a fixed 1/12-octave grid, whatever grid the caller uses: the ratio is smooth in frequency, and the
+        # map, the probe and the optimizer then share one computation per hang shape.
+        f = _RATIO_FREQS
         far = 1e6  # free field: no room, no air, far enough that the hang is a point
-        free = replace(ctx, air_np=np.zeros_like(ctx.air_np), dims=(3 * far, 3 * far, 3 * far))
         centre = np.array([far, far, far])
         r = 400.0
-        H = hang_direct(spk.model_copy(update={"yaw": 0.0, "pitch": 0.0}), centre + r * _sphere(), centre, free)
-        hang_power = np.mean(np.abs(H) ** 2, axis=0) * r * r
-        lumped_power = 1.0 / directivity_factor(spk, ctx.freqs)  # mean of D^2 over the sphere, on-axis 1
+        level = spk.model_copy(update={"yaw": 0.0, "pitch": 0.0})
+        hang_power = np.empty(len(f))
+        # above 4 kHz a straight hang's beam is under a degree tall: sample the sphere more densely there
+        for band, n in ((f <= 4000, 1500), (f > 4000, 5000)):
+            fb = f[band]
+            free = replace(ctx, freqs=fb, k=2 * np.pi * fb / ctx.c, air_np=np.zeros_like(fb), dims=(3 * far, 3 * far, 3 * far))
+            H = hang_direct(level, centre + r * _sphere(n), centre, free)
+            hang_power[band] = np.mean(np.abs(H) ** 2, axis=0) * r * r
+        lumped_power = 1.0 / directivity_factor(spk, f)  # mean of D^2 over the sphere, on-axis 1
+        log_ratio = np.log(np.maximum(hang_power / lumped_power, 1e-12))
         if len(_POWER_CACHE) > 64:
             _POWER_CACHE.clear()
-        _POWER_CACHE[key] = hang_power / lumped_power
-    return _POWER_CACHE[key]
+        _POWER_CACHE[key] = log_ratio
+    return np.exp(np.interp(np.log(ctx.freqs), np.log(_RATIO_FREQS), log_ratio))
 
 
 @dataclass
@@ -348,6 +358,8 @@ def speaker_field(spk: Speaker, points: np.ndarray, ctx: Context, early_ms: floa
     hang = is_hang(spk)
     if hang:
         H += hang_direct(spk, points, src, ctx)
+        # every reflection (early or late) carries the power the boxes really radiate, per frequency
+        log_refl = 0.5 * np.log(hang_power_ratio(spk, ctx))[None, :]
     for im in image_sources(src, ctx.dims, ctx.order):
         if hang and im.order == 0:
             continue  # the direct sound came from the boxes above
@@ -360,6 +372,8 @@ def speaker_field(spk: Speaker, points: np.ndarray, ctx: Context, early_ms: floa
             la += cnt * ctx.log_beta[surf][None, :]
         la -= np.outer(d, ctx.air_np)
         la -= np.log(d)[:, None]
+        if hang:
+            la = la + log_refl
         if early.all():
             H += np.exp(la - 1j * np.outer(d, ctx.k)).astype(np.complex64)
         elif not early.any():
@@ -376,9 +390,7 @@ def speaker_field(spk: Speaker, points: np.ndarray, ctx: Context, early_ms: floa
     remaining = (1.0 - ctx.stats.mean_alpha) ** ctx.order
     E = amp * amp * 16 * np.pi / (directivity_factor(spk, freqs) * ctx.stats.room_constant) * remaining * box2
     if hang:
-        ratio = hang_power_ratio(spk, ctx)
-        L *= ratio.astype(np.float32)[None, :]
-        E = E * ratio
+        E = E * hang_power_ratio(spk, ctx)
     return SpeakerField(H, L, E, np.linalg.norm(points - src, axis=1))
 
 
