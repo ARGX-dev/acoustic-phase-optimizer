@@ -572,3 +572,27 @@ def test_measurements_validate():
     p["measurements"][0]["spl"] = [90.0] * 29
     with pytest.raises(ValidationError):
         Project(**p)
+
+
+def test_sti_reference_cases():
+    from acoustic_phase_optimizer.engine.metrics import STI_MOD, sti_estimate, sti_from_mtf
+
+    assert sti_from_mtf(np.ones((7, 14))) == pytest.approx(1.0, abs=1e-3)
+    # Diffuse field only, RT 1 s in every band: the textbook result is about 0.55 (IEC 60268-16 annex, no noise)
+    f = np.geomspace(90, 11000, 200)
+    late = np.ones((1, len(f)))
+    s1 = float(sti_estimate(np.zeros((1, len(f))), late, f, np.full(len(f), 1.0))[0])
+    s2 = float(sti_estimate(np.zeros((1, len(f))), late, f, np.full(len(f), 2.0))[0])
+    assert 0.5 < s1 < 0.62 and s2 < s1
+    # more direct sound always helps
+    s_d = float(sti_estimate(np.full((1, len(f)), 3.0), late, f, np.full(len(f), 2.0))[0])
+    assert s_d > s2
+    assert len(STI_MOD) == 14
+
+
+def test_sti_in_simulation():
+    out = simulate(presets.festival())
+    assert out["metrics"]["sti"] > 0.85  # open air: almost no reverberation
+    th = simulate(presets.gymnasium())
+    assert 0.2 < th["metrics"]["sti"] < out["metrics"]["sti"]
+    assert len(th["maps"]["sti"]) == len(th["maps"]["direct"])

@@ -9,6 +9,11 @@ const METRICS = [
     help: 'How much the direct sound level varies from seat to seat, per octave band. ±2 dB or less is very even.' },
   { key: 'clarity', label: 'Clarity', show: (v) => `${fmt(v, 1, true)} dB`, better: 'high',
     help: 'Early sound relative to late reverberation, averaged over the seats. Above +6 dB speech is easy to follow; below 0 it is a struggle.' },
+  { key: 'sti', label: 'Speech intelligibility (STI)', show: (v) => {
+    const r = v >= 0.75 ? 'excellent' : v >= 0.6 ? 'good' : v >= 0.45 ? 'fair' : v >= 0.3 ? 'poor' : 'bad';
+    return `${fmt(v, 2)} · ${r}`;
+  }, better: 'high', nd: 2,
+    help: 'Estimated Speech Transmission Index (IEC 60268-16, male speech) from direct, early and reverberant sound. Background noise is not included, so treat it as an upper bound. 0.5 is the usual minimum for voice alarm; 0.6+ is good.' },
   { key: 'echo_pct', label: 'Seats with late arrivals', show: (v) => `${fmt(v, 0)}%`, better: 'low',
     help: 'Seats where two audible speakers arrive more than 30 ms apart, which is heard as an echo. Alignment fixes this.' },
   { key: 'summation', label: 'Summation', show: (v) => `${fmt(v, 2, true)} dB`, better: 'high',
@@ -74,7 +79,7 @@ export function createResultsPanel(root) {
         parts.map((p) => h('span', null, h('i', { style: { background: seriesColor(p.slot) } }), `${p.name} ${fmt(p.v, 0)}`))));
     }
     scoreBox.append(h('div', { class: 'metrics', style: { marginTop: '10px' } }, METRICS.map((d) => {
-      const nd = d.key === 'summation' ? 2 : d.key === 'echo_pct' ? 0 : 1;
+      const nd = d.nd ?? (d.key === 'summation' ? 2 : d.key === 'echo_pct' ? 0 : 1);
       const dl = ref ? delta(ref[d.key], m[d.key], d.better, nd) : null;
       return h('div', { class: 'metric', title: d.help }, h('span', { class: 'l', text: d.label }), h('span', { class: 'v', text: m[d.key] == null ? '–' : d.show(m[d.key]) }),
         dl ? h('div', { class: 'd' }, h('span', { text: `was ${d.show(ref[d.key])}` }), dl) : null);

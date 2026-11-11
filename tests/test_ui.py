@@ -512,7 +512,7 @@ def test_a_weighting(ui):
     page = ui["page"]
     page.locator("select[aria-label='Frequency weighting']").select_option("A")
     page.wait_for_function("document.querySelector('#stage-foot .scale').textContent.includes('dB(A)')", timeout=20000)
-    assert "dB(A)" in page.locator(".metric-row, .right", has_text="Average level").first.inner_text()
+    page.wait_for_function("[...document.querySelectorAll('.metric')].some(m => m.textContent.includes('Average level') && m.textContent.includes('dB(A)'))", timeout=20000)
     page.locator("body").click(position={"x": 700, "y": 20})
     page.keyboard.press("Control+z")
     page.wait_for_function("!document.querySelector('#stage-foot .scale').textContent.includes('dB(A)')", timeout=20000)
@@ -547,6 +547,40 @@ def test_import_measurement_overlay(ui, tmp_path):
     assert n == [20, 80.5, 10]
     page.get_by_role("button", name="Delete FOH centre").click()
     page.wait_for_selector(".meas-row", state="detached")
+
+
+def test_sti_map_and_metric(ui):
+    page = ui["page"]
+    v = page.locator(".metric", has_text="Speech intelligibility").locator(".v").inner_text()
+    assert any(w in v for w in ("excellent", "good", "fair", "poor", "bad")), v
+    page.locator("select[aria-label='Map']").select_option("sti")
+    page.wait_for_function("document.querySelector('#stage-foot .scale').textContent.includes('STI')", timeout=10000)
+    shot(page, "23-sti-map")
+    page.locator("select[aria-label='Map']").select_option("direct")
+
+
+def test_no_null_or_undefined_text_anywhere(ui):
+    import re
+
+    page = ui["page"]
+    bad = re.compile(r"(null|undefined|NaN)")
+    seen = []
+    for tab in ("Room", "Speakers", "Mics", "Setup"):
+        page.get_by_role("tab", name=tab).click()
+        if tab == "Speakers":
+            page.locator(".row-list .row-item").first.click()
+        for m in ("direct", "total", "clarity", "interference", "sti", "spread"):
+            page.locator("select[aria-label='Map']").select_option(m)
+            time.sleep(0.15)
+            txt = page.locator("#app").inner_text()
+            seen += [f"{tab}/{m}: …{txt[max(0, x.start() - 40):x.end() + 10]}…" for x in bad.finditer(txt)]
+    page.locator("select[aria-label='Map']").select_option("direct")
+    for view in ("Section", "3D", "Plan"):
+        page.locator("#stage-toolbar .seg button", has_text=view).click()
+        time.sleep(1.2)
+        txt = page.locator("#app").inner_text()
+        seen += [f"{view}: …{txt[max(0, x.start() - 40):x.end() + 10]}…" for x in bad.finditer(txt)]
+    assert not seen, seen
 
 
 def test_delete_saved_and_discard_prompt(ui):

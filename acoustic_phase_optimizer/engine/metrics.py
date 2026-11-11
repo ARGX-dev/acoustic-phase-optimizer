@@ -44,6 +44,47 @@ def band_masks(freqs: np.ndarray, centres: list[float] = BANDS) -> list[np.ndarr
     return [(freqs >= fc / np.sqrt(2)) & (freqs < fc * np.sqrt(2)) for fc in centres]
 
 
+# ------------------------------------------------------------------ STI (IEC 60268-16 rev. 4, male speech)
+STI_BANDS = [125.0, 250.0, 500.0, 1000.0, 2000.0, 4000.0, 8000.0]
+STI_ALPHA = np.array([0.085, 0.127, 0.230, 0.233, 0.309, 0.224, 0.173])
+STI_BETA = np.array([0.085, 0.078, 0.065, 0.011, 0.047, 0.095])
+STI_MOD = 0.63 * 2.0 ** (np.arange(14) / 3.0)  # 0.63 ... 12.5 Hz
+
+
+def sti_from_mtf(m: np.ndarray) -> np.ndarray:
+    """STI from modulation transfer values shaped (..., 7 bands, 14 modulation frequencies)."""
+    m = np.clip(m, 1e-6, 1 - 1e-6)
+    snr = np.clip(10 * np.log10(m / (1 - m)), -15.0, 15.0)
+    ti = (snr + 15.0) / 30.0
+    mti = ti.mean(-1)  # (..., 7)
+    sti = (mti * STI_ALPHA).sum(-1) - (STI_BETA * np.sqrt(np.maximum(mti[..., :-1] * mti[..., 1:], 0))).sum(-1)
+    return np.clip(sti, 0.0, 1.0)
+
+
+def sti_estimate(early: np.ndarray, late: np.ndarray, freqs: np.ndarray, rt60: np.ndarray) -> np.ndarray:
+    """Statistical STI per point from early (direct + early reflections) and late (reverberant) energy.
+
+    Early energy is treated as fully modulated; late energy as an exponential decay with the band's RT,
+    whose modulation transfer is 1 / (1 + j 2 pi F T / 13.8). The two add as energy-weighted complex
+    MTFs. Background noise and masking are not included, so this is an upper estimate.
+    """
+    P = early.shape[0]
+    m = np.ones((P, len(STI_BANDS), len(STI_MOD)))
+    for i, mask in enumerate(band_masks(freqs, STI_BANDS)):
+        if not mask.any():
+            continue
+        e, r = early[:, mask].mean(1), late[:, mask].mean(1)
+        t = float(np.nan_to_num(np.mean(rt60[mask]), nan=0.0))
+        mr = 1.0 / (1.0 + 2j * np.pi * STI_MOD * max(t, 0.0) / 13.8)  # (14,)
+        tot = np.maximum(e + r, 1e-30)
+        m[:, i, :] = np.abs((e[:, None] + r[:, None] * mr[None, :]) / tot[:, None])
+    return sti_from_mtf(m)
+
+
+def sti_rating(v: float) -> str:
+    return "excellent" if v >= 0.75 else "good" if v >= 0.6 else "fair" if v >= 0.45 else "poor" if v >= 0.3 else "bad"
+
+
 def weighting_db(freqs: np.ndarray, kind: str) -> np.ndarray:
     """IEC 61672 A or C weighting in dB (Z = flat)."""
     f2 = np.asarray(freqs, float) ** 2

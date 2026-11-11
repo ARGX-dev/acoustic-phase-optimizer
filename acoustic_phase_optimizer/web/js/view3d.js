@@ -486,7 +486,7 @@ export function create3D(root) {
       const cell = valueAt(p.x, p.y);
       const def = MAPS[state.ui.map];
       if (cell?.value != null) {
-        rows.push(h('div', { class: 'v', text: `${fmt(cell.value, def.unit === 'ms' ? 0 : 1, def.kind === 'diverging')} ${unitOf(def)}` }),
+        rows.push(h('div', { class: 'v', text: `${fmt(cell.value, def.nd ?? (def.unit === 'ms' ? 0 : 1), def.kind === 'diverging')} ${unitOf(def)}` }),
           h('div', { class: 'l', text: def.label }));
         if (cell.dominant) rows.push(h('div', { class: 'row' }, h('span', { class: 'swatch', style: { background: seriesColor(cell.dominant.color) } }), h('span', { class: 'l', text: `Loudest here: ${cell.dominant.name}` })));
       }

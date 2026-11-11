@@ -64,7 +64,7 @@ export function createStageBar(bar, stageRoot) {
       h('span', { text: 'Weighting' }),
       h('select', { attrs: { 'aria-label': 'Frequency weighting' }, onchange: (e) => mutate((p) => { p.settings.weighting = e.target.value; }) },
         ['Z', 'A', 'C'].map((w) => h('option', { value: w, text: w === 'Z' ? 'Z (flat)' : `${w}`, selected: (state.project?.settings?.weighting || 'Z') === w })))) : null;
-    bar.append(h('span', { class: 'title', text: 'Coverage' }), mapSel, bandSel, wsel, h('span', { class: 'spacer' }), views);
+    bar.append(...[h('span', { class: 'title', text: 'Coverage' }), mapSel, bandSel, wsel, h('span', { class: 'spacer' }), views].filter(Boolean));
   }
 
   on('project', () => {

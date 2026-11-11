@@ -24,7 +24,7 @@ from .field import (
     speaker_field,
 )
 from .materials import OCTAVE_BANDS, room_stats, surface_alphas
-from .metrics import BANDS, analyse, arrivals, band_levels, db, smooth, spl, summarise, tone_floor, weighting_gain
+from .metrics import BANDS, analyse, arrivals, band_levels, db, smooth, spl, sti_estimate, summarise, tone_floor, weighting_gain
 from .model import Project
 
 F_LO, F_HI = 100.0, 10000.0
@@ -62,6 +62,7 @@ def simulate(project: Project, preview: bool = False) -> dict:
     _, _, spread, dominant = arrivals(field, w, delays, g)
     a = analyse(c.early, c.early_psum, c.late, spread, freqs,
                 project.settings.target_tilt_db_per_oct, tone_floor(project.speakers))
+    sti_map = sti_estimate(c.early, c.late, freqs, field.rt60)
     bb = (freqs >= F_LO) & (freqs <= F_HI)
     wt = weighting_gain(freqs[bb], project.settings.weighting)[None, :]
     direct_bands = band_levels(c.early, freqs)
@@ -73,9 +74,12 @@ def simulate(project: Project, preview: bool = False) -> dict:
         "interference": _r(a["_rip_point"], 2),
         "clarity": _r(a["_clarity_point"], 1),
         "spread": _r(spread, 1),
+        "sti": _r(sti_map, 2),
         "dominant": [int(v) for v in dominant],
     }
     out["metrics"] = summarise(a)
+    out["metrics"]["sti"] = round(float(np.mean(sti_map)), 3)
+    out["metrics"]["sti_low"] = round(float(np.percentile(sti_map, 10)), 3)
     if project.settings.weighting != "Z":  # reported level only; the optimizer always works unweighted
         out["metrics"]["mean_spl"] = round(float(spl((c.total[:, bb] * wt).mean())), 3)
     out["average"] = {  # audience-average direct response and the target it is judged against
