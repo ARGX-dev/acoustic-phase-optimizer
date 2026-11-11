@@ -529,6 +529,83 @@ def test_import_scan_sets_the_room(ui, tmp_path):
     page.locator("#stage-toolbar .seg button", has_text="Plan").click()
 
 
+def broken_room_obj(path: Path, w=12.0, l=20.0, h=5.0, step=0.125) -> Path:
+    """A finely meshed room with typical export damage: the whole back wall wound the wrong way, one missing triangle
+    (a crack, narrower than the repair limit), one duplicated face and one face with a NaN corner."""
+    verts, faces = [], []
+
+    def grid(origin, du, dv, nu, nv, flip=False, skip=None):
+        base = len(verts)
+        for j in range(nv + 1):
+            for i in range(nu + 1):
+                verts.append(tuple(origin[k] + du[k] * i * step + dv[k] * j * step for k in range(3)))
+        vid = lambda i, j: base + j * (nu + 1) + i + 1  # noqa: E731  (OBJ counts from 1)
+        for j in range(nv):
+            for i in range(nu):
+                a, b, c, d = vid(i, j), vid(i + 1, j), vid(i + 1, j + 1), vid(i, j + 1)
+                for t, tri in enumerate(((a, b, c), (a, c, d))):
+                    if skip == (i, j, t):
+                        continue
+                    faces.append(tri[::-1] if flip else tri)
+
+    nw, nl, nh = round(w / step), round(l / step), round(h / step)
+    grid((0, 0, 0), (0, 1, 0), (1, 0, 0), nl, nw, skip=(40, 30, 0))  # floor (facing down)
+    grid((0, 0, h), (1, 0, 0), (0, 1, 0), nw, nl)  # ceiling
+    grid((0, 0, 0), (1, 0, 0), (0, 0, 1), nw, nh)  # front
+    grid((0, l, 0), (0, 0, 1), (1, 0, 0), nh, nw)  # back (facing out like the rest), turned the wrong way round below
+    back = (len(faces) - nw * nh * 2, len(faces))
+    grid((0, 0, 0), (0, 0, 1), (0, 1, 0), nh, nl)  # left
+    grid((w, 0, 0), (0, 1, 0), (0, 0, 1), nl, nh)  # right
+    faces[back[0]:back[1]] = [f[::-1] for f in faces[back[0]:back[1]]]
+    faces.append(faces[0])  # a duplicate
+    verts.append((float("nan"),) * 3)
+    faces.append((1, 2, len(verts)))  # a NaN corner
+    lines = [f"v {x:.4f} {z:.4f} {-y:.4f}" for x, y, z in verts]  # y-up
+    lines += [f"f {a} {b} {c}" for a, b, c in faces]
+    path.write_text("\n".join(lines) + "\n")
+    return path, nw * nh * 2
+
+
+def test_import_repairs_a_broken_model(ui, tmp_path):
+    page = ui["page"]
+    page.get_by_role("tab", name="Room").click()
+    obj, back_faces = broken_room_obj(tmp_path / "broken_hall.obj")
+    with page.expect_file_chooser() as fc:
+        page.get_by_role("button", name=re.compile("Import a 3D scan…|Replace…")).click()
+    fc.value.set_files(str(obj))
+    page.wait_for_selector(".dialog [data-testid='repair-report']", timeout=60000)
+    page.wait_for_function("document.querySelector('.dialog [aria-label=\"Stage to back\"]').value !== ''", timeout=20000)
+    shot(page, "12-repair-report")
+    text = page.locator(".dialog [data-testid='repair-report']").inner_text()
+    assert f"{back_faces:,} faces turned to match their neighbours" in text
+    assert "1 small hole closed" in text
+    assert "1 duplicate face removed" in text
+    assert "1 broken face removed" in text
+    dims = sorted(float(page.locator(f".dialog [aria-label='{k}']").input_value()) for k in ("Stage to back", "Width"))
+    assert dims == pytest.approx([12.0, 20.0], abs=0.4)
+    # switching back to the file as it is re-measures from the unrepaired model
+    toggle = page.get_by_role("checkbox", name="Use the repaired model")
+    toggle.uncheck()
+    page.wait_for_function("document.querySelector('.dialog [aria-label=\"Stage to back\"]').value !== ''", timeout=20000)
+    assert float(page.locator(".dialog [aria-label='Height']").input_value()) == pytest.approx(5.0, abs=0.2)
+    toggle.check()
+    page.locator(".dialog .btn", has_text="Cancel").click()
+    page.wait_for_selector(".dialog", state="detached", timeout=10000)
+
+
+def test_import_reports_a_clean_model(ui, tmp_path):
+    page = ui["page"]
+    page.get_by_role("tab", name="Room").click()
+    with page.expect_file_chooser() as fc:
+        page.get_by_role("button", name=re.compile("Import a 3D scan…|Replace…")).click()
+    fc.value.set_files(str(room_obj(tmp_path / "clean.obj")))
+    page.wait_for_selector(".dialog [data-testid='repair-report']", timeout=20000)
+    assert "The model is clean" in page.locator(".dialog [data-testid='repair-report']").inner_text()
+    assert page.get_by_role("checkbox", name="Use the repaired model").count() == 0
+    page.locator(".dialog .btn", has_text="Cancel").click()
+    page.wait_for_selector(".dialog", state="detached", timeout=10000)
+
+
 def test_speaker_library_search_add_and_change_model(ui):
     page = ui["page"]
     page.get_by_role("tab", name="Speakers").click()

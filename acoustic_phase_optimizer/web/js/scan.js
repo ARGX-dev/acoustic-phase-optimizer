@@ -95,6 +95,20 @@ export async function parseScan(buffer, ext) {
   return new THREE.Points(geo, new THREE.PointsMaterial({ size: 0.035, vertexColors: hasColor, color: hasColor ? 0xffffff : 0xb9b6ae, sizeAttenuation: true }));
 }
 
+/** World-space bounds of every finite vertex (three's own Box3 turns to NaN when one corner is broken). */
+function finiteBox(root) {
+  const box = new THREE.Box3(), v = new THREE.Vector3();
+  root.traverse((o) => {
+    const pos = o.geometry?.attributes?.position;
+    if (!pos) return;
+    for (let i = 0; i < pos.count; i++) {
+      v.fromBufferAttribute(pos, i);
+      if (Number.isFinite(v.x) && Number.isFinite(v.y) && Number.isFinite(v.z)) box.expandByPoint(v.applyMatrix4(o.matrixWorld));
+    }
+  });
+  return box;
+}
+
 /** Points spread evenly over the scanned surfaces (by area), with their normals; vertices for a bare point cloud. */
 export function samplePoints(root, max = 40000) {
   root.updateMatrixWorld(true);
@@ -116,12 +130,13 @@ export function samplePoints(root, max = 40000) {
       a.fromBufferAttribute(pos, i0).applyMatrix4(o.matrixWorld);
       b.fromBufferAttribute(pos, i1).applyMatrix4(o.matrixWorld);
       c.fromBufferAttribute(pos, i2).applyMatrix4(o.matrixWorld);
-      total += ab.subVectors(b, a).cross(ac.subVectors(c, a)).length() / 2;
+      const area = ab.subVectors(b, a).cross(ac.subVectors(c, a)).length() / 2;
+      if (Number.isFinite(area)) total += area; // a face with a NaN corner is never picked
       cum[t] = total;
     }
     if (n) tris.push({ pos, index, matrix: o.matrixWorld, cum, start: total - cum[n - 1] });
   });
-  const box = new THREE.Box3().setFromObject(root);
+  const box = finiteBox(root);
   if (tris.length && total > 0) {
     const pts = new Float32Array(max * 3), nrm = new Float32Array(max * 3);
     for (let k = 0; k < max; k++) {
@@ -218,22 +233,25 @@ export function scanMatrix(ref) {
   return A.multiply(T).multiply(R).multiply(S).multiply(U);
 }
 
-const loaded = new Map(); // scan id -> Promise<Object3D>
+const loaded = new Map(); // scan id (+ repair) -> Promise<Object3D>
 /** The scan as a ready-to-add object, placed with the reference's transform. Cached per file. */
 export async function scanObject(ref) {
-  if (!loaded.has(ref.id)) {
-    loaded.set(ref.id, (async () => {
+  const key = `${ref.id}:${ref.repair !== false}`;
+  if (!loaded.has(key)) {
+    loaded.set(key, (async () => {
       const res = await fetch(`/api/scans/${ref.id}.${ref.ext}`);
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || 'scan file missing');
       const obj = await parseScan(await res.arrayBuffer(), ref.ext);
+      // the same deterministic repair as on import, so the model looks the way it did in the import dialog
+      if (ref.repair !== false) await (await import('./meshfix-three.js')).repairObject(obj).catch(() => null);
       const holder = new THREE.Group();
       holder.add(obj);
       holder.matrixAutoUpdate = false;
       obj.traverse((o) => { if (o.isMesh) o.receiveShadow = true; });
       return holder;
-    })().catch((e) => { loaded.delete(ref.id); throw e; }));
+    })().catch((e) => { loaded.delete(key); throw e; }));
   }
-  const holder = await loaded.get(ref.id);
+  const holder = await loaded.get(key);
   holder.matrix.copy(scanMatrix(ref));
   holder.matrixWorldNeedsUpdate = true;
   holder.visible = ref.visible !== false;
@@ -287,10 +305,11 @@ export async function importScan(file, hints = {}) {
     return importScan(res.file, res.hints);
   }
   const busy = toast(`Reading ${file.name}…`, { ms: 60000 });
-  let raw, buffer, obj;
+  let raw, buffer, obj, fix = null;
   try {
     buffer = await file.arrayBuffer();
     obj = await parseScan(buffer, ext);
+    try { fix = await (await import('./meshfix-three.js')).repairObject(obj); } catch (e) { console.warn('model repair skipped:', e); }
     raw = samplePoints(obj);
   } catch (e) {
     busy.remove();
@@ -313,8 +332,32 @@ export async function importScan(file, hints = {}) {
   const choice = {
     up: hints.up || (Z_UP.has(ext) || (ext === 'ply' && size.z < size.y) ? 'z' : 'y'),
     unit: hints.unit || (ext === 'mvr' || ext === 'dae' ? '1' : known ? known[0] : span > 1500 ? '0.001' : span > 150 ? '0.01' : '1'),
-    side: null, fit: null, dims: null, error: null,
+    side: null, fit: null, dims: null, error: null, repair: true,
   };
+
+  // What the repair did, with a switch back to the model exactly as the file has it.
+  const repairBox = fix ? (() => {
+    const r = fix.report;
+    const left = r.holesLeft ? ` ${r.holesLeft.toLocaleString('en-US')} larger opening${r.holesLeft === 1 ? '' : 's'} (doors, windows, open sides) left as they are.` : '';
+    const text = fix.changed ? `Model repaired: ${fix.summary}.${left}` : `The model is clean: nothing needed fixing.${left}`;
+    const toggle = h('input', { type: 'checkbox', checked: true, attrs: { 'aria-label': 'Use the repaired model' },
+      onchange: () => {
+        try {
+          fix.use(toggle.checked);
+          raw = samplePoints(obj);
+          choice.repair = toggle.checked;
+          refit();
+        } catch (e) {
+          toggle.checked = !toggle.checked; // keep what worked
+          fix.use(toggle.checked);
+          raw = samplePoints(obj);
+          toast(friendly(e), { error: true });
+        }
+      } });
+    return h('div', { class: 'repair-note', attrs: { 'data-testid': 'repair-report' } },
+      h('p', { class: 'hint', text }),
+      fix.changed ? h('label', { class: 'check' }, toggle, h('span', { text: 'Use the repaired model (the file itself is kept unchanged)' })) : null);
+  })() : null;
 
   const preview = h('canvas', { class: 'scan-preview', width: 520, height: 300, attrs: { 'aria-label': 'Top view of the scan with the fitted room. The stage is on the left.' } });
   const status = h('p', { class: 'hint', attrs: { 'aria-live': 'polite' } });
@@ -363,7 +406,8 @@ export async function importScan(file, hints = {}) {
     for (const k of ['length', 'width', 'height']) dimInputs[k].value = String(round(toDisp(opt.room[k]), 2));
     const how = choice.fit.method === 'surfaces' ? 'from the wall surfaces' : 'from the outline of the points';
     status.textContent = `Measured ${how}: ${lenNum(opt.room.length)} × ${len(opt.room.width)}, ${len(opt.room.height)} high. The stage is on the left.`
-      + (choice.fit.note ? ` ${choice.fit.note}; check the sizes.` : '');
+      + (choice.fit.note ? ` ${choice.fit.note}; check the sizes.` : '')
+      + (opt.room.height > 60 ? ' That is very tall for a room: check the units above.' : '');
     draw();
   }
 
@@ -409,6 +453,7 @@ export async function importScan(file, hints = {}) {
         h('label', { class: 'field wide' }, h('span', { text: 'The scan is in' }), unitSel),
         h('label', { class: 'field wide' }, h('span', { text: 'Orientation' }), upSel)),
       h('div', { class: 'grid3', style: { marginTop: '12px' } }, dimField('length', 'Stage to back'), dimField('width', 'Width'), dimField('height', 'Height')),
+      repairBox,
       h('p', { class: 'hint', text: 'The sound prediction uses a box of this size. The scan itself is shown in the 3D view so you can place speakers against the real room.' }),
       h('p', { class: 'hint', text: 'Speakers, mics and the audience area keep their positions relative to the room.' })));
 
@@ -448,7 +493,7 @@ function applyScan(name, ext, id, choice) {
     }
     Object.assign(r, { width: d.width, length: d.length, height: d.height });
     p.scan = { id, ext, name: name.replace(/\.[^.]+$/, ''), up: choice.up, unit_scale: Number(choice.unit),
-      yaw_deg: opt.yaw_deg, t: opt.t, visible: true, opacity: 1 };
+      yaw_deg: opt.yaw_deg, t: opt.t, visible: true, opacity: 1, repair: choice.repair };
   }, { structural: true, source: 'scan' });
   setUI({ view: '3d' });
   toast(`Room set from the scan: ${lenNum(d.length)} × ${lenNum(d.width)} × ${len(d.height)}.`);

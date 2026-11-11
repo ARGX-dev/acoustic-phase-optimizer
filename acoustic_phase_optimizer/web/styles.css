@@ -354,6 +354,9 @@ table.data td:first-child { display: flex; align-items: center; gap: 6px; }
   background: var(--page); margin-bottom: 8px; }
 .scan-card svg { width: 16px; height: 16px; color: var(--accent); flex: none; }
 .scan-card .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.repair-note { margin-top: 12px; padding: 8px 10px; border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: 8px; background: var(--page); }
+.repair-note .hint { margin: 0 0 6px; }
+.repair-note .hint:last-child { margin-bottom: 0; }
 @media (max-width: 760px) { .scan-dialog { grid-template-columns: 1fr; } }
 
 /* ------------------------------------------------------- loudspeaker picker */

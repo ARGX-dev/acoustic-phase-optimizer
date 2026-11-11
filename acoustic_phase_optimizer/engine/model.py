@@ -177,6 +177,7 @@ class ScanRef(BaseModel):
     t: tuple[float, float, float] = (0.0, 0.0, 0.0)
     visible: bool = True
     opacity: float = Field(1.0, ge=0.05, le=1)
+    repair: bool = True  # fix flipped faces, small holes and broken triangles on load (web/js/meshfix.js); the file is kept as-is
 
 
 class Project(BaseModel):
