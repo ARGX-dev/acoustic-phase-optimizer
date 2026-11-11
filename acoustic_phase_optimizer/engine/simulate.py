@@ -23,7 +23,7 @@ from .field import (
     speaker_field,
 )
 from .materials import OCTAVE_BANDS, room_stats, surface_alphas
-from .metrics import BANDS, F_HI, F_LO, analyse, arrivals, band_levels, db, smooth, spl, summarise, tone_floor
+from .metrics import BANDS, analyse, arrivals, band_levels, db, smooth, spl, summarise, tone_floor
 from .model import Project
 
 F_LO, F_HI = 100.0, 10000.0
