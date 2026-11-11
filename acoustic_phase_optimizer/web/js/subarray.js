@@ -5,6 +5,7 @@ import { api } from './api.js';
 import { openDialog } from './dialog.js';
 import { mutate, select, state } from './store.js';
 import { clamp, fmt, h, toast } from './util.js';
+import { dispStep, fromDisp, len, lenUnit, toDisp } from './units.js';
 
 const KINDS = [
   ['line', 'Line / arc', 'Boxes in a row across the room. A spread angle delays the outer boxes as if the row were bent into an arc, widening the narrow beam a long straight row makes.'],
@@ -86,20 +87,25 @@ export async function openSubArrayBuilder() {
   const kindSeg = h('div', { class: 'seg block', attrs: { role: 'radiogroup', 'aria-label': 'Array type' } });
 
   const numIn = (label, key, { min, max, step, unit = '', nd = 1 }) => {
-    const input = h('input', { type: 'text', class: 'num', value: String(o[key]), attrs: { 'aria-label': label, inputmode: 'decimal' } });
+    // Lengths are kept in metres (min/max too) and shown in the chosen unit.
+    const isLen = unit === 'm';
+    const D = (v) => (isLen ? toDisp(v) : v), M = (v) => (isLen ? fromDisp(v) : v);
+    const dstep = isLen ? dispStep(step) : step;
+    const show = () => String(Number(D(o[key]).toFixed(nd)));
+    const input = h('input', { type: 'text', class: 'num', value: show(), attrs: { 'aria-label': label, inputmode: 'decimal' } });
     input.addEventListener('input', () => {
       const v = parseFloat(input.value.replace(',', '.'));
-      if (Number.isFinite(v)) { o[key] = clamp(v, min, max); draw(); }
+      if (Number.isFinite(v)) { o[key] = clamp(M(v), min, max); draw(); }
     });
-    input.addEventListener('change', () => { input.value = String(Number(o[key].toFixed(nd))); });
+    input.addEventListener('change', () => { input.value = show(); });
     input.addEventListener('keydown', (e) => {
       if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
       e.preventDefault();
-      o[key] = clamp(Math.round((o[key] + (e.key === 'ArrowUp' ? step : -step)) / step) * step, min, max);
-      input.value = String(Number(o[key].toFixed(nd)));
+      o[key] = clamp(M(Math.round((D(o[key]) + (e.key === 'ArrowUp' ? dstep : -dstep)) / dstep) * dstep), min, max);
+      input.value = show();
       draw();
     });
-    return h('label', { class: 'field' }, h('span', { text: label }), h('span', { class: 'input-wrap' }, input, unit ? h('em', { text: unit }) : null));
+    return h('label', { class: 'field' }, h('span', { text: label }), h('span', { class: 'input-wrap' }, input, unit ? h('em', { text: isLen ? lenUnit() : unit }) : null));
   };
 
   function renderFields() {
@@ -123,8 +129,8 @@ export async function openSubArrayBuilder() {
     const boxes = layout({ ...o, count: Math.round(o.count) }, c);
     const kind = KINDS.find((k) => k[0] === o.kind);
     about.textContent = kind[2] + (o.kind === 'cardioid'
-      ? ` With a ${fmt(o.depth, 2)} m gap the pair adds most in front around ${fmt(c / (4 * o.depth), 0)} Hz; much lower, the front gets weaker and needs gain.`
-      : o.kind === 'endfire' ? ` Spacing of ${fmt(o.spacing, 2)} m: the rear rejection is strongest around ${fmt(c / (4 * o.spacing), 0)} Hz.` : '');
+      ? ` With a ${len(o.depth, 2)} gap the pair adds most in front around ${fmt(c / (4 * o.depth), 0)} Hz; much lower, the front gets weaker and needs gain.`
+      : o.kind === 'endfire' ? ` Spacing of ${len(o.spacing, 2)}: the rear rejection is strongest around ${fmt(c / (4 * o.spacing), 0)} Hz.` : '');
     preview.replaceChildren(sketch(boxes, o));
   }
   renderKinds(); renderFields(); draw();

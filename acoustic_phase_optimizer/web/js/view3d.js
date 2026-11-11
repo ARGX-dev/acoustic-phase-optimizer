@@ -12,6 +12,7 @@ import { cssVar, isDark, seriesColor } from './theme.js';
 import { currentScale, heatImage, mapKey, MAPS, shownSim, unitOf, valueAt } from './stage.js';
 import { scanObject as loadScan } from './scan.js';
 import { toast } from './util.js';
+import { len } from './units.js';
 
 const P = (x, y, z) => new THREE.Vector3(y, z, x);
 const toRoom = (v) => ({ x: v.z, y: v.x, z: v.y });
@@ -479,9 +480,9 @@ export function create3D(root) {
       const s = state.project.speakers.find((q) => q.id === p.id);
       const m = state.project.mics.find((q) => q.id === p.id);
       if (s) rows.push(h('div', { class: 'row' }, h('span', { class: 'swatch', style: { background: seriesColor(s.color) } }), h('span', { class: 'v', style: { textAlign: 'left' }, text: s.name })),
-        h('div', { class: 'l', text: `${fmt(s.y, 1)} m from stage · ${fmt(s.z, 1)} m high · aim ${fmt(s.yaw, 0)}° / ${fmt(s.pitch, 0)}°` }),
+        h('div', { class: 'l', text: `${len(s.y)} from stage · ${len(s.z)} high · aim ${fmt(s.yaw, 0)}° / ${fmt(s.pitch, 0)}°` }),
         h('div', { class: 'l', text: `Delay ${fmt(s.delay_ms, 2)} ms · Gain ${fmt(s.gain_db, 1, true)} dB` }));
-      if (m) rows.push(h('div', { class: 'v', text: m.name }), h('div', { class: 'l', text: `${fmt(m.y, 1)} m from stage, ${fmt(m.z, 1)} m high` }));
+      if (m) rows.push(h('div', { class: 'v', text: m.name }), h('div', { class: 'l', text: `${len(m.y)} from stage, ${len(m.z)} high` }));
     } else {
       const cell = valueAt(p.x, p.y);
       const def = MAPS[state.ui.map];
@@ -490,7 +491,7 @@ export function create3D(root) {
           h('div', { class: 'l', text: def.label }));
         if (cell.dominant) rows.push(h('div', { class: 'row' }, h('span', { class: 'swatch', style: { background: seriesColor(cell.dominant.color) } }), h('span', { class: 'l', text: `Loudest here: ${cell.dominant.name}` })));
       }
-      rows.push(h('div', { class: 'l', text: `${fmt(p.y, 1)} m from stage, ${fmt(p.x, 1)} m across · click to probe` }));
+      rows.push(h('div', { class: 'l', text: `${len(p.y)} from stage, ${len(p.x)} across · click to probe` }));
     }
     clear(tip).append(...rows);
     tip.hidden = false;

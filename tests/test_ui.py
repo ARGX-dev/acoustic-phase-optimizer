@@ -604,6 +604,33 @@ def test_sti_map_and_metric(ui):
     page.locator("select[aria-label='Map']").select_option("direct")
 
 
+def test_imperial_units(ui):
+    page = ui["page"]
+    page.get_by_role("tab", name="Setup").click()
+    page.locator("select[aria-label='Lengths and distances']").select_option("imperial")
+    page.get_by_role("tab", name="Room").click()
+    width = page.get_by_role("spinbutton", name="Width")
+    page.wait_for_function("document.querySelector('[aria-label=Width]').parentElement.textContent.includes('ft')")
+    metres_shown = float(width.input_value())
+    assert metres_shown > 20  # feet, not metres, for any example room
+    width.fill("60")
+    width.press("Enter")
+    room = page.locator("#app").inner_text()
+    assert "ft³" in room and " m³" not in room  # the room volume
+    # the plan's hover readout speaks feet too
+    box = page.locator("#stage canvas").first.bounding_box()
+    page.mouse.move(box["x"] + box["width"] * 0.5, box["y"] + box["height"] * 0.5)
+    page.wait_for_selector(".plan-tip:not([hidden])")
+    assert " ft " in page.locator(".plan-tip").inner_text()
+    shot(page, "25-imperial")
+    page.get_by_role("tab", name="Setup").click()
+    page.locator("select[aria-label='Lengths and distances']").select_option("metric")
+    page.get_by_role("tab", name="Room").click()
+    # 60 ft was stored as 18.29 m
+    assert abs(float(page.get_by_role("spinbutton", name="Width").input_value()) - 18.29) < 0.01
+    page.keyboard.press("Control+z")
+
+
 def test_no_null_or_undefined_text_anywhere(ui):
     import re
 

@@ -4,6 +4,7 @@
 import { commit, editSpeaker, mutate, on, select, setProbe, speakerById, state } from './store.js';
 import { clamp, clear, fmt, h, round } from './util.js';
 import { cssVar, makeScale, seriesColor } from './theme.js';
+import { len, lenNum, tickStep } from './units.js';
 
 export const MAPS = {
   direct: { label: 'Direct sound level', unit: 'dB', kind: 'sequential', bands: true,
@@ -120,10 +121,6 @@ export function createStage(root, foot) {
     view = { scale: scale * zoom.k, ox: zoom.tx + zoom.k * ox, oy: zoom.ty + zoom.k * oy };
   }
 
-  function niceStep(pxPerMetre) {
-    for (const s of [1, 2, 5, 10, 20, 50]) if (s * pxPerMetre >= 46) return s;
-    return 100;
-  }
 
   function text(str, x, y, { color, align = 'left', base = 'alphabetic', size = 11, weight = 500, halo = true } = {}) {
     ctx.font = `${weight} ${size}px system-ui, -apple-system, "Segoe UI", sans-serif`;
@@ -192,18 +189,18 @@ export function createStage(root, foot) {
     ctx.rotate(-Math.PI / 2);
     text('STAGE', 0, 0, { color: c.muted, align: 'center', base: 'middle', size: 10, weight: 650, halo: false });
     ctx.restore();
-    const step = niceStep(view.scale);
+    const step = tickStep(view.scale);
     ctx.fillStyle = c.muted;
     for (let m = 0; m <= r.length + 1e-6; m += step) {
       const [sx] = toScreen(0, m);
       ctx.fillRect(Math.round(sx), ry + rh, 1, 4);
-      text(m === 0 ? '0' : `${m} m`, sx, ry + rh + 8, { color: c.muted, align: 'center', base: 'top', size: 10.5, halo: false });
+      text(m === 0 ? '0' : len(m, 0), sx, ry + rh + 8, { color: c.muted, align: 'center', base: 'top', size: 10.5, halo: false });
     }
     for (let m = step; m <= r.width + 1e-6; m += step) {
       const [, sy] = toScreen(m, 0);
       ctx.fillStyle = c.muted;
       ctx.fillRect(rx - 26, Math.round(sy), 4, 1);
-      text(`${m}`, rx - 29, sy, { color: c.muted, align: 'right', base: 'middle', size: 10.5, halo: false });
+      text(lenNum(m, 0), rx - 29, sy, { color: c.muted, align: 'right', base: 'middle', size: 10.5, halo: false });
     }
 
     // speakers
@@ -312,17 +309,17 @@ export function createStage(root, foot) {
       const s = target.obj;
       rows.push(h('div', { class: 'row' }, h('span', { class: 'swatch', style: { background: seriesColor(s.color) } }), h('span', { class: 'v', style: { textAlign: 'left' }, text: s.name })));
       rows.push(h('div', { class: 'l', text: `Delay ${fmt(s.delay_ms, 2)} ms · Gain ${fmt(s.gain_db, 1, true)} dB${s.invert ? ' · Inverted' : ''}${s.mute ? ' · Muted' : ''}` }));
-      rows.push(h('div', { class: 'l', text: target.kind === 'rotate' ? `Aim ${fmt(s.yaw, 0)}° - drag to turn` : `${fmt(s.y, 1)} m from stage, ${fmt(s.z, 1)} m high - drag to move` }));
+      rows.push(h('div', { class: 'l', text: target.kind === 'rotate' ? `Aim ${fmt(s.yaw, 0)}° - drag to turn` : `${len(s.y)} from stage, ${len(s.z)} high - drag to move` }));
       return { rows, readout: `${s.name}: delay ${fmt(s.delay_ms, 2)} ms, gain ${fmt(s.gain_db, 1, true)} dB` };
     }
     if (target?.kind === 'mic') {
       rows.push(h('div', { class: 'v', text: target.obj.name }), h('div', { class: 'l', text: 'Measurement position - drag to move' }));
-      return { rows, readout: `${target.obj.name}: ${fmt(target.obj.y, 1)} m from stage` };
+      return { rows, readout: `${target.obj.name}: ${len(target.obj.y)} from stage` };
     }
     if (x < 0 || y < 0 || x > r.width || y > r.length) return null;
     const cell = valueAt(x, y);
     const def = MAPS[state.ui.map];
-    const where = `${fmt(y, 1)} m from stage, ${fmt(x, 1)} m across`;
+    const where = `${len(y)} from stage, ${len(x)} across`;
     if (!cell || cell.value == null) return { rows: [h('div', { class: 'l', text: where }), h('div', { class: 'l', text: 'Outside the audience area' })], readout: where };
     rows.push(h('div', { class: 'v', text: `${fmt(cell.value, def.nd ?? (def.unit === 'ms' ? 0 : 1), def.kind === 'diverging')} ${unitOf(def)}` }));
     rows.push(h('div', { class: 'l', text: def.label + (state.ui.band !== 'all' && def.bands ? `, ${state.ui.band} Hz band` : '') }));

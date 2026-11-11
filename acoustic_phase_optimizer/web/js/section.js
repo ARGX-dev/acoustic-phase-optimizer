@@ -7,6 +7,7 @@ import { commit, editSpeaker, mutate, on, select, setProbe, setUI, state } from 
 import { clamp, clear, debounce, fmt, h } from './util.js';
 import { cssVar, makeScale, seriesColor } from './theme.js';
 import { levelRange, setFootOverride } from './stage.js';
+import { len, lenNum, tickStep } from './units.js';
 
 const AIM_LEN_PX = 70;
 
@@ -124,7 +125,7 @@ export function createSection(root) {
     ctx.globalAlpha = 1; ctx.fillStyle = color || cssVar('--ink');
     ctx.fillText(str, x, y);
   }
-  const niceStep = (px) => [0.5, 1, 2, 5, 10, 20, 50].find((s) => s * px >= 40) || 100;
+  const niceStep = (px) => tickStep(px, 40);
 
   function draw() {
     raf = 0;
@@ -157,8 +158,8 @@ export function createSection(root) {
     const zstep = niceStep(s);
     for (let z = zstep; z < r.height; z += zstep) { const [, gy] = toS(0, z); ctx.beginPath(); ctx.moveTo(x0, gy + 0.5); ctx.lineTo(x1, gy + 0.5); ctx.stroke(); }
     ctx.globalAlpha = 1;
-    for (let u = 0; u <= L + 1e-6; u += step) text(`${fmt(u, step < 1 ? 1 : 0)}${u === 0 ? '' : ' m'}`, toS(u, 0)[0], yFloor + 16, { color: c.muted, align: 'center', size: 10.5 });
-    for (let z = 0; z <= r.height + 1e-6; z += zstep) text(`${fmt(z, zstep < 1 ? 1 : 0)} m`, x0 - 8, toS(0, z)[1], { color: c.muted, align: 'right', base: 'middle', size: 10.5 });
+    for (let u = 0; u <= L + 1e-6; u += step) text(u === 0 ? '0' : len(u, 0), toS(u, 0)[0], yFloor + 16, { color: c.muted, align: 'center', size: 10.5 });
+    for (let z = 0; z <= r.height + 1e-6; z += zstep) text(z === 0 ? '0' : len(z, 0), x0 - 8, toS(0, z)[1], { color: c.muted, align: 'right', base: 'middle', size: 10.5 });
     // walls, floor, roof
     ctx.strokeStyle = c.ink2; ctx.lineWidth = 1.5;
     ctx.strokeRect(x0, yTop, x1 - x0, yFloor - yTop);
@@ -175,7 +176,7 @@ export function createSection(root) {
     ctx.strokeStyle = c.accent; ctx.lineWidth = 4; ctx.beginPath(); ctx.moveTo(ax0, yFloor - 2); ctx.lineTo(ax1, yFloor - 2); ctx.stroke();
     ctx.lineWidth = 1.5; ctx.setLineDash([5, 4]); ctx.strokeStyle = c.ink; ctx.globalAlpha = 0.8;
     ctx.beginPath(); ctx.moveTo(ax0, eary); ctx.lineTo(ax1, eary); ctx.stroke(); ctx.setLineDash([]); ctx.globalAlpha = 1;
-    text(`Ear height ${fmt(a.ear_height, 1)} m`, ax1 - 4, eary - 6, { color: c.ink2, align: 'right', size: 10.5 });
+    text(`Ear height ${len(a.ear_height)}`, ax1 - 4, eary - 6, { color: c.ink2, align: 'right', size: 10.5 });
     // probe
     const pu = axis() === 'length' ? state.probe.y : state.probe.x;
     const [px] = toS(pu, 0);
@@ -246,7 +247,7 @@ export function createSection(root) {
     }
     if (pending && !data) text('Calculating the section…', (x0 + x1) / 2, (yTop + yFloor) / 2, { color: c.ink2, align: 'center', size: 13 });
     if (error) text(`No section: ${error}`, (x0 + x1) / 2, (yTop + yFloor) / 2, { color: cssVar('--critical'), align: 'center', size: 13 });
-    text(`Slice ${axis() === 'length' ? 'away from the stage' : 'across the room'} at ${fmt(at(), 1)} m ${axis() === 'length' ? 'across' : 'from the stage'} · through the probe`,
+    text(`Slice ${axis() === 'length' ? 'away from the stage' : 'across the room'} at ${len(at())} ${axis() === 'length' ? 'across' : 'from the stage'} · through the probe`,
       x0, yTop - 8, { color: c.ink2, size: 11 });
   }
   function schedule() { if (!raf) raf = requestAnimationFrame(draw); }
@@ -329,8 +330,8 @@ export function createSection(root) {
     const v = valueAt(u, z);
     if (t) {
       const s = state.project.speakers.find((q) => q.id === t.id);
-      hover = t.kind === 'aim' ? `${s.name}: tilt ${fmt(s.pitch, 0)}° · drag to tilt` : `${s.name}: ${fmt(along(s), 1)} m, ${fmt(s.z, 1)} m high · drag to move`;
-    } else hover = v == null ? null : `${fmt(v, 1)} ${unit()} at ${fmt(u, 1)} m ${axis() === 'length' ? 'from the stage' : 'across'}, ${fmt(z, 1)} m high`;
+      hover = t.kind === 'aim' ? `${s.name}: tilt ${fmt(s.pitch, 0)}° · drag to tilt` : `${s.name}: ${len(along(s))}, ${len(s.z)} high · drag to move`;
+    } else hover = v == null ? null : `${fmt(v, 1)} ${unit()} at ${len(u)} ${axis() === 'length' ? 'from the stage' : 'across'}, ${len(z)} high`;
     tip.hidden = true;
     renderFoot();
   });

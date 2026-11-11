@@ -10,6 +10,7 @@ import { openDialog } from './dialog.js';
 import { api } from './api.js';
 import { matchOffset, parseResponse } from './measure.js';
 import { seriesColor } from './theme.js';
+import { area, dispStep, fromDisp, len, lenUnit, speed, toDisp, volume } from './units.js';
 
 const TABS = [['room', 'Room'], ['speakers', 'Speakers'], ['mics', 'Mics'], ['setup', 'Setup']];
 const ROLES = [['main', 'Main'], ['fill', 'Fill'], ['front_fill', 'Front fill'], ['delay', 'Delay'], ['sub', 'Subwoofer']];
@@ -32,7 +33,17 @@ export function createLeftPanel(root) {
   // ---------------------------------------------------------------- fields
   const show = (v, nd) => (v == null || Number.isNaN(v) ? '' : String(Number(v.toFixed(nd))));
 
-  function num(label, get, set, { min, max, step = 0.1, unit = '', nd = 2, wide = false, title = null, bare = false } = {}) {
+  function num(label, getM, setM, { min, max, step = 0.1, unit = '', nd = 2, wide = false, title = null, bare = false } = {}) {
+    let get = getM, set = setM;
+    if (unit === 'm') {
+      // Lengths: the model keeps metres; the field speaks the chosen unit.
+      get = () => toDisp(getM());
+      set = (v, o) => setM(v == null ? v : Math.round(fromDisp(v) * 10000) / 10000, o);
+      min = min == null ? min : toDisp(min);
+      max = max == null ? max : toDisp(max);
+      step = dispStep(step);
+      unit = lenUnit();
+    }
     // Plain text, not type=number: the browser would format decimals with the Windows locale ("4,6") while
     // every readout uses a point. Either separator is accepted when typing.
     const input = h('input', { type: 'text', value: show(get(), nd), class: 'num' + (bare ? ' bare' : ''), title,
@@ -175,7 +186,7 @@ export function createLeftPanel(root) {
           num('Starts, across', () => P().audience.x0, setIn(['audience', 'x0']), { min: 0, step: 0.5, unit: 'm' }),
           num('Ends, across', () => P().audience.x1, setIn(['audience', 'x1']), { min: 0, step: 0.5, unit: 'm' }),
           num('Ear height', () => P().audience.ear_height, setIn(['audience', 'ear_height']), { min: 0.3, max: 20, step: 0.1, unit: 'm',
-            title: '1.2 m seated, 1.7 m standing' })),
+            title: `${len(1.2)} seated, ${len(1.7)} standing` })),
         h('div', { class: 'slider-row', style: { marginTop: '10px' } }, h('span', { text: 'Seats filled' }), occ, occOut),
         h('p', { class: 'hint', text: 'People absorb sound. Soundcheck in an empty room, then set the expected crowd to see the show.' })),
       group('Air',
@@ -251,19 +262,19 @@ export function createLeftPanel(root) {
       // Free field: no room to reverberate, so reverb time, critical distance and room modes do not apply.
       clear(statsBox).append(
         cell('Reverberation', 'None (open air)', 'Nothing to reflect from except the ground, which the model includes'),
-        cell('Area', `${Math.round(room.width * room.length).toLocaleString()} m²`),
-        cell('Speed of sound', r ? `${fmt(r.speed_of_sound, 1)} m/s` : '–'),
-        cell('Air loss at 8 kHz', r && r.air_loss_8k_30m_db != null ? `${fmt(r.air_loss_8k_30m_db, 1)} dB / 30 m` : '–', 'Extra treble the air absorbs over 30 m: this is what limits long throws outdoors'),
+        cell('Area', area(room.width * room.length)),
+        cell('Speed of sound', r ? speed(r.speed_of_sound) : '–'),
+        cell('Air loss at 8 kHz', r && r.air_loss_8k_30m_db != null ? `${fmt(r.air_loss_8k_30m_db, 1)} dB / ${len(30, 0)}` : '–', `Extra treble the air absorbs over ${len(30, 0)}: this is what limits long throws outdoors`),
         h('p', { class: 'hint', style: { gridColumn: '1 / -1' }, text: 'Level falls 6 dB per doubling of distance, plus the air loss above. Wind and temperature gradients bend sound outdoors and are not modelled.' }));
       return;
     }
     clear(statsBox).append(
       cell('Reverb time (mid)', r ? `${fmt(r.rt60_mid, 2)} s` : '–', room.kind === 'stadium' ? 'Eyring, with the roof open: walls and stands still reflect' : 'Eyring, average of 500 Hz and 1 kHz'),
-      cell('Critical distance', r ? `${fmt(r.critical_distance_m[3], 1)} m` : '–', 'Where direct and reverberant sound are equal, for an omni source at 1 kHz'),
-      cell('Volume', r ? `${Math.round(r.volume_m3).toLocaleString()} m³` : '–'),
-      cell('Speed of sound', r ? `${fmt(r.speed_of_sound, 1)} m/s` : '–'),
+      cell('Critical distance', r ? len(r.critical_distance_m[3]) : '–', 'Where direct and reverberant sound are equal, for an omni source at 1 kHz'),
+      cell('Volume', r ? volume(r.volume_m3) : '–'),
+      cell('Speed of sound', r ? speed(r.speed_of_sound) : '–'),
       cell('Schroeder frequency', r ? `${Math.round(r.schroeder_hz)} Hz` : '–', 'Below this, room modes dominate'),
-      cell('Air loss at 8 kHz', r && r.air_loss_8k_30m_db != null ? `${fmt(r.air_loss_8k_30m_db, 1)} dB / 30 m` : '–', 'Extra treble the air absorbs over 30 m'));
+      cell('Air loss at 8 kHz', r && r.air_loss_8k_30m_db != null ? `${fmt(r.air_loss_8k_30m_db, 1)} dB / ${len(30, 0)}` : '–', `Extra treble the air absorbs over ${len(30, 0)}`));
     if (r) {
       const max = Math.max(...r.rt60_eyring, 0.1);
       statsBox.append(h('div', { class: 'rt-bands', attrs: { role: 'img', 'aria-label': 'Reverb time per octave band: ' + r.bands.map((b, i) => `${fmtHz(b)} ${fmt(r.rt60_eyring[i], 2)} s`).join(', ') } },
@@ -304,7 +315,7 @@ export function createLeftPanel(root) {
         return h('div', { class: 'row-item' + (sel ? ' selected' : ''), tabIndex: 0, attrs: { role: 'button', 'aria-pressed': String(sel) },
           onclick: () => select('mic', m.id), onkeydown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); select('mic', m.id); } } },
         h('span', { class: 'name', text: m.name }),
-        h('span', { class: 'meta', text: `${fmt(m.y, 1)} m from stage` }));
+        h('span', { class: 'meta', text: `${len(m.y)} from stage` }));
       }));
     }
   }
@@ -582,6 +593,9 @@ export function createLeftPanel(root) {
           (() => { const f = num('Search time', () => state.ui.budget, (v, o) => { if (o.commit) setUI({ budget: v }); }, { min: 3, max: 120, step: 1, unit: 's', nd: 0 }); return f; })(),
           num('Auto EQ bands, max', () => state.ui.eqBands, (v, o) => { if (o.commit) setUI({ eqBands: Math.round(v) }); }, { min: 1, max: 10, step: 1, nd: 0 })),
         h('button', { class: 'btn small', style: { marginTop: '8px' }, onclick: () => { setUI({ weights: { ...DEFAULT_WEIGHTS } }); render(); } }, 'Reset priorities')),
+      group('Units',
+        choice('Lengths and distances', [['metric', 'Metric (m)'], ['imperial', 'Imperial (ft)']], () => state.ui.units || 'metric', (v) => setUI({ units: v })),
+        h('p', { class: 'hint', text: 'Only what is shown changes. Venues are saved in metres, so a file opens the same either way.' })),
       group('Model detail',
         h('div', { class: 'grid2' },
           choice('Reflections', [['0', 'None (free field)'], ['1', '1st order'], ['2', '2nd order'], ['3', '3rd order (slower)'], ['4', '4th order (slow)']],
@@ -613,7 +627,7 @@ export function createLeftPanel(root) {
     else { sync(); renderList(); }
   });
   on('selection', render);
-  on('ui', () => { if (state.ui.tab !== lastTab) { lastTab = state.ui.tab; body.scrollTop = 0; render(); } else renderList(); });
+  on('ui', (patch) => { if (state.ui.tab !== lastTab || (patch && 'units' in patch)) { lastTab = state.ui.tab; body.scrollTop = 0; render(); } else renderList(); });
   on('sim', () => {
     renderStats();
     const units = JSON.stringify(state.sim?.units || []);

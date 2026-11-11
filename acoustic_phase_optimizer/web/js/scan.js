@@ -10,6 +10,7 @@ import { mutate, setUI } from './store.js';
 import { clamp, fmt, h, round, toast } from './util.js';
 import { cssVar } from './theme.js';
 import { openDialog } from './dialog.js';
+import { fromDisp, len, lenNum, lenUnit, toDisp } from './units.js';
 
 export const SCAN_EXTS = ['glb', 'obj', 'ply'];
 const MAX_BYTES = 300 * 1024 * 1024;
@@ -199,10 +200,10 @@ export async function importScan(file) {
   const status = h('p', { class: 'hint', attrs: { 'aria-live': 'polite' } });
   const dimInputs = {};
   const dimField = (key, label) => {
-    const input = h('input', { type: 'number', min: key === 'height' ? 1.6 : 1.1, max: 300, step: 0.1, attrs: { 'aria-label': label },
-      onchange: () => { choice.dims[key] = clamp(parseFloat(input.value) || choice.dims[key], 1.1, 300); draw(); } });
+    const input = h('input', { type: 'number', min: round(toDisp(key === 'height' ? 1.6 : 1.1), 1), max: round(toDisp(300)), step: 0.1, attrs: { 'aria-label': label },
+      onchange: () => { choice.dims[key] = clamp(fromDisp(parseFloat(input.value)) || choice.dims[key], 1.1, 300); draw(); } });
     dimInputs[key] = input;
-    return h('label', { class: 'field' }, h('span', { text: label }), h('span', { class: 'input-wrap' }, input, h('em', { text: 'm' })));
+    return h('label', { class: 'field' }, h('span', { text: label }), h('span', { class: 'input-wrap' }, input, h('em', { text: lenUnit() })));
   };
   const unitSel = h('select', { attrs: { 'aria-label': 'Scan units' }, onchange: () => { choice.unit = unitSel.value; refit(); } },
     UNITS.map(([v, t]) => h('option', { value: v, text: t })));
@@ -233,9 +234,9 @@ export async function importScan(file) {
   function useOption() {
     const opt = choice.fit.options[choice.side];
     choice.dims = { ...opt.room };
-    for (const k of ['length', 'width', 'height']) dimInputs[k].value = String(opt.room[k]);
+    for (const k of ['length', 'width', 'height']) dimInputs[k].value = String(round(toDisp(opt.room[k]), 2));
     const how = choice.fit.method === 'surfaces' ? 'from the wall surfaces' : 'from the outline of the points';
-    status.textContent = `Measured ${how}: ${fmt(opt.room.length, 1)} × ${fmt(opt.room.width, 1)} m, ${fmt(opt.room.height, 1)} m high. The stage is on the left.`;
+    status.textContent = `Measured ${how}: ${lenNum(opt.room.length)} × ${len(opt.room.width)}, ${len(opt.room.height)} high. The stage is on the left.`;
     draw();
   }
 
@@ -323,7 +324,7 @@ function applyScan(name, ext, id, choice) {
       yaw_deg: opt.yaw_deg, t: opt.t, visible: true, opacity: 1 };
   }, { structural: true, source: 'scan' });
   setUI({ view: '3d' });
-  toast(`Room set from the scan: ${fmt(d.length, 1)} × ${fmt(d.width, 1)} × ${fmt(d.height, 1)} m.`);
+  toast(`Room set from the scan: ${lenNum(d.length)} × ${lenNum(d.width)} × ${len(d.height)}.`);
 }
 
 /** Pick a file and import it. */

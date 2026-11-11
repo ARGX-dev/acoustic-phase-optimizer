@@ -9,6 +9,7 @@ import { clamp, clear, debounce, download, h, icon, toast } from './util.js';
 import { ask, currentDialog, openDialog } from './dialog.js';
 import { isDark, toggleTheme } from './theme.js';
 import { createStage } from './stage.js';
+import { nudge as nudgeStep, nudgeLabel } from './units.js';
 import { createStageBar } from './stagebar.js';
 import { createChart } from './chart.js';
 import { createLeftPanel } from './panels.js';
@@ -217,7 +218,7 @@ document.addEventListener('keydown', (e) => {
     if (state.selection.kind === 'speaker') removeSpeaker(state.selection.id); else removeMic(state.selection.id);
   } else if (e.key === 'Escape' && state.selection) select(null);
   else if (mod && k === 'd' && state.selection?.kind === 'speaker') { e.preventDefault(); duplicateSpeaker(state.selection.id); }
-  else if (!mod && e.key.startsWith('Arrow') && state.selection) { e.preventDefault(); nudge(e.key, e.shiftKey ? 1 : 0.1); }
+  else if (!mod && e.key.startsWith('Arrow') && state.selection) { e.preventDefault(); nudge(e.key, nudgeStep(e.shiftKey)); }
   else if (!mod && k === 'r' && state.selection?.kind === 'speaker') { e.preventDefault(); turn(e.shiftKey ? -5 : 5); }
   else if (!mod && k === 'm' && state.selection?.kind === 'speaker') {
     mutate((p) => { const s = p.speakers.find((x) => x.id === state.selection.id); if (s) s.mute = !s.mute; }, { structural: true });
@@ -236,7 +237,7 @@ function nudge(key, step) {
   // The plan draws distance-from-stage left to right and across-the-room top to bottom.
   const [dx, dy] = { ArrowRight: [0, step], ArrowLeft: [0, -step], ArrowDown: [step, 0], ArrowUp: [-step, 0] }[key];
   const live = { commit: false, interacting: true, source: 'keys' };
-  const fix = (v, hi) => Math.round(clamp(v, 0.1, hi - 0.1) * 10) / 10;
+  const fix = (v, hi) => Math.round(clamp(v, 0.1, hi - 0.1) * 1000) / 1000;
   if (sel.kind === 'speaker') {
     const s = speakerById(sel.id);
     if (s) editSpeaker(sel.id, { x: fix(s.x + dx, r.width), y: fix(s.y + dy, r.length) }, live);
@@ -265,14 +266,14 @@ function cycleSelection(e) {
 
 const SHORTCUTS = [
   ['Ctrl+Z / Ctrl+Y', 'Undo / redo'], ['Ctrl+S', 'Save the venue'], ['Ctrl+D', 'Duplicate the selected speaker'],
-  ['Delete', 'Delete the selection'], ['Arrow keys', 'Nudge 0.1 m (Shift: 1 m)'], ['R / Shift+R', 'Turn 5° right / left'],
+  ['Delete', 'Delete the selection'], ['Arrow keys', nudgeLabel], ['R / Shift+R', 'Turn 5° right / left'],
   ['M', 'Mute or unmute the selected speaker'], ['Tab / Shift+Tab', 'Select the next / previous speaker or mic'],
   ['Esc', 'Clear the selection'], ['1 / 2 / 3', 'Plan / 3D / section view'], ['Scroll, pinch', 'Zoom the plan'],
   ['Right-drag, Space-drag', 'Pan the plan'], ['0', 'Fit the plan to the room'], ['Drag a field label', 'Scrub a number (Shift faster, Alt finer)'],
   ['Drag in 3D', 'Move a speaker or mic; orbit on empty space'],
 ];
 function showShortcuts() {
-  openDialog({ title: 'Keyboard and mouse', body: h('dl', { class: 'shortcuts' }, SHORTCUTS.flatMap(([k, v]) => [h('dt', null, k.split(' / ').map((x, i) => [i ? ' / ' : '', h('kbd', { text: x })])), h('dd', { text: v })])),
+  openDialog({ title: 'Keyboard and mouse', body: h('dl', { class: 'shortcuts' }, SHORTCUTS.flatMap(([k, v]) => [h('dt', null, k.split(' / ').map((x, i) => [i ? ' / ' : '', h('kbd', { text: x })])), h('dd', { text: typeof v === 'function' ? v() : v })])),
     actions: [{ label: 'Close', kind: 'primary' }] });
 }
 
