@@ -88,9 +88,9 @@ export function speakerPicker({ onPick, current = null, autofocus = false, tall 
 }
 
 /** Choose a model in a dialog. */
-export function pickSpeakerType(current, onPick) {
+export function pickSpeakerType(current, onPick, { title = 'Loudspeaker model', footer = null } = {}) {
   const picker = speakerPicker({ current, autofocus: true, tall: true, onPick: (id) => { currentDialog()?.close(id); onPick(id); } });
-  const p = openDialog({ title: 'Loudspeaker model', body: picker, actions: [{ label: 'Cancel' }] });
+  const p = openDialog({ title, body: footer ? h('div', {}, picker, footer) : picker, actions: [{ label: 'Cancel' }] });
   picker.querySelector('input').focus();
   return p;
 }

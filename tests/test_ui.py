@@ -335,6 +335,7 @@ def test_speaker_library_search_add_and_change_model(ui):
     page = ui["page"]
     page.get_by_role("tab", name="Speakers").click()
     before = page.locator(".row-list .row-item").count()
+    page.get_by_role("button", name="Add a speaker…").click()
     search = page.get_by_role("combobox", name="Search loudspeakers")
     search.fill("ks28")
     items = page.locator(".picker-item")
@@ -412,6 +413,7 @@ def test_venue_type_materials_and_air(ui):
 def test_line_array_box_count_changes_level(ui):
     page = ui["page"]
     page.get_by_role("tab", name="Speakers").click()
+    page.get_by_role("button", name="Add a speaker…").click()
     page.get_by_role("combobox", name="Search loudspeakers").fill("kara")
     page.get_by_role("combobox", name="Search loudspeakers").press("Enter")
     page.wait_for_selector("input[aria-label='Boxes']")
@@ -529,7 +531,7 @@ def test_sub_array_builder(ui):
     page = ui["page"]
     page.get_by_role("tab", name="Speakers").click()
     n0 = page.locator(".row-list .row-item").count()
-    page.get_by_role("button", name="Build a sub array…").click()
+    page.get_by_role("button", name="Sub array…").click()
     page.wait_for_selector(".dialog .sub-sketch")
     page.get_by_role("radio", name="Cardioid").click()
     assert page.locator(".sub-sketch .box.inv").count() == 2  # two pairs, two inverted rear boxes
@@ -661,7 +663,7 @@ def test_strict_csp_blocks_nothing(ui, tmp_path):
     page.locator("#stage-toolbar .seg button", has_text="Section").click()
     page.wait_for_selector("#stage-foot .scale", timeout=20000)
     page.get_by_role("tab", name="Speakers").click()
-    page.get_by_role("button", name="Build a sub array…").click()
+    page.get_by_role("button", name="Sub array…").click()
     page.wait_for_selector(".dialog .sub-sketch")
     page.keyboard.press("Escape")
     page.locator("#stage-toolbar .seg button", has_text="3D").click()

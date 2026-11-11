@@ -440,3 +440,6 @@ kbd { font: 600 11px/1 var(--font); padding: 3px 6px; border-radius: 4px; border
 .meas-row .swatch { width: 10px; height: 10px; border-radius: 2px; }
 .meas-row .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .meas-row input.num { width: 70px; }
+
+.add-row { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
+.add-row .btn { justify-content: center; }

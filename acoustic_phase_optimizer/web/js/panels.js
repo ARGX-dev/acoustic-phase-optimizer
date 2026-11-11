@@ -5,7 +5,7 @@ import {
   hangFields, loadSpeakerLibrary, removeMic, removeSpeaker, select, setUI, speakerById, speakerType, state, typeFields,
 } from './store.js';
 import { clamp, clear, fmt, fmtHz, h, icon, toast, uid } from './util.js';
-import { pickSpeakerType, speakerPicker } from './picker.js';
+import { pickSpeakerType } from './picker.js';
 import { openDialog } from './dialog.js';
 import { api } from './api.js';
 import { matchOffset, parseResponse } from './measure.js';
@@ -451,19 +451,23 @@ export function createLeftPanel(root) {
   }
 
   function speakersTab() {
-    const pick = speakerPicker({ onPick: (id) => addSpeaker(id) });
+    const libCount = state.meta.speaker_types.filter((t) => t.spec && !t.spec.user).length;
+    const mine = state.meta.speaker_types.filter((t) => t.spec?.user).length;
+    const openAdd = () => pickSpeakerType(null, (id) => addSpeaker(id), { title: 'Add a speaker',
+      footer: h('p', { class: 'hint', style: { marginTop: '10px' }, text: `${libCount} checked library models, ${mine} of your own, plus generic types. Enter adds the highlighted one.` }) });
+    const pick = h('div', { class: 'add-row' },
+      h('button', { class: 'btn primary', onclick: openAdd, title: 'Search the loudspeaker library' }, icon('plus'), 'Add a speaker…'),
+      h('button', { class: 'btn', onclick: () => import('./subarray.js').then((m) => m.openSubArrayBuilder()), title: 'Cardioid, end-fire or arc-delayed sub arrays' }, 'Sub array…'));
     listBox = h('div', { class: 'row-list' });
     renderList();
     const sel = state.selection?.kind === 'speaker' ? speakerById(state.selection.id) : null;
     return [
       group('Add a speaker', pick,
         h('div', { class: 'lib-actions' },
-          h('span', { class: 'hint', text: `${state.meta.speaker_types.filter((t) => t.spec && !t.spec.user).length} library models · ${state.meta.speaker_types.filter((t) => t.spec?.user).length} of yours` }),
+          h('span', { class: 'hint', text: `${libCount} library models · ${mine} of yours` }),
           h('span', { style: { flex: 1 } }),
           h('a', { class: 'btn small ghost', href: '/api/speakers/template.csv', download: 'speakers-template.csv', title: 'A CSV with the columns the import expects' }, 'Template'),
-          h('button', { class: 'btn small', onclick: importSpeakers, title: 'Add your own loudspeakers from a CSV or JSON file' }, 'Import list…')),
-        h('button', { class: 'btn small wide-btn', onclick: () => import('./subarray.js').then((m) => m.openSubArrayBuilder()),
-          title: 'Cardioid, end-fire or arc-delayed sub arrays' }, icon('plus'), 'Build a sub array…')),
+          h('button', { class: 'btn small', onclick: importSpeakers, title: 'Add your own loudspeakers from a CSV or JSON file' }, 'Import list…'))),
       group(`Speakers (${P().speakers.length})`, listBox),
       sel ? speakerEditor(sel) : (P().speakers.length ? h('p', { class: 'hint', text: 'Select a speaker here or on the plan to edit it.' }) : null),
     ];
