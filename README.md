@@ -19,28 +19,44 @@ python -m acoustic_phase_optimizer            # opens in its own window (Edge or
 python -m acoustic_phase_optimizer --browser  # or in your normal browser
 ```
 
-Everything runs on your own computer. The window talks to a small local engine on `127.0.0.1`; nothing goes online.
+Everything runs on your own computer. The window talks to a small local engine on `127.0.0.1`; nothing goes
+online. The engine refuses requests from other web sites and other host names, and the page runs under a
+strict Content-Security-Policy.
 
 ## What you can do
 
-- **Model the venue.** Room size, a material for each surface, the audience area, temperature and humidity.
-  Four example venues (gymnasium, theatre, house of worship, conference room) or an empty room.
+- **Model the venue.** An indoor room, a stadium (open roof) or open air. Room size, a material for each
+  surface (or your own, with absorption per octave), how full the seats are, temperature, humidity, and
+  pressure or altitude. Six example venues (gymnasium, theatre, house of worship, conference room, festival
+  field, stadium) or an empty room. The Room tab shows reverb time per octave, critical distance, Schroeder
+  frequency and air loss; for open air it shows free-field facts instead.
 - **Import a 3D scan.** GLB, OBJ or PLY from a LiDAR app (Polycam, Scaniverse, 3d Scanner App) or a laser
   scanner. The app measures the room from it (floor, ceiling, wall direction), you pick the stage wall and
   confirm the size, and the scan is shown in the 3D view. The sound prediction still uses the fitted box,
   not the scanned shape. Draco/meshopt-compressed GLBs and USDZ are not supported yet.
-- **Place speakers on the plan.** Drag to move, drag the handle to aim. Mains, fills, front fills, delays and
-  subs. Left/right pairs are linked so they stay matched.
-- **Choose real loudspeakers.** A searchable library of 24 models from QSC, JBL, Yamaha, Electro-Voice, RCF,
-  L-Acoustics, d&b audiotechnik, Meyer Sound and Bose, plus eight generic types or your own figures.
-  Coverage, max SPL and low-frequency limit come from the manufacturer datasheets (each entry links to its
-  source). Pattern-control frequency, the high-pass corner and line-array hangs (8 boxes) are estimated
-  by fixed rules, and the app says so. Entries marked *approx.* have a figure that could not be confirmed.
-- **Look at it in 3D.** Orbit the room with the coverage map at ear height, speakers, aim and mics, or switch
-  to the plan, which zooms (scroll) and pans (right-drag).
-- **See the result live.** Maps of direct level (all frequencies or one octave), total level, clarity,
-  summation and cancellation, and arrival-time spread. Click anywhere for the magnitude, phase and arrivals
-  at that seat, or add measurement-mic positions.
+- **Place speakers on the plan, in the section or in 3D.** Drag to move, drag the handle to aim. Mains,
+  fills, front fills, delays and subs. Left/right pairs are linked so they stay matched. Arrow keys nudge,
+  R turns, Ctrl+D duplicates, M mutes; drag a field's label to scrub its value; press `?` for every shortcut.
+- **Choose real loudspeakers.** A searchable library of 47 models from QSC, JBL, Yamaha, Electro-Voice, RCF,
+  L-Acoustics, d&b audiotechnik, Meyer Sound and Bose, plus generic types. Coverage, max SPL and
+  low-frequency limit come from the manufacturer datasheets (each entry links to its source); figures that
+  could not be confirmed are marked *approx.* Pattern-control frequency and the high-pass corner are
+  estimated by fixed rules, and the app says so. Line-array hangs take a box count and splay.
+  There is no open, checked dataset of thousands of PA loudspeakers, so the library grows by hand; add your
+  own models with **Import list…** (CSV or JSON; download the template from the Speakers tab) or
+  **Save as my model**.
+- **Build sub arrays.** Cardioid (gradient pairs), end-fire, or a line with arc delay. The builder shows each
+  box's delay and polarity, the optimizer treats the array as one unit, and the exported settings include
+  the pattern offsets.
+- **Three views.** The plan (scroll or pinch to zoom, right-drag or Space-drag to pan); a section, a vertical
+  slice of level through the probe along or across the room, where you drag speakers in height and tilt them
+  by their aim handle; and 3D, where you orbit the room and drag speakers and mics across the floor.
+- **See the result live.** Maps of direct level (all frequencies or one octave, Z, A or C weighted), total
+  level, clarity, speech intelligibility (an STI estimate), summation and cancellation, and arrival-time
+  spread. Click anywhere for the magnitude, phase and arrivals at that seat, or add measurement-mic positions.
+- **Compare with a measurement.** Import a REW "Export measurement as text", a Smaart ASCII export or any
+  CSV of frequency, level and phase. It is drawn dashed over the prediction, smoothed the same way, with its
+  level matched to the prediction.
 - **Optimize.**
   - *Quick align* (under a second): time-aligns fills and delays to the mains, matches their levels, and
     sets sub delay and polarity.
@@ -71,8 +87,18 @@ This aligns a saved project without the window. It writes `venue.optimized.apo.j
   the statistical reverberant tail add as energy.
 - The score (0 to 100) combines coverage evenness, clarity, timing, summation and tonal balance across the
   audience.
+- STI is estimated from the early and late energy and the reverberation time per octave (IEC 60268-16
+  weights). It leaves out background noise, and treats late arrivals from delay speakers as useful sound, so
+  read it as an upper bound.
 
-It is a prediction from an idealised room and generic loudspeakers. Use it to plan and to get close, then
+Limits worth knowing:
+
+- The room is a box. An imported scan sets its size and is shown in 3D; it does not change the acoustics.
+- A line-array hang is one source with the hang's combined coverage and level. Its boxes are drawn in the
+  section for reference, not computed one by one.
+- Outdoors, wind and temperature gradients are not modelled.
+
+It is a prediction from an idealised room and datasheet loudspeakers. Use it to plan and to get close, then
 confirm delays and EQ with a measurement on site.
 
 ## Development
@@ -89,7 +115,7 @@ ruff check acoustic_phase_optimizer tests
 | `acoustic_phase_optimizer/server/` | FastAPI app, background optimization jobs, project storage |
 | `acoustic_phase_optimizer/web/` | The interface: plain HTML, CSS and ES modules, no build step |
 | `acoustic_phase_optimizer/export.py`, `report.py` | Settings sheets and the HTML report |
-| `tests/` | Engine and API tests |
+| `tests/` | Engine, API and browser (Playwright) tests |
 
 Version 1 (the PyQt desktop app with hardware measurement) is preserved at the git tag `v1-pyqt-final`.
 
