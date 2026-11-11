@@ -266,3 +266,52 @@ def test_outdoor_venue_has_no_reverb(api):
     project["room"]["kind"] = "outdoor"
     outdoor = api("POST", "/api/simulate", {"project": project, "preview": True})["room"]["rt60_mid"]
     assert outdoor < 0.3 * indoor
+
+
+def _req(port, method, path, headers, body=b"{}"):
+    req = urllib.request.Request(f"http://127.0.0.1:{port}{path}", data=body if method != "GET" else None,
+                                 method=method, headers={"Content-Type": "application/json", **headers})
+    try:
+        with urllib.request.urlopen(req, timeout=30) as r:
+            return r.status, dict(r.headers)
+    except urllib.error.HTTPError as e:
+        return e.code, dict(e.headers)
+
+
+def test_other_sites_cannot_drive_the_engine(api):
+    p = api.port
+    assert _req(p, "POST", "/api/bye", {"Origin": "https://evil.example"})[0] == 403
+    assert _req(p, "POST", "/api/speakers/import", {"Origin": "http://localhost:1"})[0] == 403
+    assert _req(p, "POST", "/api/bye", {"Origin": "null"})[0] == 403
+    assert _req(p, "POST", "/api/bye", {"Sec-Fetch-Site": "cross-site"})[0] == 403
+    assert _req(p, "GET", "/api/meta", {"Host": f"rebind.example:{p}"})[0] == 403
+    assert _req(p, "POST", "/api/ping", {"Origin": f"http://127.0.0.1:{p}"})[0] == 200
+
+
+def test_security_headers_and_csp_hash_matches_importmap(api):
+    import base64
+    import hashlib
+    import re
+
+    status, headers, html = api("GET", "/", raw=True)
+    headers = {k.title(): v for k, v in headers.items()}
+    assert status == 200
+    assert headers["X-Content-Type-Options"] == "nosniff"
+    csp = headers["Content-Security-Policy"]
+    assert "unsafe-inline'" not in csp.split("script-src", 1)[1].split(";")[0]
+    inline = re.findall(r"<script(?: type=\"importmap\")?>(.*?)</script>", html, flags=re.S)
+    assert len(inline) == 1
+    # browsers hash the script text after the HTML parser has turned CRLF into LF
+    text = inline[0].replace(chr(13) + chr(10), chr(10)).replace(chr(13), chr(10))
+    digest = base64.b64encode(hashlib.sha256(text.encode()).digest()).decode()
+    assert f"'sha256-{digest}'" in csp
+
+
+def test_import_over_the_cap_is_refused(api):
+    # The server stops reading at the cap, so the client sees either the 413 or the connection being closed.
+    try:
+        status, _ = _req(api.port, "POST", "/api/speakers/import", {"Content-Type": "text/csv"}, body=b"a" * 5_100_000)
+    except (ConnectionResetError, ConnectionAbortedError, urllib.error.URLError):
+        status = 413
+    assert status == 413
+    assert "library" in api("GET", "/api/speakers")  # engine still answering

@@ -86,12 +86,16 @@ SCAN_TYPES = {"glb": "model/gltf-binary", "obj": "text/plain", "ply": "applicati
 MAX_SCAN_BYTES = 300 * 1024 * 1024
 
 
+def scans_dir() -> Path:
+    folder = data_dir() / "scans"
+    folder.mkdir(exist_ok=True)
+    return folder
+
+
 def _scan_path(scan_id: str, ext: str) -> Path:
     if not re.fullmatch(r"[0-9a-f]{16,64}", scan_id) or ext not in SCAN_TYPES:
         raise ValueError("bad scan reference")
-    folder = data_dir() / "scans"
-    folder.mkdir(exist_ok=True)
-    return folder / f"{scan_id}.{ext}"
+    return scans_dir() / f"{scan_id}.{ext}"
 
 
 def save_scan(data: bytes, ext: str) -> dict:
@@ -102,6 +106,14 @@ def save_scan(data: bytes, ext: str) -> dict:
     if not path.exists():
         _write_bytes(path, data)
     return {"id": scan_id, "ext": ext, "bytes": len(data)}
+
+
+def adopt_scan(tmp: Path, scan_id: str, ext: str, size: int) -> dict:
+    """Keep an uploaded scan (already streamed to `tmp`) under its content hash."""
+    path = _scan_path(scan_id, ext)
+    if not path.exists():
+        os.replace(tmp, path)
+    return {"id": scan_id, "ext": ext, "bytes": size}
 
 
 def scan_file(scan_id: str, ext: str) -> Path:

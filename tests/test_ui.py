@@ -55,9 +55,11 @@ def ui(tmp_path_factory):
         pw.stop()
         server.should_exit = True
         pytest.skip("no browser Playwright can drive")
-    ctx = browser.new_context(viewport={"width": 1560, "height": 960}, accept_downloads=True)
+    # The app runs under a strict CSP; Playwright's own wait_for_function needs eval, so the main test
+    # context bypasses it. test_strict_csp_blocks_nothing loads the app with the policy enforced.
+    ctx = browser.new_context(viewport={"width": 1560, "height": 960}, accept_downloads=True, bypass_csp=True)
     page = ctx.new_page()
-    state = {"errors": [], "dialogs": [], "page": page, "ctx": ctx, "url": f"http://127.0.0.1:{port}/"}
+    state = {"errors": [], "dialogs": [], "page": page, "ctx": ctx, "url": f"http://127.0.0.1:{port}/", "browser": browser}
     page.on("console", lambda m: state["errors"].append(f"{m.type}: {m.text}") if m.type in ("error", "warning") else None)
     page.on("pageerror", lambda e: state["errors"].append(f"pageerror: {e}"))
 
@@ -465,3 +467,20 @@ def test_delete_saved_and_discard_prompt(ui):
 
 def test_no_console_errors(ui):
     assert not ui["errors"], ui["errors"]
+
+
+def test_strict_csp_blocks_nothing(ui):
+    ctx = ui["browser"].new_context(viewport={"width": 1560, "height": 960})
+    page = ctx.new_page()
+    errors = []
+    page.on("console", lambda m: errors.append(m.text) if m.type == "error" else None)
+    page.on("pageerror", lambda e: errors.append(str(e)))
+    page.add_init_script("window.__csp = []; document.addEventListener('securitypolicyviolation', e => window.__csp.push(e.violatedDirective + ' ' + e.blockedURI));")
+    page.goto(ui["url"])
+    page.wait_for_selector(".score .num", timeout=30000)
+    page.locator("#stage-toolbar .seg button", has_text="3D").click()
+    page.wait_for_selector(".view3d canvas", timeout=15000)
+    time.sleep(1.5)
+    violations = page.evaluate("window.__csp")
+    ctx.close()
+    assert violations == [] and errors == [], (violations, errors)

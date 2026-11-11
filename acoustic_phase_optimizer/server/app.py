@@ -125,15 +125,68 @@ class Presence:
             return now - self.last_seen > timeout_s
 
 
+LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1", "testserver"}
+
+
+def content_security_policy() -> str:
+    """Only this app's own files run. The import map is the one inline script; it is allowed by its hash."""
+    import base64
+    import hashlib
+    import re as _re
+
+    html = (WEB_DIR / "index.html").read_text(encoding="utf-8")
+    hashes = [
+        "'sha256-" + base64.b64encode(hashlib.sha256(m.encode("utf-8")).digest()).decode() + "'"
+        for m in _re.findall(r"<script type=\"importmap\">(.*?)</script>", html, flags=_re.S)
+    ]
+    return "; ".join([
+        "default-src 'self'",
+        "script-src 'self' " + " ".join(hashes),
+        "style-src 'self' 'unsafe-inline'",  # element.style from the UI code
+        "img-src 'self' data: blob:",
+        "connect-src 'self'",
+        "worker-src 'self' blob:",
+        "object-src 'none'",
+        "base-uri 'none'",
+        "form-action 'none'",
+        "frame-ancestors 'none'",
+    ])
+
+
 def create_app() -> FastAPI:
     app = FastAPI(title="Acoustic Phase Optimizer", version=__version__, docs_url="/api/docs", redoc_url=None)
     jobs = JobManager()
     app.state.presence = presence = Presence()
 
+    csp = content_security_policy()
+
     @app.middleware("http")
-    async def no_cache(request: Request, call_next):
+    async def guard(request: Request, call_next):
+        """The engine is for this computer's browser only.
+
+        - Host must be a loopback name, which defeats DNS-rebinding pages that point a domain at 127.0.0.1.
+        - A request that changes anything must not come from another site: a web page you visit can send
+          POSTs to localhost, so Origin (when the browser sends one) must be this app, and fetch metadata
+          must not say cross-site.
+        """
+        host = (request.headers.get("host") or "").rsplit(":", 1)[0].strip("[]").lower()
+        if host not in LOOPBACK_HOSTS:
+            return JSONResponse(status_code=403, content={"detail": "This engine only answers on 127.0.0.1."})
+        if request.method not in ("GET", "HEAD", "OPTIONS"):
+            origin = request.headers.get("origin")
+            if origin and origin != "null":
+                o_host = origin.split("://", 1)[-1].rsplit(":", 1)[0].strip("[]").lower()
+                if o_host not in LOOPBACK_HOSTS or origin.split("://", 1)[-1] != request.headers.get("host"):
+                    return JSONResponse(status_code=403, content={"detail": "Requests from other sites are refused."})
+            elif origin == "null" or request.headers.get("sec-fetch-site") == "cross-site":
+                return JSONResponse(status_code=403, content={"detail": "Requests from other sites are refused."})
         response = await call_next(request)
         response.headers.setdefault("Cache-Control", "no-cache")
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["Referrer-Policy"] = "no-referrer"
+        if not request.url.path.startswith("/api/docs"):
+            response.headers["Content-Security-Policy"] = csp
+            response.headers["X-Frame-Options"] = "DENY"
         return response
 
     @app.exception_handler(Exception)
@@ -294,9 +347,12 @@ def create_app() -> FastAPI:
         import io
         import re as _re
 
-        text = (await request.body()).decode("utf-8-sig", errors="replace")
-        if len(text) > 5_000_000:
-            raise HTTPException(413, "The file is larger than 5 MB.")
+        buf = bytearray()
+        async for chunk in request.stream():
+            buf += chunk
+            if len(buf) > 5_000_000:
+                raise HTTPException(413, "The file is larger than 5 MB.")
+        text = bytes(buf).decode("utf-8-sig", errors="replace")
         try:
             raw = json.loads(text) if text.lstrip().startswith(("[", "{")) else list(csv.DictReader(io.StringIO(text)))
         except ValueError as exc:
@@ -342,14 +398,24 @@ def create_app() -> FastAPI:
         size = int(request.headers.get("content-length") or 0)
         if size > storage.MAX_SCAN_BYTES:
             raise HTTPException(413, f"The scan is {size / 1e6:.0f} MB; the limit is {storage.MAX_SCAN_BYTES // 1_000_000} MB.")
-        data = bytearray()
-        async for chunk in request.stream():
-            data += chunk
-            if len(data) > storage.MAX_SCAN_BYTES:
-                raise HTTPException(413, f"The scan is larger than {storage.MAX_SCAN_BYTES // 1_000_000} MB.")
-        if len(data) < 64:
-            raise HTTPException(422, "The file is empty.")
-        return storage.save_scan(bytes(data), ext)
+        import hashlib
+        import tempfile
+
+        digest, total = hashlib.sha256(), 0
+        tmp = tempfile.NamedTemporaryFile(delete=False, dir=storage.scans_dir(), suffix=".part")
+        try:
+            with tmp:
+                async for chunk in request.stream():
+                    total += len(chunk)
+                    if total > storage.MAX_SCAN_BYTES:
+                        raise HTTPException(413, f"The scan is larger than {storage.MAX_SCAN_BYTES // 1_000_000} MB.")
+                    digest.update(chunk)
+                    tmp.write(chunk)
+            if total < 64:
+                raise HTTPException(422, "The file is empty.")
+            return storage.adopt_scan(Path(tmp.name), digest.hexdigest()[:32], ext, total)
+        finally:
+            Path(tmp.name).unlink(missing_ok=True)
 
     @app.get("/api/scans/{scan_id}.{ext}")
     def api_scan_file(scan_id: str, ext: str) -> FileResponse:
