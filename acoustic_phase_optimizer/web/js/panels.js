@@ -620,14 +620,17 @@ export function createLeftPanel(root) {
     body.scrollTop = scroll;
   }
 
-  let lastTab = null;
+  let lastTab = null, lastDisp = null;
   let lastUnits = '';
   on('project', (d) => {
     if (d.structural && !(d.source === 'panel' && document.activeElement && body.contains(document.activeElement) && document.activeElement.tagName === 'INPUT' && document.activeElement.type !== 'checkbox')) render();
     else { sync(); renderList(); }
   });
   on('selection', render);
-  on('ui', (patch) => { if (state.ui.tab !== lastTab || (patch && 'units' in patch)) { lastTab = state.ui.tab; body.scrollTop = 0; render(); } else renderList(); });
+  on('ui', () => {
+    // Fields capture their unit when built, so a change of units (including a restored session) rebuilds them.
+    if (state.ui.tab !== lastTab || state.ui.units !== lastDisp) { if (state.ui.tab !== lastTab) body.scrollTop = 0; lastTab = state.ui.tab; lastDisp = state.ui.units; render(); } else renderList();
+  });
   on('sim', () => {
     renderStats();
     const units = JSON.stringify(state.sim?.units || []);
@@ -635,6 +638,7 @@ export function createLeftPanel(root) {
   });
   on('theme', render);
   lastTab = state.ui.tab;
+  lastDisp = state.ui.units;
   render();
   return { render };
 }

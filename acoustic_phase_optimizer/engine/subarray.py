@@ -28,6 +28,11 @@ def _ms(metres: float, c: float) -> float:
     return round(metres / c * 1000.0, 3)
 
 
+
+def _both(m: float) -> str:
+    """A length for a message read in either unit system."""
+    return f"{m:.1f} m ({m / 0.3048:.1f} ft)"
+
 def build(project: Project, kind: Kind, model: str, count: int, spacing: float, x: float, y: float,
           depth: float = 1.0, spread_deg: float = 0.0, height: float = 0.4) -> list[Speaker]:
     """New speakers for one sub array. `x`, `y` place the array centre (front row for cardioid/end-fire)."""
@@ -44,11 +49,11 @@ def build(project: Project, kind: Kind, model: str, count: int, spacing: float, 
         # rather than moved (a moved box would keep a delay for a spacing that is no longer there).
         if not 0.1 - 1e-6 <= by <= room.length - 0.1 + 1e-6:
             need = 0.1 - by if by < 0.1 else by - (room.length - 0.1)
-            raise ValueError(f"{name} would be {abs(need):.1f} m outside the room front-to-back. "
+            raise ValueError(f"{name} would be {_both(abs(need))} outside the room front-to-back. "
                              f"Move the array {'further from' if by < 0.1 else 'closer to'} the stage or use fewer boxes.")
         if not 0.1 - 1e-6 <= bx <= room.width - 0.1 + 1e-6:
             raise ValueError(f"{name} would be outside the room across. Use a smaller spacing or fewer boxes "
-                             f"(this array is {(count - 1) * spacing:.1f} m wide; the room is {room.width:.1f} m).")
+                             f"(this array is {_both((count - 1) * spacing)} wide; the room is {_both(room.width)}).")
         s = make_speaker(model, name, round(bx, 2), round(by, 2), height, yaw=0, pitch=0, role="sub")
         s.array_group, s.array_delay_ms, s.array_invert, s.color = group, round(delay, 3), invert, base_color
         return s

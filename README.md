@@ -54,6 +54,8 @@ strict Content-Security-Policy.
 - **See the result live.** Maps of direct level (all frequencies or one octave, Z, A or C weighted), total
   level, clarity, speech intelligibility (an STI estimate), summation and cancellation, and arrival-time
   spread. Click anywhere for the magnitude, phase and arrivals at that seat, or add measurement-mic positions.
+- **Metric or imperial.** Choose metres or feet in the Setup tab; every field, axis and readout follows.
+  Venue files are always saved in metres.
 - **Compare with a measurement.** Import a REW "Export measurement as text", a Smaart ASCII export or any
   CSV of frequency, level and phase. It is drawn dashed over the prediction, smoothed the same way, with its
   level matched to the prediction.

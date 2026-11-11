@@ -60,7 +60,7 @@ def fit_box(points, normals=None, lo_pct: float = 1.0, hi_pct: float = 99.0) -> 
     ceiling = float(np.percentile(p[:, 2], hi_pct))
     height = ceiling - floor
     if height < 1.5:
-        raise ValueError(f"The scan is only {height:.1f} m tall. Check the units and which way is up.")
+        raise ValueError(f"The scan is only {height:.1f} m ({height / 0.3048:.1f} ft) tall. Check the units and which way is up.")
 
     # walls: the middle of the height band, away from floor clutter and ceiling fixtures
     band = (p[:, 2] > floor + 0.15 * height) & (p[:, 2] < ceiling - 0.1 * height)

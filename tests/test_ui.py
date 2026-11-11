@@ -623,6 +623,36 @@ def test_imperial_units(ui):
     page.wait_for_selector(".plan-tip:not([hidden])")
     assert " ft " in page.locator(".plan-tip").inner_text()
     shot(page, "25-imperial")
+    # the choice survives a reload (it is restored with the session, after the panel is first built)
+    time.sleep(1.5)  # autosave
+    page.reload()
+    page.wait_for_selector(".row-list, .field")
+    page.get_by_role("tab", name="Room").click()
+    page.wait_for_function("document.querySelector('[aria-label=Width]').parentElement.textContent.includes('ft')", timeout=20000)
+    assert abs(float(page.get_by_role("spinbutton", name="Width").input_value()) - 60) < 0.05
+    # section: the hover readout
+    page.locator("#stage-toolbar .seg button", has_text="Section").click()
+    page.wait_for_selector(".section-view canvas")
+    page.wait_for_function("document.querySelector('#stage-foot .scale') !== null", timeout=20000)
+    time.sleep(1.0)
+    box = page.locator(".section-view canvas").bounding_box()
+    page.mouse.move(box["x"] + box["width"] * 0.6, box["y"] + box["height"] * 0.55)
+    page.wait_for_function("/ ft /.test(document.querySelector('#stage-foot').textContent)", timeout=10000)
+    shot(page, "26-imperial-section")
+    # 3D: the hover tooltip
+    page.locator("#stage-toolbar .seg button", has_text="3D").click()
+    page.wait_for_selector(".view3d canvas", timeout=15000)
+    page.locator(".view-buttons button", has_text="Top").click()
+    time.sleep(1.5)
+    box = page.locator(".view3d canvas").bounding_box()
+    page.mouse.move(box["x"] + box["width"] * 0.5, box["y"] + box["height"] * 0.5)
+    page.mouse.move(box["x"] + box["width"] * 0.52, box["y"] + box["height"] * 0.5)
+    page.wait_for_selector(".view3d .tip:not([hidden])", timeout=10000)
+    assert " ft " in page.locator(".view3d .tip").inner_text()
+    txt = page.locator("#app").inner_text()
+    for bad in ("null", "undefined", "NaN"):
+        assert bad not in txt, bad
+    page.locator("#stage-toolbar .seg button", has_text="Plan").click()
     page.get_by_role("tab", name="Setup").click()
     page.locator("select[aria-label='Lengths and distances']").select_option("metric")
     page.get_by_role("tab", name="Room").click()
@@ -701,7 +731,7 @@ def test_strict_csp_blocks_nothing(ui, tmp_path):
         page.locator("button", has_text=re.compile(r"^(Import a 3D scan…|Replace…)$")).first.click()
     fc.value.set_files(str(textured_glb(tmp_path / "textured.glb")))
     # The texture loads (no CSP violation); a flat test quad is then rightly refused as a room.
-    page.wait_for_selector(".dialog :text('m tall')", timeout=20000)
+    page.wait_for_selector(".dialog :text('ft) tall')", timeout=20000)
     violations = page.evaluate("window.__csp")
     ctx.close()
     errors = [e for e in errors if "status of 422" not in e]
