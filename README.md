@@ -40,9 +40,20 @@ strict Content-Security-Policy.
   (unpacked MVR or glTF)…**. The app measures the room from it (floor, ceiling, wall direction), you pick the stage wall
   and confirm the size, and the model is shown in the 3D view. The sound prediction still uses the fitted
   box, not the modelled shape.
-  Not readable: closed formats (DWG, Vectorworks .vwx, Revit, DWF, Cinema 4D), formats that need a full CAD
-  kernel (IFC, STEP, IGES, SAT), DXF, and Draco/meshopt-compressed GLBs. The app says which export
-  to use instead.
+  CAD drawings are read too: DXF (the app's own reader), IFC (web-ifc), STEP, IGES and BREP (OpenCascade,
+  in WebAssembly), and DWG when ODA File Converter or LibreDWG is installed. Draco- and meshopt-compressed
+  GLBs and KTX2 textures work. Not readable: Vectorworks .vwx, Revit, DWF, Cinema 4D and SAT; the app says
+  which export to use instead.
+- **Broken models are repaired on import.** Faces wound the wrong way, small holes, duplicated and broken
+  faces and unjoined seams are fixed before the room is measured. Doorways and other large openings are
+  left open. The import dialog lists what was fixed, and **Use the repaired model** switches back to the
+  file exactly as it is. The file itself is never changed; the choice is saved with the venue.
+- **Share a whole venue as one .trky file.** **Export > Project archive** packs the venue and its scan into
+  a lossless .trky archive (the TRKY format, which shrinks audio and text well and checks every file with
+  SHA-256 when it is unpacked). **Open > Open a .trky archive** brings it back on any computer. Other .trky
+  archives list the models, measurements and speaker lists inside so you can pick one.
+- **Drop files anywhere on the window.** A .trky, a scan or model (or a folder holding an unpacked MVR or a
+  glTF), a saved project (.apo.json) or a measurement export each go where their own button would take them.
 - **Place speakers on the plan, in the section or in 3D.** Drag to move, drag the handle to aim. Mains,
   fills, front fills, delays and subs. Left/right pairs are linked so they stay matched. Arrow keys nudge,
   R turns, Ctrl+D duplicates, M mutes; drag a field's label to scrub its value; press `?` for every shortcut.
@@ -127,8 +138,9 @@ confirm delays and EQ with a measurement on site.
 
 ```bash
 pip install -e ".[dev]"
-pytest
-ruff check acoustic_phase_optimizer tests
+pytest                    # the browser tests need: playwright install chromium
+node --test tests/js      # mesh repair and .trky (Node 18 or newer)
+ruff check acoustic_phase_optimizer tests tools
 ```
 
 | Path | What lives there |
@@ -137,7 +149,9 @@ ruff check acoustic_phase_optimizer tests
 | `acoustic_phase_optimizer/server/` | FastAPI app, background optimization jobs, project storage |
 | `acoustic_phase_optimizer/web/` | The interface: plain HTML, CSS and ES modules, no build step |
 | `acoustic_phase_optimizer/export.py`, `report.py` | Settings sheets and the HTML report |
-| `tests/` | Engine, API and browser (Playwright) tests |
+| `acoustic_phase_optimizer/web/vendor/` | Third-party code, unchanged unless noted (see `THIRD_PARTY.md`, `sha256.txt`) |
+| `tests/` | Engine, API and browser (Playwright) tests; `tests/js/` holds the Node tests |
+| `tools/vendor_trky.py` | Copies the TRKY code out of the converter page, or `--check`s the vendored copy |
 
 Version 1 (the PyQt desktop app with hardware measurement) is preserved at the git tag `v1-pyqt-final`.
 

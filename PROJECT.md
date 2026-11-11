@@ -32,12 +32,26 @@ acoustic_phase_optimizer/
     js/panels.js   venue editor (left)
     js/results.js  score, optimize, findings (right)
     js/app.js      top bar, start-up, shortcuts
+    js/scan.js     scan and model import, room fitting, the 3D scan in the view
+    js/formats.js  glTF/USD/CAD readers and converters (dxf.js, mvr.js, occt-worker.js beside it)
+    js/meshfix.js  mesh repair (pure, typed arrays; meshfix-worker.js for big meshes,
+                   meshfix-three.js applies it to a three.js model and can switch it off again)
+    js/trky.js     .trky archives: open (project bundle or any archive) and save; trky-worker.js
+                   runs the vendored coders (web/vendor/trky)
+    js/drop.js     drag and drop onto the window
+    vendor/        three.js, web-ifc, occt-import-js, TRKY (see THIRD_PARTY.md)
   export.py   DSP settings as CSV / TXT / JSON
   report.py   self-contained printable HTML report
   __main__.py launcher (app window via Edge/Chrome --app, or --browser) and the `optimize` CLI
 ```
 
 ## Conventions
+
+- A project bundle (.trky) holds `apo-manifest.json` (`kind: "apo-project"`, schema version, the scan's
+  path), `project.apo.json` and the scan's original bytes under `scan/<id>.<ext>`. Opening one validates the
+  project with `POST /api/projects/check` and stores the scan again (its id is the content hash).
+- Mesh repair never moves or deletes vertices; it only rewrites the triangle list, and it is deterministic,
+  so a saved venue re-applies it on load (`ScanRef.repair`).
 
 - Coordinates: x across the room, y away from the stage wall, z up. On the plan the stage is on the left.
 - Yaw 0 faces the audience; pitch is negative downward.
@@ -48,5 +62,5 @@ acoustic_phase_optimizer/
 ## Not carried over from v1
 
 Live measurement with an audio interface (sweeps, impulse response, RT60), the live FFT monitor, direct
-control of the dbx VENU360 / Dante devices, LIDAR import and the weather lookup. v2 is prediction and
+control of the dbx VENU360 / Dante devices and the weather lookup. (LiDAR scans came back: see js/scan.js.) v2 is prediction and
 settings export only. These could come back as separate modules on top of the engine.

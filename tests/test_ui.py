@@ -56,6 +56,8 @@ def ui(tmp_path_factory):
     if browser is None:
         pw.stop()
         server.should_exit = True
+        if os.environ.get("APO_UI_REQUIRED"):  # CI's browser job: a missing browser is a failure, not a skip
+            pytest.fail("no browser Playwright can drive")
         pytest.skip("no browser Playwright can drive")
     # The app runs under a strict CSP; Playwright's own wait_for_function needs eval, so the main test
     # context bypasses it. test_strict_csp_blocks_nothing loads the app with the policy enforced.
@@ -886,6 +888,8 @@ def make_trky(out: Path, files: dict[str, Path]) -> Path:
 
     node = shutil.which("node")
     if not node:
+        if os.environ.get("APO_UI_REQUIRED"):
+            pytest.fail("Node.js is needed to build a .trky for this test")
         pytest.skip("Node.js is needed to build a .trky for this test")
     script = Path(__file__).parent / "fixtures" / "make_trky.cjs"
     subprocess.run([node, str(script), str(out), *(f"{k}={v}" for k, v in files.items())], check=True, timeout=120)
