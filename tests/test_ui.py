@@ -1177,3 +1177,87 @@ def test_compressed_glb_draco_meshopt_ktx2(ui):
         if name == "room_ktx2.glb":
             assert got["tex"] and got["tex"][0] == 128, got  # the Basis texture was transcoded
     assert page.evaluate("window.__csp") == []
+
+
+def test_dxf_reader_matches_ezdxf(ui):
+    """Every entity kind on its own layer; bounds from ezdxf (see fixtures/make_dxf_fixtures.py)."""
+    import json
+
+    expected = json.loads((FIXTURES / "dxf_expected.json").read_text())
+    got = ui["page"].evaluate("""async (text) => {
+        const THREE = await import('three');
+        const g = (await import('/js/dxf.js')).parseDxf(text);
+        const out = {};
+        for (const c of g.children) { const b = new THREE.Box3().setFromObject(c); out[c.name] = [b.min.toArray(), b.max.toArray()]; }
+        return { layers: out, info: g.userData.dxf };
+    }""", (FIXTURES / "venue3d.dxf").read_text())
+    for layer, (lo, hi) in expected.items():
+        size = max(b - a for a, b in zip(lo, hi))
+        tol = 1 + 0.004 * size  # arcs are drawn as 7.5-degree chords
+        assert layer in got["layers"], layer
+        glo, ghi = got["layers"][layer]
+        assert glo == pytest.approx(lo, abs=tol) and ghi == pytest.approx(hi, abs=tol), (layer, got["layers"][layer], [lo, hi])
+    info = got["info"]
+    assert info["metersPerUnit"] == 0.001 and info["acis"] == 1 and info["inserts"] == (1 + 3) + (1 + 6 * 3) and not info["flat"]
+
+
+def test_import_dxf(ui):
+    page = ui["page"]
+    page.get_by_role("tab", name="Room").click()
+    if page.get_by_role("button", name="Remove scan").count():
+        page.get_by_role("button", name="Remove scan").click()
+    pick = re.compile("^(Import a 3D scan…|Replace…)$")
+    # a 3D drawing in millimetres: converted, sized, stored as GLB
+    with page.expect_file_chooser() as fc:
+        page.get_by_role("button", name=pick).first.click()
+    fc.value.set_files(str(FIXTURES / "venue3d.dxf"))
+    dims, height = _dialog_dims(page)
+    assert dims == pytest.approx([12.0, 20.0], abs=0.4) and height == pytest.approx(5.0, abs=0.2)
+    assert page.locator(".dialog [aria-label='Scan units']").input_value() == "0.001"
+    assert page.locator(".toast", has_text="1 ACIS solid left out").count()
+    page.locator(".dialog .btn.primary").click()
+    page.wait_for_selector(".dialog", state="detached", timeout=20000)
+    page.get_by_role("tab", name="Room").click()
+    assert page.evaluate("import('/js/store.js').then((m) => m.state.project.scan.ext)") == "glb"
+    page.get_by_role("button", name="Remove scan").click()
+    page.locator("#stage-toolbar .seg button", has_text="Plan").click()
+
+    # a flat plan: raised into walls of the height asked for
+    with page.expect_file_chooser() as fc:
+        page.get_by_role("button", name=pick).first.click()
+    fc.value.set_files(str(FIXTURES / "plan2d.dxf"))
+    page.wait_for_selector(".dialog :text('Raise the plan into walls')", timeout=20000)
+    assert page.locator(".dialog [aria-label='Drawing units']").input_value() == "1"
+    page.locator(".dialog [aria-label='Wall height']").fill("26.25" if page.locator(".dialog .input-wrap em").first.inner_text() == "ft" else "8")
+    page.locator(".dialog .btn.primary", has_text="Raise walls").click()
+    dims, height = _dialog_dims(page)
+    assert dims == pytest.approx([18.0, 30.0], abs=0.5) and height == pytest.approx(8.0, abs=0.3)
+    page.locator(".dialog .btn", has_text="Cancel").click()
+    page.wait_for_selector(".dialog", state="detached", timeout=10000)
+
+    # nothing but ACIS: said so
+    with page.expect_file_chooser() as fc:
+        page.get_by_role("button", name=pick).first.click()
+    fc.value.set_files(str(FIXTURES / "acis_only.dxf"))
+    page.locator(".toast.error", has_text="ACIS").wait_for(timeout=10000)
+
+
+def test_import_dwg_through_converter(ui, tmp_path, monkeypatch):
+    import json
+    import sys
+
+    monkeypatch.setenv("APO_DWG_CONVERTER", json.dumps([sys.executable, str(FIXTURES / "fake_dwg2dxf.py")]))
+    monkeypatch.setenv("APO_DWG_CONVERTER_KIND", "libredwg")
+    dwg = tmp_path / "hall.dwg"
+    dwg.write_bytes(b"AC1032" + b"\0" * 200)
+    page = ui["page"]
+    page.get_by_role("tab", name="Room").click()
+    if page.get_by_role("button", name="Remove scan").count():
+        page.get_by_role("button", name="Remove scan").click()
+    with page.expect_file_chooser() as fc:
+        page.get_by_role("button", name=re.compile("^(Import a 3D scan…|Replace…)$")).first.click()
+    fc.value.set_files(str(dwg))
+    dims, height = _dialog_dims(page)
+    assert dims == pytest.approx([12.0, 20.0], abs=0.4) and height == pytest.approx(5.0, abs=0.2)
+    page.locator(".dialog .btn", has_text="Cancel").click()
+    page.wait_for_selector(".dialog", state="detached", timeout=10000)

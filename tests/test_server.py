@@ -358,3 +358,39 @@ def test_speaker_template_imports_cleanly(api):
     assert mine["my_line_10"]["array_box_h"] == 0.29
     for i in ("my_top_12", "my_line_10"):
         api("DELETE", f"/api/speakers/user/{i}")
+
+
+def test_dwg_goes_through_a_local_converter(api, tmp_path, monkeypatch):
+    import sys
+
+    def post(data, headers=None):
+        req = urllib.request.Request(f"http://127.0.0.1:{api.port}/api/convert/dwg", data=data, method="POST",
+                                     headers={"Content-Type": "application/octet-stream", **(headers or {})})
+        try:
+            with urllib.request.urlopen(req, timeout=60) as r:
+                return r.status, r.read()
+        except urllib.error.HTTPError as e:
+            return e.code, e.read()
+
+    # nothing installed: a clear 501 naming what to install
+    monkeypatch.delenv("APO_DWG_CONVERTER", raising=False)
+    monkeypatch.setenv("PATH", str(tmp_path))
+    monkeypatch.setenv("ProgramFiles", str(tmp_path))
+    monkeypatch.setenv("ProgramFiles(x86)", str(tmp_path))
+    assert api("GET", "/api/convert/dwg") == {"available": False, "kind": None}
+    status, body = post(b"AC1032" + b"\0" * 100)
+    assert status == 501 and b"ODA File Converter" in body
+
+    # a converter called exactly as dwg2dxf is: -y -o OUT IN
+    stub = pathlib.Path(__file__).parent / "fixtures" / "fake_dwg2dxf.py"
+    monkeypatch.setenv("APO_DWG_CONVERTER", json.dumps([sys.executable, str(stub)]))
+    monkeypatch.setenv("APO_DWG_CONVERTER_KIND", "libredwg")
+    assert api("GET", "/api/convert/dwg")["available"] is True
+    status, body = post(b"AC1032" + b"\0" * 100)
+    assert status == 200 and b"SECTION" in body and b"3DSOLID" in body
+    status, body = post(b"PK not a drawing")
+    assert status == 422 and b"not a DWG" in body
+    status, body = post(b"AC1032 BROKEN")
+    assert status == 422 and b"ERROR 0x800" in body
+    status, _ = post(b"AC1032" + b"\0" * 100, {"Origin": "http://evil.example"})
+    assert status == 403

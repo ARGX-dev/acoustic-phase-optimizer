@@ -11,15 +11,15 @@ import { cssVar } from './theme.js';
 import { openDialog } from './dialog.js';
 import { fromDisp, len, lenNum, lenUnit, toDisp } from './units.js';
 
-export const SCAN_EXTS = ['glb', 'obj', 'ply', 'mvr', '3ds', 'dae', 'fbx', 'stl', 'usdz', 'usd', 'usda', 'usdc'];
+export const SCAN_EXTS = ['glb', 'obj', 'ply', 'mvr', '3ds', 'dae', 'fbx', 'stl', 'usdz', 'usd', 'usda', 'usdc', 'dxf', 'dwg'];
+// CAD formats converted once into a GLB on import (formats.js), so they are stored and reloaded as GLB.
+const CONVERT = new Set(['dxf', 'dwg']);
 // Chosen alongside a .gltf (which is packed into a GLB before import), never imported on their own.
 const GLTF_PARTS = ['gltf', 'bin', 'png', 'jpg', 'jpeg', 'webp'];
 const USD = new Set(['usdz', 'usd', 'usda', 'usdc']);
 // Native up axis of each format, as the import's first guess (the dialog lets you change it).
 const Z_UP = new Set(['mvr', '3ds', 'stl']);
 const NOT_READABLE = {
-  dwg: 'DWG is a closed format. From Vectorworks or AutoCAD, export MVR, 3DS, FBX, COLLADA (DAE), OBJ or STL instead.',
-  dxf: 'DXF cannot be read yet. Export MVR, 3DS, FBX, COLLADA (DAE), OBJ or STL instead.',
   vwx: 'Vectorworks files are a closed format. Use File > Export > Export MVR (or 3DS, FBX, COLLADA, OBJ, STL).',
   rvt: 'Revit files are a closed format. Export FBX or OBJ from Revit instead.',
   ifc: 'IFC cannot be read yet. Export MVR, 3DS, FBX, COLLADA (DAE), OBJ or STL instead.',
@@ -40,7 +40,7 @@ const plain = (geo) => {
   return new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: 0xb9b6ae, roughness: 0.9, side: THREE.DoubleSide }));
 };
 const MAX_BYTES = 300 * 1024 * 1024;
-const UNITS = [['1', 'metres'], ['0.01', 'centimetres'], ['0.001', 'millimetres'], ['0.3048', 'feet'], ['0.0254', 'inches']];
+const UNITS = [['1', 'metres'], ['0.1', 'decimetres'], ['0.01', 'centimetres'], ['0.001', 'millimetres'], ['0.3048', 'feet'], ['0.0254', 'inches'], ['0.9144', 'yards']];
 const SIDES = ['-y', '+x', '+y', '-x'];
 
 // ------------------------------------------------------------------ loading
@@ -111,6 +111,7 @@ export function samplePoints(root, max = 40000) {
     const pos = o.geometry?.attributes?.position;
     if (!pos) return;
     if (o.isPoints) { clouds.push({ pos, matrix: o.matrixWorld }); return; }
+    if (o.isLineSegments) { clouds.push({ pos: alongLines(pos), matrix: o.matrixWorld }); return; } // a wireframe drawing
     if (!o.isMesh) return;
     const index = o.geometry.index;
     const n = index ? index.count / 3 : pos.count / 3;
@@ -158,6 +159,46 @@ export function samplePoints(root, max = 40000) {
     pts.set([a.x, a.y, a.z], 3 * k);
   }
   return { points: pts, normals: null, box };
+}
+
+/** Points spread along line segments (a wireframe has no surfaces to sample). */
+function alongLines(pos) {
+  const out = [];
+  const a = new THREE.Vector3(), b = new THREE.Vector3();
+  let total = 0;
+  for (let i = 0; i + 1 < pos.count; i += 2) total += a.fromBufferAttribute(pos, i).distanceTo(b.fromBufferAttribute(pos, i + 1));
+  const step = total / 20000 || 1;
+  for (let i = 0; i + 1 < pos.count; i += 2) {
+    a.fromBufferAttribute(pos, i); b.fromBufferAttribute(pos, i + 1);
+    const n = Math.max(1, Math.round(a.distanceTo(b) / step));
+    for (let k = 0; k <= n; k++) { const t = k / n; out.push(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, a.z + (b.z - a.z) * t); }
+  }
+  return new THREE.Float32BufferAttribute(out, 3);
+}
+
+/** A flat 2D plan has no height: ask how tall to raise its lines. Resolves {height (m), metersPerUnit} or null. */
+async function askHeight({ name, metersPerUnit, size }) {
+  const span = Math.max(size.x, size.y);
+  const guess = metersPerUnit || (span > 1500 ? 0.001 : span > 150 ? 0.01 : 1);
+  const unitSel = h('select', { attrs: { 'aria-label': 'Drawing units' } }, UNITS.map(([v, t]) => h('option', { value: v, text: t })));
+  unitSel.value = String(UNITS.find(([v]) => Math.abs(Number(v) - guess) < 1e-9)?.[0] || '1');
+  const input = h('input', { type: 'text', class: 'num', value: String(round(toDisp(8), 1)), attrs: { 'aria-label': 'Wall height', inputmode: 'decimal', autofocus: '' } });
+  const extent = h('p', { class: 'hint' });
+  const showExtent = () => { const u = Number(unitSel.value); extent.textContent = `In these units the plan measures ${lenNum(size.x * u)} × ${len(size.y * u)}.`; };
+  unitSel.onchange = showExtent;
+  showExtent();
+  const r = await openDialog({
+    title: 'Raise the plan into walls',
+    body: h('div', {},
+      h('p', { text: `${name} is a flat 2D drawing. Its lines can be raised into walls so the room can be measured.` }),
+      h('label', { class: 'field' }, h('span', { text: 'Drawing units' }), unitSel),
+      h('label', { class: 'field' }, h('span', { text: 'Wall height' }), h('span', { class: 'input-wrap' }, input, h('em', { text: lenUnit() }))),
+      extent),
+    actions: [{ label: 'Cancel' }, { label: 'Raise walls', kind: 'primary' }],
+  });
+  const height = fromDisp(parseFloat(input.value.replace(',', '.')));
+  if (r !== 'Raise walls' || !(height > 0.5)) return null;
+  return { height: Math.min(height, 300), metersPerUnit: Number(unitSel.value) };
 }
 
 /** Native file coordinates -> z-up metres. glTF and most OBJ files are y-up. */
@@ -230,7 +271,7 @@ export async function importFiles(files) {
   if (main) return importScan(main);
 }
 
-export async function importScan(file) {
+export async function importScan(file, hints = {}) {
   const ext = extOf(file);
   if (!SCAN_EXTS.includes(ext)) {
     toast(NOT_READABLE[ext] || (GLTF_PARTS.includes(ext) ? 'Choose the .gltf file together with its .bin and texture files.'
@@ -238,6 +279,18 @@ export async function importScan(file) {
     return;
   }
   if (file.size > MAX_BYTES) { toast(`That scan is ${Math.round(file.size / 1e6)} MB; the limit is 300 MB. Export it at a lower detail level.`, { error: true }); return; }
+  if (CONVERT.has(ext)) {
+    const working = toast(`Converting ${file.name}…`, { ms: 600000 });
+    let res;
+    try { res = await (await import('./formats.js')).convertModel(file, ext, { askHeight }); } catch (e) {
+      working.remove();
+      toast(friendly(e), { error: true });
+      return;
+    } finally { working.remove(); }
+    if (!res) return;
+    if (res.note) toast(res.note, { ms: 8000 });
+    return importScan(res.file, res.hints);
+  }
   const busy = toast(`Reading ${file.name}…`, { ms: 60000 });
   let raw, buffer, obj;
   try {
@@ -263,8 +316,8 @@ export async function importScan(file) {
   const fbxUnit = ext === 'fbx' ? Number(obj?.userData?.unitScaleFactor) / 100 : NaN;
   const known = UNITS.find(([v]) => Math.abs(Number(v) - fbxUnit) < 1e-6);
   const choice = {
-    up: Z_UP.has(ext) || (ext === 'ply' && size.z < size.y) ? 'z' : 'y',
-    unit: ext === 'mvr' || ext === 'dae' ? '1' : known ? known[0] : span > 1500 ? '0.001' : span > 150 ? '0.01' : '1',
+    up: hints.up || (Z_UP.has(ext) || (ext === 'ply' && size.z < size.y) ? 'z' : 'y'),
+    unit: hints.unit || (ext === 'mvr' || ext === 'dae' ? '1' : known ? known[0] : span > 1500 ? '0.001' : span > 150 ? '0.01' : '1'),
     side: null, fit: null, dims: null, error: null,
   };
 

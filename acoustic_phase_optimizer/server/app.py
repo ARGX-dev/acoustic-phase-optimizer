@@ -449,6 +449,36 @@ def create_app() -> FastAPI:
         return Response(out.getvalue(), media_type="text/csv",
                         headers={"Content-Disposition": 'attachment; filename="speakers-template.csv"'})
 
+    # ------------------------------------------------------------------------ DWG
+    @app.get("/api/convert/dwg")
+    def api_dwg_status() -> dict:
+        from . import dwg
+
+        found = dwg.find_converter()
+        return {"available": bool(found), "kind": found[1] if found else None}
+
+    @app.post("/api/convert/dwg")
+    async def api_dwg_convert(request: Request) -> Response:
+        """DWG in, ASCII DXF out, through a converter installed on this computer (see server/dwg.py)."""
+        import asyncio
+
+        from . import dwg
+
+        buf = bytearray()
+        async for chunk in request.stream():
+            buf += chunk
+            if len(buf) > storage.MAX_SCAN_BYTES:
+                raise HTTPException(413, f"The drawing is larger than {storage.MAX_SCAN_BYTES // 1_000_000} MB.")
+        try:
+            dxf = await asyncio.to_thread(dwg.convert, bytes(buf))
+        except dwg.NoConverter:
+            raise HTTPException(501, "DWG needs a converter on this computer: install the free ODA File Converter "
+                                     "(opendesign.com/guestfiles/oda_file_converter) or LibreDWG, then import again. "
+                                     "Or save the drawing as DXF.") from None
+        except dwg.ConvertFailed as exc:
+            raise HTTPException(422, f"The DWG could not be converted: {exc}.") from None
+        return Response(dxf, media_type="text/plain; charset=utf-8")
+
     # ------------------------------------------------------------------------ scans
     @app.post("/api/scans")
     async def api_scan_upload(request: Request, ext: str) -> dict:

@@ -213,3 +213,78 @@ export async function parseGltf(data, manager) {
     return root;
   } finally { cleanup.forEach((f) => f()); }
 }
+
+// ------------------------------------------------------------------ converted models
+// CAD formats (DXF, DWG, IFC, STEP, IGES, Rhino) are converted once, on import, into a GLB in the model's own
+// units: storing that means a reload never converts (or asks) again. The import dialog gets the unit as a hint.
+
+const KNOWN_UNITS = [1, 0.1, 0.01, 0.001, 0.3048, 0.0254, 0.9144];
+
+/** The closest unit the dialog offers, as its option value. */
+export function unitOption(metersPerUnit) {
+  if (!(metersPerUnit > 0)) return null;
+  const best = KNOWN_UNITS.reduce((a, b) => (Math.abs(Math.log(b / metersPerUnit)) < Math.abs(Math.log(a / metersPerUnit)) ? b : a));
+  return Math.abs(Math.log(best / metersPerUnit)) < 0.01 ? String(best) : null;
+}
+
+/** A Z-up group (in its own units) as a Y-up GLB file. */
+export async function toGlbFile(group, name) {
+  const { GLTFExporter } = await import('three/addons/exporters/GLTFExporter.js');
+  const holder = new THREE.Group();
+  holder.rotation.x = -Math.PI / 2; // Z up -> Y up, as glTF expects
+  holder.add(group);
+  holder.updateMatrixWorld(true);
+  const data = await new Promise((resolve, reject) => new GLTFExporter().parse(holder, resolve, reject, { binary: true, onlyVisible: false }));
+  return new File([data], name.replace(/\.[^.]+$/, '') + '.glb', { type: 'model/gltf-binary' });
+}
+
+const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+
+async function convertDxf(text, name, ui) {
+  const { parseDxf, extrudePlan } = await import('./dxf.js');
+  const group = parseDxf(text);
+  const d = group.userData.dxf;
+  if (!d.hasTris && !d.lines) {
+    throw new Error(d.acis
+      ? `the drawing holds ${plural(d.acis, 'ACIS solid', 'ACIS solids')} (3DSOLID, BODY, REGION or SURFACE) and nothing else. ACIS needs a commercial modeller to read; export the model as 3D faces or a mesh (in AutoCAD: CONVTOMESH, then save as DXF), or as STEP, IFC, FBX or OBJ instead`
+      : 'the drawing has no geometry in model space');
+  }
+  let mpu = d.metersPerUnit;
+  const flat = d.flat;
+  if (flat) {
+    const answer = await ui.askHeight({ name, metersPerUnit: mpu, size: new THREE.Box3().setFromObject(group).getSize(new THREE.Vector3()) });
+    if (!answer) return null;
+    mpu = answer.metersPerUnit;
+    extrudePlan(group, answer.height / mpu);
+  }
+  const parts = [];
+  if (d.faces) parts.push(plural(d.faces, 'surface', 'surfaces'));
+  if (d.lines) parts.push(plural(d.lines, 'line', 'lines'));
+  if (d.inserts) parts.push(plural(d.inserts, 'block insert', 'block inserts'));
+  let note = `${name}: ${parts.join(', ')}`;
+  if (flat) note += '; walls raised from the plan';
+  if (d.acis) note += `; ${plural(d.acis, 'ACIS solid', 'ACIS solids')} left out (they need a commercial modeller to read)`;
+  return { file: await toGlbFile(group, name), hints: { unit: unitOption(mpu), up: 'y' }, note: note + '.' };
+}
+
+/**
+ * Convert a CAD file into a GLB to import.
+ * @param {File} file
+ * @param {string} ext
+ * @param {{askHeight: (info: object) => Promise<{height: number, metersPerUnit: number}|null>}} ui
+ * @returns {Promise<{file: File, hints: {unit: string|null, up: string}, note: string}|null>} null if cancelled
+ */
+export async function convertModel(file, ext, ui) {
+  if (ext === 'dxf') return convertDxf(await file.text(), file.name, ui);
+  if (ext === 'dwg') {
+    // DWG is closed; the local server converts it with ODA File Converter or LibreDWG if one is installed
+    const res = await fetch('/api/convert/dwg', { method: 'POST', body: file, headers: { 'Content-Type': 'application/octet-stream' } });
+    if (!res.ok) {
+      let msg = `the converter answered ${res.status}`;
+      try { msg = (await res.json()).detail || msg; } catch { /* not JSON */ }
+      throw new Error(msg.replace(/\.$/, ''));
+    }
+    return convertDxf(await res.text(), file.name, ui);
+  }
+  throw new Error(`.${ext} cannot be converted`);
+}
