@@ -215,6 +215,8 @@ export function createLeftPanel(root) {
     if (!sc) {
       return group('3D scan',
         h('button', { class: 'btn block', onclick: pick }, icon('cube'), 'Import a 3D scan…'),
+        h('button', { class: 'btn small ghost', style: { marginTop: '6px' }, title: 'For an .mvr that was unzipped into a folder of .glb, .gdtf and GeneralSceneDescription.xml files',
+          onclick: () => import('./scan.js').then((m) => m.chooseMvrFolder()) }, 'Import an unpacked MVR folder…'),
         h('p', { class: 'hint', text: 'A scan (GLB, OBJ or PLY from Polycam, Scaniverse, 3d Scanner App or a laser scanner) or a venue model (MVR, 3DS, FBX, COLLADA or STL, e.g. from Vectorworks: File > Export). The room size is measured from it.' }));
     }
     const setScan = (k) => (v, o) => mutate((p) => { if (p.scan) p.scan[k] = v; }, o);

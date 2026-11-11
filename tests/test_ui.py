@@ -368,16 +368,21 @@ def test_import_mvr_venue(ui, tmp_path):
         const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
         const THREE = await import('three');
         const g = await (await import('/js/mvr.js')).parseMvr(bytes.buffer);
+        const hb = new THREE.Box3().setFromObject(g.children[0].children[0]);
+        const hall = [...hb.min.toArray(), ...hb.max.toArray()].map((v) => +v.toFixed(3));
         const sizes = [];
         g.children[0].children.forEach((o) => { const b = new THREE.Box3().setFromObject(o); const s = b.getSize(new THREE.Vector3()); sizes.push([s.x, s.y, s.z].map((v) => +v.toFixed(2))); });
         let bad = null;
         try { await (await import('/js/mvr.js')).parseMvr(new Uint8Array(300).buffer); } catch (e) { bad = e.message; }
-        return { mvr: g.userData.mvr, sizes, bad };
+        return { mvr: g.userData.mvr, sizes, bad, hall };
     }""", base64.b64encode(path.read_bytes()).decode())
     assert info["mvr"]["instances"] == 3 and info["mvr"]["fixtures"] == 1 and info["mvr"]["missing"] == []
     props = sorted(info["sizes"])[:2]
     assert all(sorted(p_)[1:] == pytest.approx([4.0, 6.0], abs=0.01) for p_ in props), info  # a 4 x 6 m glTF quad stays 4 x 6 m
     assert "not an MVR file" in info["bad"]
+    # Hall corners: x' = x cos30 - y sin30 + 2 + 1 (group), y' = x sin30 + y cos30 + 3. A transposed rotation or
+    # the parent applied inside the child's frame would both move these.
+    assert info["hall"] == pytest.approx([-7.0, 3.0, 0.0, 3 + 12 * 0.8660254, 3 + 6 + 20 * 0.8660254, 5.0], abs=0.02), info["hall"]
     # and through the import dialog: the room is measured from the 3DS hall
     page.get_by_role("tab", name="Room").click()
     with page.expect_file_chooser() as fc:
@@ -389,6 +394,36 @@ def test_import_mvr_venue(ui, tmp_path):
     assert dims == pytest.approx([12.0, 20.0], abs=0.4)
     assert float(page.locator(".dialog [aria-label='Height']").input_value()) == pytest.approx(5.0, abs=0.2)
     shot(page, "27-mvr-dialog")
+    page.locator(".dialog .btn.primary").click()
+    page.wait_for_selector(".dialog", state="detached", timeout=20000)
+    page.wait_for_selector(".view3d canvas", timeout=15000)
+    page.get_by_role("tab", name="Room").click()
+    assert page.locator(".scan-card .name").inner_text() == "venue"
+    page.locator("body").click(position={"x": 700, "y": 20})
+    page.keyboard.press("Control+z")
+    page.wait_for_function("!document.querySelector('.scan-card')", timeout=5000)
+    page.keyboard.press("Control+y")
+    page.wait_for_selector(".scan-card", timeout=5000)
+    time.sleep(1.5)  # autosave
+    page.reload()
+    page.wait_for_selector(".view3d canvas", timeout=20000)
+    time.sleep(2.5)  # the stored .mvr is fetched and parsed again
+    shot(page, "28-mvr-3d-after-reload")
+    page.get_by_role("tab", name="Room").click()
+    assert page.locator(".scan-card .name").inner_text() == "venue"
+    page.get_by_role("button", name="Remove scan").click()
+    page.locator("#stage-toolbar .seg button", has_text="Plan").click()
+    # an .mvr that Windows unpacked into a folder
+    import zipfile
+    folder = tmp_path / "unpacked venue.mvr"
+    zipfile.ZipFile(path).extractall(folder)
+    with page.expect_file_chooser() as fc:
+        page.get_by_role("button", name="Import an unpacked MVR folder…").click()
+    fc.value.set_files(str(folder))
+    page.wait_for_selector(".dialog .scan-preview", timeout=20000)
+    page.wait_for_function("document.querySelector('.dialog [aria-label=\"Stage to back\"]').value !== ''", timeout=20000)
+    dims = sorted(float(page.locator(f".dialog [aria-label='{k}']").input_value()) for k in ("Stage to back", "Width"))
+    assert dims == pytest.approx([12.0, 20.0], abs=0.4)
     page.locator(".dialog .btn", has_text="Cancel").click()
     page.wait_for_selector(".dialog", state="detached", timeout=10000)
 
@@ -409,15 +444,52 @@ def test_stl_and_collada_readers(ui):
 </mesh></geometry></library_geometries>
 <library_visual_scenes><visual_scene id="s"><node id="n"><instance_geometry url="#g"/></node></visual_scene></library_visual_scenes>
 <scene><instance_visual_scene url="#s"/></scene></COLLADA>"""
-    sizes = ui["page"].evaluate("""async ([stl, dae]) => {
+    fbx = """; FBX 7.3.0 project file
+FBXHeaderExtension:  {
+	FBXHeaderVersion: 1003
+	FBXVersion: 7300
+}
+GlobalSettings:  {
+	Version: 1000
+	Properties70:  {
+		P: "UnitScaleFactor", "double", "Number", "",100
+	}
+}
+Objects:  {
+	Geometry: 1000, "Geometry::tri", "Mesh" {
+		Vertices: *9 {
+			a: 0,0,0,3,0,0,0,4,0
+		}
+		PolygonVertexIndex: *3 {
+			a: 0,1,-3
+		}
+		GeometryVersion: 124
+	}
+	Model: 2000, "Model::tri", "Mesh" {
+		Version: 232
+		Properties70:  {
+		}
+	}
+}
+Connections:  {
+	C: "OO",1000,2000
+	C: "OO",2000,0
+}
+"""
+    sizes = ui["page"].evaluate("""async ([stl, dae, fbx, tds]) => {
         const THREE = await import('three');
         const { parseScan } = await import('/js/scan.js');
         const buf = (b64) => Uint8Array.from(atob(b64), (c) => c.charCodeAt(0)).buffer;
         const size = (o) => { o.updateMatrixWorld(true); const s = new THREE.Box3().setFromObject(o).getSize(new THREE.Vector3()); return [s.x, s.y, s.z].map((v) => +v.toFixed(3)); };
-        return [size(await parseScan(buf(stl), 'stl')), size(await parseScan(buf(dae), 'dae'))];
-    }""", [base64.b64encode(stl).decode(), base64.b64encode(dae.encode()).decode()])
+        const f = await parseScan(buf(fbx), 'fbx');
+        return [size(await parseScan(buf(stl), 'stl')), size(await parseScan(buf(dae), 'dae')), size(f), f.userData.unitScaleFactor,
+                size(await parseScan(buf(tds), '3ds'))];
+    }""", [base64.b64encode(stl).decode(), base64.b64encode(dae.encode()).decode(), base64.b64encode(fbx.encode()).decode(),
+           base64.b64encode(room_3ds()).decode()])
     assert sizes[0] == [3, 4, 0]  # STL as written (units chosen in the dialog)
     assert sizes[1] == pytest.approx([3, 0, 4], abs=0.01)  # COLLADA: centimetres to metres, Z up turned to Y up
+    assert sizes[2] == pytest.approx([3, 4, 0], abs=0.01) and sizes[3] == 100  # FBX: geometry, and its unit (cm per unit)
+    assert sorted(sizes[4]) == pytest.approx([5000, 12000, 20000], abs=1)  # a standalone 3DS, in its own units (mm here)
 
 
 def test_import_scan_sets_the_room(ui, tmp_path):
@@ -917,6 +989,16 @@ def test_strict_csp_blocks_nothing(ui, tmp_path):
     fc.value.set_files(str(textured_glb(tmp_path / "textured.glb")))
     # The texture loads (no CSP violation); a flat test quad is then rightly refused as a room.
     page.wait_for_selector(".dialog :text('ft) tall')", timeout=20000)
+    page.keyboard.press("Escape")
+    with page.expect_file_chooser() as fc:
+        page.locator("button", has_text=re.compile(r"^(Import a 3D scan…|Replace…)$")).first.click()
+    fc.value.set_files(str(venue_mvr(tmp_path / "venue.mvr", tmp_path)))
+    page.wait_for_selector(".dialog .scan-preview", timeout=20000)
+    for _ in range(100):  # no wait_for_function here: it evaluates a string, which this policy rightly blocks
+        if page.locator(".dialog [aria-label='Stage to back']").input_value():
+            break
+        time.sleep(0.2)
+    assert float(page.locator(".dialog [aria-label='Height']").input_value()) == pytest.approx(5.0, abs=0.2)
     violations = page.evaluate("window.__csp")
     ctx.close()
     errors = [e for e in errors if "status of 422" not in e]

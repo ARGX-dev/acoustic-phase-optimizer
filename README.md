@@ -34,7 +34,7 @@ strict Content-Security-Policy.
   3d Scanner App) or a laser scanner, or a CAD model as MVR, 3DS, FBX, COLLADA (.dae) or STL, for example
   from Vectorworks (File > Export). MVR files are read in full: scene objects, trusses, screens, nested
   groups and symbols, in millimetres; fixtures are counted but not drawn, since MVR keeps their shapes in
-  GDTF files. The app measures the room from it (floor, ceiling, wall direction), you pick the stage wall
+  GDTF files. If Windows has unpacked an .mvr into a folder, use **Import an unpacked MVR folder…**. The app measures the room from it (floor, ceiling, wall direction), you pick the stage wall
   and confirm the size, and the model is shown in the 3D view. The sound prediction still uses the fitted
   box, not the modelled shape.
   Not readable: closed formats (DWG, Vectorworks .vwx, Revit, DWF, Cinema 4D), formats that need a full CAD

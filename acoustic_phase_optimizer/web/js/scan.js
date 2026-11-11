@@ -258,8 +258,14 @@ export async function importScan(file) {
   const status = h('p', { class: 'hint', attrs: { 'aria-live': 'polite' } });
   const dimInputs = {};
   const dimField = (key, label) => {
-    const input = h('input', { type: 'number', min: round(toDisp(key === 'height' ? 1.6 : 1.1), 1), max: round(toDisp(300)), step: 0.1, attrs: { 'aria-label': label },
-      onchange: () => { choice.dims[key] = clamp(fromDisp(parseFloat(input.value)) || choice.dims[key], 1.1, 300); draw(); } });
+    // text, not type=number: the browser would show the Windows decimal comma, and a typed comma would be misread
+    const input = h('input', { type: 'text', class: 'num', attrs: { 'aria-label': label, inputmode: 'decimal', autocomplete: 'off' },
+      onchange: () => {
+        const v = fromDisp(parseFloat(input.value.replace(',', '.')));
+        choice.dims[key] = clamp(Number.isFinite(v) ? v : choice.dims[key], key === 'height' ? 1.6 : 1.1, 300);
+        input.value = String(round(toDisp(choice.dims[key]), 2));
+        draw();
+      } });
     dimInputs[key] = input;
     return h('label', { class: 'field' }, h('span', { text: label }), h('span', { class: 'input-wrap' }, input, h('em', { text: lenUnit() })));
   };
@@ -386,6 +392,65 @@ function applyScan(name, ext, id, choice) {
 }
 
 /** Pick a file and import it. */
+// ------------------------------------------------- an unpacked MVR folder
+const CRC = (() => {
+  const t = new Uint32Array(256);
+  for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; }
+  return t;
+})();
+const crc32 = (b) => { let c = 0xffffffff; for (let i = 0; i < b.length; i++) c = CRC[(c ^ b[i]) & 0xff] ^ (c >>> 8); return (c ^ 0xffffffff) >>> 0; };
+
+/** Pack the files of an unpacked .mvr folder back into one archive (STORE, every file at the root, as MVR requires). */
+export async function folderToMvr(files) {
+  const xml = files.find((f) => f.name.toLowerCase() === 'generalscenedescription.xml');
+  if (!xml) throw new Error('that folder has no GeneralSceneDescription.xml, so it is not an unpacked MVR');
+  const total = files.reduce((n, f) => n + f.size, 0);
+  if (total > MAX_BYTES) throw new Error(`the folder holds ${Math.round(total / 1e6)} MB; the limit is 300 MB`);
+  if (files.length > 20000) throw new Error('the folder holds too many files');
+  const enc = new TextEncoder();
+  const parts = [], central = [];
+  let offset = 0;
+  const seen = new Set();
+  for (const f of files) {
+    const key = f.name.toLowerCase();
+    if (seen.has(key)) continue; // MVR keeps one flat folder; a duplicate name in a subfolder is not part of it
+    seen.add(key);
+    const data = new Uint8Array(await f.arrayBuffer());
+    const name = enc.encode(f.name);
+    const crc = crc32(data);
+    const head = new DataView(new ArrayBuffer(30));
+    head.setUint32(0, 0x04034b50, true); head.setUint16(4, 20, true); head.setUint16(6, 0x0800, true);
+    head.setUint32(14, crc, true); head.setUint32(18, data.length, true); head.setUint32(22, data.length, true);
+    head.setUint16(26, name.length, true);
+    const cd = new DataView(new ArrayBuffer(46));
+    cd.setUint32(0, 0x02014b50, true); cd.setUint16(4, 20, true); cd.setUint16(6, 20, true); cd.setUint16(8, 0x0800, true);
+    cd.setUint32(16, crc, true); cd.setUint32(20, data.length, true); cd.setUint32(24, data.length, true);
+    cd.setUint16(28, name.length, true); cd.setUint32(42, offset, true);
+    parts.push(new Uint8Array(head.buffer), name, data);
+    central.push(new Uint8Array(cd.buffer), name);
+    offset += 30 + name.length + data.length;
+  }
+  const cdSize = central.reduce((n, b) => n + b.length, 0);
+  const end = new DataView(new ArrayBuffer(22));
+  end.setUint32(0, 0x06054b50, true); end.setUint16(8, seen.size, true); end.setUint16(10, seen.size, true);
+  end.setUint32(12, cdSize, true); end.setUint32(16, offset, true);
+  const folder = (files[0].webkitRelativePath || '').split('/')[0] || 'venue';
+  return new File([...parts, ...central, new Uint8Array(end.buffer)], folder.toLowerCase().endsWith('.mvr') ? folder : `${folder}.mvr`);
+}
+
+/** Pick a folder holding an unpacked MVR (Windows sometimes extracts .mvr files) and import it. */
+export function chooseMvrFolder() {
+  const input = h('input', { type: 'file', style: { display: 'none' }, attrs: { webkitdirectory: '', multiple: '' },
+    onchange: async () => {
+      const files = [...(input.files || [])];
+      input.remove();
+      if (!files.length) return;
+      try { importScan(await folderToMvr(files)); } catch (e) { toast(`Could not read the folder: ${e.message}`, { error: true }); }
+    } });
+  document.body.append(input);
+  input.click();
+}
+
 export function chooseScanFile() {
   const input = h('input', { type: 'file', accept: SCAN_EXTS.map((e) => `.${e}`).join(','), style: { display: 'none' },
     onchange: () => { const f = input.files?.[0]; input.remove(); if (f) importScan(f); } });
