@@ -1,3 +1,9 @@
+fd0eb69ecbd709bde1643949a4e766298ce010fbc46dc5147f7507a59277df8a *./occt-import-js/LOCAL_CHANGES.md
+a6a24c4e02a98fc10d4551d06d1eb80c7eca1440e0c61ca721519d4bf3e65bd1 *./occt-import-js/apply_local_patch.py
+7ffe1954587c77dfba1cf8eb9b2ea743671fa6e63f9e7a2f258119d42e14eefe *./occt-import-js/license.occt-import-js.txt
+090f8eb6ba63e72887c1f89b009fb1656cfda02d83b6e9805b20468520a5d77f *./occt-import-js/license.occt.txt
+c91865c433aa5aadf7f0a52bfb8cab6d88707851423172bbc45d6d44af2e0199 *./occt-import-js/occt-import-js.js
+33391fc9d94ea5c869a6718488bf0a9a464222bac9bdc764dfe1690cef281952 *./occt-import-js/occt-import-js.wasm
 4c40a1ef62450b857c3b2aaf294936304cd552d965fbcd9d32d4c5bcf4ba4454 *./three/LICENSE
 08fd7545d13d2c7fb65ab691530a802dafefd638596501854f267d0fb13c39e7 *./three/build/three.module.min.js
 80efaadea4f8a636a65fb0bd08bfef62f3d93a0bb94e2e7500f23176c5c07f4e *./three/examples/jsm/controls/OrbitControls.js

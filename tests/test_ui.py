@@ -1292,3 +1292,49 @@ def test_ifc_reader_and_import(ui):
     assert page.locator(".dialog [aria-label='Scan units']").input_value() == "1"
     page.locator(".dialog .btn", has_text="Cancel").click()
     page.wait_for_selector(".dialog", state="detached", timeout=10000)
+
+
+def test_step_iges_brep_readers_and_import(ui):
+    """OpenCascade (occt-import-js) in a worker; fixtures and bounds from IfcOpenShell (fixtures/make_cad_fixtures.py)."""
+    import base64
+    import json
+
+    want = json.loads((FIXTURES / "cad_expected.json").read_text())
+    page = ui["page"]
+    page.evaluate("window.__csp = []; document.addEventListener('securitypolicyviolation', e => window.__csp.push(e.violatedDirective + ' ' + e.blockedURI));")
+
+    def read(name):
+        return page.evaluate("""async ([b64, ext]) => {
+            const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+            const THREE = await import('three');
+            const g = await (await import('/js/formats.js')).parseCad(bytes.buffer, ext);
+            const bb = new THREE.Box3().setFromObject(g);
+            const o = g.userData.cad.origin;
+            return { min: bb.min.toArray().map((v, i) => v + o[i]), max: bb.max.toArray().map((v, i) => v + o[i]), parts: g.userData.cad.parts };
+        }""", [base64.b64encode((FIXTURES / name).read_bytes()).decode(), name.rsplit(".", 1)[1]])
+
+    step = read("hall.step")  # declares metres; the round tower sets +x
+    assert step["min"] == pytest.approx(want["hall"]["min"], abs=0.02) and step["max"] == pytest.approx(want["hall"]["max"], abs=0.02), step
+    assert step["parts"] == 5
+    iges = read("hall.igs")  # declares millimetres around the same numbers: 1000 times smaller in metres
+    assert iges["max"] == pytest.approx([v / 1000 for v in want["hall"]["max"]], abs=2e-5), iges
+    brep = read("wall.brep")  # no units; a wall placed by a rotation
+    assert brep["min"] == pytest.approx(want["wall"]["min"], abs=0.01) and brep["max"] == pytest.approx(want["wall"]["max"], abs=0.01), brep
+    assert page.evaluate("window.__csp") == []
+
+    page.get_by_role("tab", name="Room").click()
+    if page.get_by_role("button", name="Remove scan").count():
+        page.get_by_role("button", name="Remove scan").click()
+    with page.expect_file_chooser() as fc:
+        page.get_by_role("button", name=re.compile("^(Import a 3D scan…|Replace…)$")).first.click()
+    fc.value.set_files(str(FIXTURES / "hall.step"))
+    (width, length), height = _dialog_dims(page)
+    assert length == pytest.approx(20.0, abs=0.5) and 11.5 <= width <= 15.7 and 4.8 <= height <= 7.1
+    assert page.locator(".dialog [aria-label='Scan units']").input_value() == "1"
+    assert page.locator(".dialog [aria-label='Up axis']").input_value() == "z"
+    page.locator(".dialog .btn.primary").click()
+    page.wait_for_selector(".dialog", state="detached", timeout=20000)
+    page.get_by_role("tab", name="Room").click()
+    assert page.evaluate("import('/js/store.js').then((m) => m.state.project.scan.ext)") == "glb"
+    page.get_by_role("button", name="Remove scan").click()
+    page.locator("#stage-toolbar .seg button", has_text="Plan").click()

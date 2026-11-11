@@ -227,14 +227,14 @@ export function unitOption(metersPerUnit) {
   return Math.abs(Math.log(best / metersPerUnit)) < 0.01 ? String(best) : null;
 }
 
-/** A group (in its own units) as a Y-up GLB file; `zUp` groups are turned first. */
-export async function toGlbFile(group, name, zUp = true) {
+/**
+ * A group as a GLB file, in the model's own units and axes. The import dialog is told which way is up
+ * (hints.up) rather than the model being turned here, so its "Up axis" choice still means the file's own axis.
+ */
+export async function toGlbFile(group, name) {
   const { GLTFExporter } = await import('three/addons/exporters/GLTFExporter.js');
-  const holder = new THREE.Group();
-  if (zUp) holder.rotation.x = -Math.PI / 2; // Z up -> Y up, as glTF expects
-  holder.add(group);
-  holder.updateMatrixWorld(true);
-  const data = await new Promise((resolve, reject) => new GLTFExporter().parse(holder, resolve, reject, { binary: true, onlyVisible: false }));
+  group.updateMatrixWorld(true);
+  const data = await new Promise((resolve, reject) => new GLTFExporter().parse(group, resolve, reject, { binary: true, onlyVisible: false }));
   return new File([data], name.replace(/\.[^.]+$/, '') + '.glb', { type: 'model/gltf-binary' });
 }
 
@@ -264,7 +264,7 @@ async function convertDxf(text, name, ui) {
   let note = `${name}: ${parts.join(', ')}`;
   if (flat) note += '; walls raised from the plan';
   if (d.acis) note += `; ${plural(d.acis, 'ACIS solid', 'ACIS solids')} left out (they need a commercial modeller to read)`;
-  return { file: await toGlbFile(group, name), hints: { unit: unitOption(mpu), up: 'y' }, note: note + '.' };
+  return { file: await toGlbFile(group, name), hints: { unit: unitOption(mpu), up: 'z' }, note: note + '.' };
 }
 
 /**
@@ -288,10 +288,51 @@ export async function convertModel(file, ext, ui) {
   }
   if (ext === 'ifc') {
     const group = await parseIfc(await file.arrayBuffer()); // metres, Y up
-    return { file: await toGlbFile(group, file.name, false), hints: { unit: '1', up: 'y' },
+    return { file: await toGlbFile(group, file.name), hints: { unit: '1', up: 'y' },
       note: `${file.name}: ${plural(group.userData.ifc.elements, 'building element', 'building elements')} (spaces and openings left out).` };
   }
+  if (ext in OCCT_FORMAT) {
+    const group = await parseCad(await file.arrayBuffer(), ext); // CAD axes: Z up
+    const c = group.userData.cad;
+    // STEP and IGES state their unit and are read in metres; BREP has no unit, so the dialog guesses from the size
+    return { file: await toGlbFile(group, file.name), hints: { unit: OCCT_FORMAT[ext] === 'brep' ? null : '1', up: 'z' },
+      note: `${file.name}: ${plural(c.parts, 'part', 'parts')}, ${c.triangles.toLocaleString()} triangles.` };
+  }
   throw new Error(`.${ext} cannot be converted`);
+}
+
+// ------------------------------------------------------------------ STEP, IGES, BREP (OpenCascade)
+const OCCT_FORMAT = { step: 'step', stp: 'step', iges: 'iges', igs: 'iges', brep: 'brep', brp: 'brep' };
+
+/** Tessellate a STEP, IGES or BREP file in a worker (occt-import-js). Z up; metres for STEP and IGES. */
+export function parseCad(buffer, ext) {
+  return new Promise((resolve, reject) => {
+    const worker = new Worker(new URL('./occt-worker.js', import.meta.url));
+    const done = (fn, v) => { worker.terminate(); fn(v); };
+    worker.onerror = (e) => done(reject, new Error(e.message || 'the OpenCascade reader could not start'));
+    worker.onmessage = (ev) => {
+      const r = ev.data;
+      if (!r.ok) { done(reject, new Error(r.error)); return; }
+      const group = new THREE.Group();
+      let triangles = 0;
+      for (const m of r.meshes) {
+        if (!m.index.length) continue;
+        const g = new THREE.BufferGeometry();
+        g.setAttribute('position', new THREE.BufferAttribute(m.position, 3));
+        g.setIndex(new THREE.BufferAttribute(m.index, 1));
+        g.computeVertexNormals();
+        const colour = m.color ? new THREE.Color(m.color[0], m.color[1], m.color[2]) : new THREE.Color(0xb9b6ae);
+        const mesh = new THREE.Mesh(g, new THREE.MeshStandardMaterial({ color: colour, roughness: 0.85, side: THREE.DoubleSide }));
+        mesh.name = m.name;
+        group.add(mesh);
+        triangles += m.index.length / 3;
+      }
+      if (!group.children.length) { done(reject, new Error('the file has no surfaces or solids')); return; }
+      group.userData.cad = { parts: group.children.length, triangles, origin: r.origin };
+      done(resolve, group);
+    };
+    worker.postMessage({ format: OCCT_FORMAT[ext], buffer, params: { linearUnit: 'meter' } }, [buffer]);
+  });
 }
 
 // ------------------------------------------------------------------ IFC (web-ifc, MPL-2.0, vendored unmodified)

@@ -13,3 +13,5 @@ unmodified copies of the published packages unless noted. `sha256.txt` lists a c
 | three/examples/jsm/libs/ktx-parse.module.js, zstddec.module.js | as shipped with three.js 0.170.0 | MIT (Don McCurdy) |
 | three/examples/jsm/libs/fflate.module.js | as shipped with three.js 0.170.0 | MIT (Arjun Barrett) |
 | web-ifc/web-ifc-api.js, web-ifc/web-ifc.wasm | web-ifc 0.0.78 (ThatOpen), unmodified | MPL-2.0 (web-ifc/LICENSE.md); source at https://github.com/ThatOpen/engine_web-ifc |
+| occt-import-js/occt-import-js.wasm | occt-import-js 0.0.23 (Viktor Kovacs), built on OpenCascade; unmodified | LGPL-2.1 (occt-import-js/license.occt-import-js.txt, license.occt.txt); source at https://github.com/kovacsv/occt-import-js |
+| occt-import-js/occt-import-js.js | occt-import-js 0.0.23. **Modified** (see occt-import-js/LOCAL_CHANGES.md): two embind call wrappers are closures instead of source evaluated with Function(), so no `unsafe-eval` is needed | LGPL-2.1 |

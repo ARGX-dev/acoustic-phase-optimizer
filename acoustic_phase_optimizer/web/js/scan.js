@@ -11,9 +11,9 @@ import { cssVar } from './theme.js';
 import { openDialog } from './dialog.js';
 import { fromDisp, len, lenNum, lenUnit, toDisp } from './units.js';
 
-export const SCAN_EXTS = ['glb', 'obj', 'ply', 'mvr', '3ds', 'dae', 'fbx', 'stl', 'usdz', 'usd', 'usda', 'usdc', 'dxf', 'dwg', 'ifc'];
+export const SCAN_EXTS = ['glb', 'obj', 'ply', 'mvr', '3ds', 'dae', 'fbx', 'stl', 'usdz', 'usd', 'usda', 'usdc', 'dxf', 'dwg', 'ifc', 'step', 'stp', 'iges', 'igs', 'brep', 'brp'];
 // CAD formats converted once into a GLB on import (formats.js), so they are stored and reloaded as GLB.
-const CONVERT = new Set(['dxf', 'dwg', 'ifc']);
+const CONVERT = new Set(['dxf', 'dwg', 'ifc', 'step', 'stp', 'iges', 'igs', 'brep', 'brp']);
 // Chosen alongside a .gltf (which is packed into a GLB before import), never imported on their own.
 const GLTF_PARTS = ['gltf', 'bin', 'png', 'jpg', 'jpeg', 'webp'];
 const USD = new Set(['usdz', 'usd', 'usda', 'usdc']);
@@ -22,10 +22,6 @@ const Z_UP = new Set(['mvr', '3ds', 'stl']);
 const NOT_READABLE = {
   vwx: 'Vectorworks files are a closed format. Use File > Export > Export MVR (or 3DS, FBX, COLLADA, OBJ, STL).',
   rvt: 'Revit files are a closed format. Export FBX or OBJ from Revit instead.',
-  step: 'STEP needs a full CAD kernel to read. Export a mesh format instead: MVR, 3DS, FBX, COLLADA (DAE), OBJ or STL.',
-  stp: 'STEP needs a full CAD kernel to read. Export a mesh format instead: MVR, 3DS, FBX, COLLADA (DAE), OBJ or STL.',
-  igs: 'IGES needs a full CAD kernel to read. Export a mesh format instead: MVR, 3DS, FBX, COLLADA (DAE), OBJ or STL.',
-  iges: 'IGES needs a full CAD kernel to read. Export a mesh format instead: MVR, 3DS, FBX, COLLADA (DAE), OBJ or STL.',
   sat: 'SAT needs a full CAD kernel to read. Export a mesh format instead: MVR, 3DS, FBX, COLLADA (DAE), OBJ or STL.',
 };
 /** Loaders ask for textures by path; serve them nothing rather than fetching from the app's server. */
