@@ -19,7 +19,6 @@ export const MAPS = {
 };
 
 export const mapKey = () => (MAPS[state.ui.map].bands && state.ui.band !== 'all' ? `direct_${state.ui.band}` : state.ui.map);
-const shownSim = () => (state.ui.compare === 'before' && state.simBaseline ? state.simBaseline : state.sim);
 
 function levelRange(values) {
   const v = values.filter((x) => x != null).sort((a, b) => a - b);
@@ -35,14 +34,58 @@ export function currentScale() {
   return makeScale(def.kind, lo, hi);
 }
 
+export const shownSim = () => (state.ui.compare === 'before' && state.simBaseline ? state.simBaseline : state.sim);
+
+let heatCache = { sig: '', sim: null, canvas: null };
+/**
+ * The current map as an image: one pixel per grid point, columns = distance from the stage (room y),
+ * rows = across the room (room x). Shared by the plan and the 3D view.
+ */
+export function heatImage(sim, key, scale) {
+  const sig = [key, scale.lo, scale.hi, scale.css].join('|');
+  if (heatCache.sig === sig && heatCache.sim === sim) return heatCache.canvas;
+  const { nx, ny } = sim.grid;
+  const vals = sim.maps[key];
+  const off = document.createElement('canvas');
+  off.width = ny;
+  off.height = nx;
+  const octx = off.getContext('2d');
+  const img = octx.createImageData(ny, nx);
+  const lut = scale.lut;
+  for (let iy = 0; iy < ny; iy++) {
+    for (let ix = 0; ix < nx; ix++) {
+      const v = vals[iy * nx + ix];
+      const o = (ix * ny + iy) * 4;
+      if (v == null) continue;
+      const k = scale.index(v) * 3;
+      img.data[o] = lut[k]; img.data[o + 1] = lut[k + 1]; img.data[o + 2] = lut[k + 2]; img.data[o + 3] = 255;
+    }
+  }
+  octx.putImageData(img, 0, 0);
+  heatCache = { sig, sim, canvas: off };
+  return off;
+}
+
+/** Map value and loudest speaker at a room position, or null outside the grid. */
+export function valueAt(x, y) {
+  const sim = shownSim();
+  const vals = sim?.maps?.[mapKey()];
+  if (!vals) return null;
+  const g = sim.grid;
+  const cx = (g.x1 - g.x0) / Math.max(g.nx - 1, 1), cy = (g.y1 - g.y0) / Math.max(g.ny - 1, 1);
+  if (x < g.x0 - cx / 2 || x > g.x1 + cx / 2 || y < g.y0 - cy / 2 || y > g.y1 + cy / 2) return null;
+  const ix = clamp(Math.round((x - g.x0) / cx), 0, g.nx - 1), iy = clamp(Math.round((y - g.y0) / cy), 0, g.ny - 1);
+  const k = iy * g.nx + ix;
+  return { value: vals[k], dominant: state.project.speakers[sim.maps.dominant?.[k]] };
+}
+
 export function createStage(root, foot) {
-  const canvas = h('canvas', { tabIndex: 0, attrs: { 'aria-label': 'Plan view of the venue. Drag speakers and microphones; click to place the probe.' } });
-  const tip = h('div', { class: 'tip', hidden: true });
+  const canvas = h('canvas', { class: 'plan', tabIndex: 0, attrs: { 'aria-label': 'Plan view of the venue. Drag speakers and microphones; click to place the probe.' } });
+  const tip = h('div', { class: 'tip plan-tip', hidden: true });
   root.append(canvas, tip);
   const ctx = canvas.getContext('2d');
   let W = 0, H = 0, dpr = 1;
   let view = { scale: 1, ox: 0, oy: 0 };
-  let heat = { key: '', canvas: null };
   let drag = null;
   let hover = null;
   let raf = 0;
@@ -56,31 +99,6 @@ export function createStage(root, foot) {
     const aw = Math.max(10, W - pad.l - pad.r), ah = Math.max(10, H - pad.t - pad.b);
     const scale = Math.min(aw / r.length, ah / r.width);
     view = { scale, ox: pad.l + (aw - r.length * scale) / 2, oy: pad.t + (ah - r.width * scale) / 2 };
-  }
-
-  function buildHeat(sim, key, scale) {
-    const sig = [key, scale.lo, scale.hi, scale.css].join('|');
-    if (heat.key === sig && heat.sim === sim) return heat.canvas;
-    const { nx, ny } = sim.grid;
-    const vals = sim.maps[key];
-    const off = document.createElement('canvas');
-    off.width = ny;
-    off.height = nx;
-    const octx = off.getContext('2d');
-    const img = octx.createImageData(ny, nx);
-    const lut = scale.lut;
-    for (let iy = 0; iy < ny; iy++) {
-      for (let ix = 0; ix < nx; ix++) {
-        const v = vals[iy * nx + ix];
-        const o = (ix * ny + iy) * 4;
-        if (v == null) continue;
-        const k = scale.index(v) * 3;
-        img.data[o] = lut[k]; img.data[o + 1] = lut[k + 1]; img.data[o + 2] = lut[k + 2]; img.data[o + 3] = 255;
-      }
-    }
-    octx.putImageData(img, 0, 0);
-    heat = { key: sig, sim, canvas: off };
-    return off;
   }
 
   function niceStep(pxPerMetre) {
@@ -126,7 +144,7 @@ export function createStage(root, foot) {
     const aw = (a.y1 - a.y0) * view.scale, ah = (a.x1 - a.x0) * view.scale;
     if (sim?.maps?.[key]) {
       const g = sim.grid;
-      const img = buildHeat(sim, key, currentScale());
+      const img = heatImage(sim, key, currentScale());
       const cy = (g.y1 - g.y0) / Math.max(g.ny - 1, 1), cx = (g.x1 - g.x0) / Math.max(g.nx - 1, 1);
       const [hx, hy] = toScreen(g.x0 - cx / 2, g.y0 - cy / 2);
       ctx.save();
@@ -264,18 +282,6 @@ export function createStage(root, foot) {
       if (Math.hypot(sx - x, sy - y) <= 11) return { kind: 'mic', obj: p.mics[i] };
     }
     return null;
-  }
-
-  function valueAt(x, y) {
-    const sim = shownSim();
-    const vals = sim?.maps?.[mapKey()];
-    if (!vals) return null;
-    const g = sim.grid;
-    const cx = (g.x1 - g.x0) / Math.max(g.nx - 1, 1), cy = (g.y1 - g.y0) / Math.max(g.ny - 1, 1);
-    if (x < g.x0 - cx / 2 || x > g.x1 + cx / 2 || y < g.y0 - cy / 2 || y > g.y1 + cy / 2) return null;
-    const ix = clamp(Math.round((x - g.x0) / cx), 0, g.nx - 1), iy = clamp(Math.round((y - g.y0) / cy), 0, g.ny - 1);
-    const k = iy * g.nx + ix;
-    return { value: vals[k], dominant: state.project.speakers[sim.maps.dominant?.[k]] };
   }
 
   function describe(sx, sy) {

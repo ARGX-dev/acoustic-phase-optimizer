@@ -213,6 +213,27 @@ def test_theme_switch_and_chart_modes(ui):
     page.get_by_role("button", name="Switch light or dark theme").click()
 
 
+def test_map_picker_and_3d_view(ui):
+    page = ui["page"]
+    page.locator("#stage-toolbar select").first.select_option("clarity")
+    time.sleep(0.6)
+    assert "Clarity" in page.locator("#stage-foot").inner_text() or page.locator("#stage-foot .scale").count() == 1
+    page.locator("#stage-toolbar select").first.select_option("direct")
+    page.locator("#stage-toolbar .seg button", has_text="3D").click()
+    page.wait_for_selector(".view3d canvas", timeout=15000)
+    time.sleep(2)
+    shot(page, "07-3d")
+    png = page.locator(".view3d canvas").screenshot()
+    assert len(png) > 40_000, "3D canvas looks blank (WebGL did not render)"
+    assert page.locator(".label3d").count() >= len(page.locator(".row-item").all()) or page.locator(".label3d").count() > 2
+    page.locator(".view-buttons button", has_text="Top").click()
+    time.sleep(1)
+    shot(page, "08-3d-top")
+    page.locator("#stage-toolbar .seg button", has_text="Plan").click()
+    time.sleep(0.5)
+    assert page.locator("#stage canvas.plan").is_visible()
+
+
 def test_delete_saved_and_discard_prompt(ui):
     page = ui["page"]
     ui["dialogs"].clear()

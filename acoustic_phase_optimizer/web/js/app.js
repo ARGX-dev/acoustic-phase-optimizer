@@ -8,6 +8,7 @@ import {
 import { clear, download, h, icon, toast } from './util.js';
 import { isDark, toggleTheme } from './theme.js';
 import { createStage } from './stage.js';
+import { createStageBar } from './stagebar.js';
 import { createChart } from './chart.js';
 import { createLeftPanel } from './panels.js';
 import { createResultsPanel } from './results.js';
@@ -227,6 +228,7 @@ async function boot() {
     createTopbar($('topbar'));
     createLeftPanel($('left'));
     createStage($('stage'), $('stage-foot'));
+    createStageBar($('stage-toolbar'), $('stage'));
     createChart($('chart-toolbar'), $('chart-legend'), $('chart'));
     createResultsPanel($('right'));
     if (session?.project) {

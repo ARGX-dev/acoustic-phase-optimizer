@@ -211,7 +211,20 @@ input[type="range"] { width: 100%; accent-color: var(--accent); height: 20px; }
 .toolbar .title { font-weight: 600; white-space: nowrap; }
 .stage-wrap, .chart-wrap { position: relative; flex: 1; min-height: 0; min-width: 0; }
 .stage-wrap canvas, .chart-wrap canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
-.stage-wrap.busy canvas { opacity: 0.72; transition: opacity 0.2s 0.25s; }
+.stage-wrap.busy canvas.plan { opacity: 0.72; transition: opacity 0.2s 0.25s; }
+.stage-wrap.is-3d > .plan, .stage-wrap.is-3d > .plan-tip { display: none; }
+.toolbar .band { display: inline-flex; align-items: center; gap: 6px; }
+.toolbar .band span { color: var(--ink-2); font-size: 12px; white-space: nowrap; }
+.view3d { position: absolute; inset: 0; overflow: hidden; border-radius: 0 0 2px 2px; }
+.view3d > canvas { position: absolute; inset: 0; display: block; outline: none; touch-action: none; }
+.labels3d { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+.label3d { position: absolute; left: 0; top: 0; font-size: 11px; font-weight: 600; color: var(--ink); white-space: nowrap;
+  padding: 1px 6px; border-radius: 4px; background: color-mix(in srgb, var(--surface) 78%, transparent); }
+.label3d.sel { color: var(--accent); }
+.label3d.muted { color: var(--muted); text-decoration: line-through; }
+.label3d.mic { font-weight: 500; color: var(--ink-2); }
+.label3d.stage { font-size: 10px; letter-spacing: 0.12em; color: var(--muted); background: none; }
+.view-buttons { position: absolute; top: 10px; right: 10px; z-index: 5; box-shadow: var(--shadow); }
 .stage-foot { display: flex; align-items: center; gap: 14px; padding: 7px 12px; border-top: 1px solid var(--line); flex: none;
   color: var(--ink-2); font-size: 12px; min-height: 36px; }
 .scale { display: flex; align-items: center; gap: 8px; flex: 0 1 380px; min-width: 180px; }
