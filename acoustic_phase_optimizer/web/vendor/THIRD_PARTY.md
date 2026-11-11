@@ -12,3 +12,4 @@ unmodified copies of the published packages unless noted. `sha256.txt` lists a c
 | three/examples/jsm/libs/meshopt_decoder.module.js | meshoptimizer decoder as shipped with three.js 0.170.0 | MIT (Arseny Kapoulkine) |
 | three/examples/jsm/libs/ktx-parse.module.js, zstddec.module.js | as shipped with three.js 0.170.0 | MIT (Don McCurdy) |
 | three/examples/jsm/libs/fflate.module.js | as shipped with three.js 0.170.0 | MIT (Arjun Barrett) |
+| web-ifc/web-ifc-api.js, web-ifc/web-ifc.wasm | web-ifc 0.0.78 (ThatOpen), unmodified | MPL-2.0 (web-ifc/LICENSE.md); source at https://github.com/ThatOpen/engine_web-ifc |

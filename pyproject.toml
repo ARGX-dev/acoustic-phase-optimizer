@@ -53,7 +53,8 @@ acoustic_phase_optimizer = ["engine/data/*.json", "web/*.html", "web/*.css", "we
                             "web/vendor/three/build/*.js", "web/vendor/three/examples/jsm/*/*.js",
                             "web/vendor/three/examples/jsm/*/*/*.js",
                             "web/vendor/three/examples/jsm/*/*/*.wasm", "web/vendor/three/examples/jsm/*/*/*/*.js",
-                            "web/vendor/three/examples/jsm/*/*/*/*.wasm", "web/vendor/*.md", "web/vendor/*.txt"]
+                            "web/vendor/three/examples/jsm/*/*/*/*.wasm", "web/vendor/*.md", "web/vendor/*.txt",
+                            "web/vendor/*/*.js", "web/vendor/*/*.wasm", "web/vendor/*/*.md"]
 
 [tool.ruff]
 line-length = 130

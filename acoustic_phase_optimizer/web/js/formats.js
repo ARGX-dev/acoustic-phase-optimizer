@@ -227,11 +227,11 @@ export function unitOption(metersPerUnit) {
   return Math.abs(Math.log(best / metersPerUnit)) < 0.01 ? String(best) : null;
 }
 
-/** A Z-up group (in its own units) as a Y-up GLB file. */
-export async function toGlbFile(group, name) {
+/** A group (in its own units) as a Y-up GLB file; `zUp` groups are turned first. */
+export async function toGlbFile(group, name, zUp = true) {
   const { GLTFExporter } = await import('three/addons/exporters/GLTFExporter.js');
   const holder = new THREE.Group();
-  holder.rotation.x = -Math.PI / 2; // Z up -> Y up, as glTF expects
+  if (zUp) holder.rotation.x = -Math.PI / 2; // Z up -> Y up, as glTF expects
   holder.add(group);
   holder.updateMatrixWorld(true);
   const data = await new Promise((resolve, reject) => new GLTFExporter().parse(holder, resolve, reject, { binary: true, onlyVisible: false }));
@@ -286,5 +286,62 @@ export async function convertModel(file, ext, ui) {
     }
     return convertDxf(await res.text(), file.name, ui);
   }
+  if (ext === 'ifc') {
+    const group = await parseIfc(await file.arrayBuffer()); // metres, Y up
+    return { file: await toGlbFile(group, file.name, false), hints: { unit: '1', up: 'y' },
+      note: `${file.name}: ${plural(group.userData.ifc.elements, 'building element', 'building elements')} (spaces and openings left out).` };
+  }
   throw new Error(`.${ext} cannot be converted`);
+}
+
+// ------------------------------------------------------------------ IFC (web-ifc, MPL-2.0, vendored unmodified)
+const IFC_DIR = new URL('../vendor/web-ifc/', import.meta.url).href;
+
+/** IFC geometry in metres, merged into one mesh per colour. web-ifc leaves out spaces and openings. */
+export async function parseIfc(buffer) {
+  const WebIFC = await import('../vendor/web-ifc/web-ifc-api.js');
+  const api = new WebIFC.IfcAPI();
+  api.SetWasmPath(IFC_DIR, true);
+  await api.Init(undefined, true); // single-threaded: no worker threads, no SharedArrayBuffer needed
+  const id = api.OpenModel(new Uint8Array(buffer), { COORDINATE_TO_ORIGIN: false });
+  if (id < 0) throw new Error('web-ifc could not open the file (not IFC2X3, IFC4 or IFC4X3?)');
+  const byColour = new Map();
+  const m = new THREE.Matrix4(), v = new THREE.Vector3();
+  let elements = 0;
+  try {
+    api.StreamAllMeshes(id, (mesh) => {
+      elements++;
+      const placed = mesh.geometries;
+      for (let i = 0; i < placed.size(); i++) {
+        const pg = placed.get(i);
+        const geo = api.GetGeometry(id, pg.geometryExpressID);
+        const verts = api.GetVertexArray(geo.GetVertexData(), geo.GetVertexDataSize()); // x y z nx ny nz
+        const idx = api.GetIndexArray(geo.GetIndexData(), geo.GetIndexDataSize());
+        m.fromArray(pg.flatTransformation);
+        const c = pg.color;
+        const key = `${c.x.toFixed(3)},${c.y.toFixed(3)},${c.z.toFixed(3)},${c.w.toFixed(2)}`;
+        if (!byColour.has(key)) byColour.set(key, { c, pos: [] });
+        const out = byColour.get(key).pos;
+        for (let k = 0; k < idx.length; k++) {
+          const j = idx[k] * 6;
+          v.set(verts[j], verts[j + 1], verts[j + 2]).applyMatrix4(m);
+          out.push(v.x, v.y, v.z);
+        }
+        geo.delete();
+      }
+    });
+  } finally { api.CloseModel(id); }
+  const group = new THREE.Group();
+  for (const { c, pos } of byColour.values()) {
+    if (!pos.length) continue;
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    g.computeVertexNormals();
+    group.add(new THREE.Mesh(g, new THREE.MeshStandardMaterial({
+      color: new THREE.Color(c.x, c.y, c.z), roughness: 0.85, side: THREE.DoubleSide, transparent: c.w < 0.99, opacity: c.w,
+    })));
+  }
+  if (!group.children.length) throw new Error('the IFC file has no 3D geometry');
+  group.userData.ifc = { elements };
+  return group;
 }

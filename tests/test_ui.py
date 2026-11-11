@@ -1261,3 +1261,34 @@ def test_import_dwg_through_converter(ui, tmp_path, monkeypatch):
     assert dims == pytest.approx([12.0, 20.0], abs=0.4) and height == pytest.approx(5.0, abs=0.2)
     page.locator(".dialog .btn", has_text="Cancel").click()
     page.wait_for_selector(".dialog", state="detached", timeout=10000)
+
+
+def test_ifc_reader_and_import(ui):
+    """Bounds from IfcOpenShell's geometry engine (fixtures/make_ifc_fixtures.py); spaces and openings left out."""
+    import base64
+    import json
+
+    want = json.loads((FIXTURES / "ifc_expected.json").read_text())
+    page = ui["page"]
+    got = page.evaluate("""async (b64) => {
+        const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+        const THREE = await import('three');
+        const g = await (await import('/js/formats.js')).parseIfc(bytes.buffer);
+        const bb = new THREE.Box3().setFromObject(g);
+        return { min: bb.min.toArray(), max: bb.max.toArray(), n: g.userData.ifc.elements };
+    }""", base64.b64encode((FIXTURES / "hall.ifc").read_bytes()).decode())
+    # web-ifc gives Y up: (x, y, z) Z-up = (x, -z, y) Y-up
+    (x0, y0, z0), (x1, y1, z1) = want["min"], want["max"]
+    assert got["min"] == pytest.approx([x0, z0, -y1], abs=0.01) and got["max"] == pytest.approx([x1, z1, -y0], abs=0.01), got
+    assert got["n"] == 6  # four walls, two slabs: not the space, not the opening
+    page.get_by_role("tab", name="Room").click()
+    if page.get_by_role("button", name="Remove scan").count():
+        page.get_by_role("button", name="Remove scan").click()
+    with page.expect_file_chooser() as fc:
+        page.get_by_role("button", name=re.compile("^(Import a 3D scan…|Replace…)$")).first.click()
+    fc.value.set_files(str(FIXTURES / "hall.ifc"))
+    dims, height = _dialog_dims(page)
+    assert dims == pytest.approx([12.0, 20.0], abs=0.4) and height == pytest.approx(5.5, abs=0.3)
+    assert page.locator(".dialog [aria-label='Scan units']").input_value() == "1"
+    page.locator(".dialog .btn", has_text="Cancel").click()
+    page.wait_for_selector(".dialog", state="detached", timeout=10000)
