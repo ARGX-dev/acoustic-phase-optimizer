@@ -160,6 +160,17 @@ class Project(BaseModel):
     custom_materials: list[CustomMaterial] = Field(default_factory=list, max_length=40)
 
     @model_validator(mode="after")
+    def _hang_defaults(self):
+        """Line-array speakers saved before hangs had a box count get the library default (level and coverage kept)."""
+        from .library import BY_ID
+
+        for s in self.speakers:
+            t = BY_ID.get(s.model)
+            if t and t["spec"]["kind"] == "element" and s.array_boxes == 0:
+                s.array_boxes, s.array_splay = t["array_boxes"], t["array_splay"]
+        return self
+
+    @model_validator(mode="after")
     def _clamp_audience(self) -> Project:
         a, r = self.audience, self.room
         x0, x1 = sorted((a.x0, a.x1))

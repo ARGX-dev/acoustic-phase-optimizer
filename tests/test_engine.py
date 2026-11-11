@@ -439,3 +439,27 @@ def test_air_loss_grows_with_dry_air():
     humid = room_report(p)["air_loss_8k_30m_db"]
     p.environment.humidity_pct = 15
     assert room_report(p)["air_loss_8k_30m_db"] > humid
+
+
+def test_old_project_files_still_load_and_hangs_get_boxes():
+    from acoustic_phase_optimizer.engine.model import Project
+
+    old = presets.theater().model_dump()
+    old["room"].pop("kind")
+    old["audience"].pop("occupancy")
+    old.pop("custom_materials")
+    old.pop("scan")
+    for s in old["speakers"]:
+        s.pop("array_boxes")
+        s.pop("array_splay")
+    old["speakers"][0]["model"] = "lacoustics_k2"
+    p = Project(**old)
+    assert p.room.kind == "indoor" and p.audience.occupancy == 0 and p.custom_materials == []
+    assert p.speakers[0].array_boxes == 8 and p.speakers[0].array_splay > 0
+    assert p.speakers[1].array_boxes in (0, 8)
+
+
+def test_presets_with_real_hangs_carry_box_counts():
+    fest = presets.festival()
+    assert fest.speakers[0].array_boxes == 8
+    assert presets.stadium().speakers[0].array_boxes == 8

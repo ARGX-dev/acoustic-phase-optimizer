@@ -32,10 +32,23 @@ export function createLeftPanel(root) {
   const show = (v, nd) => (v == null || Number.isNaN(v) ? '' : String(Number(v.toFixed(nd))));
 
   function num(label, get, set, { min, max, step = 0.1, unit = '', nd = 2, wide = false, title = null, bare = false } = {}) {
-    const input = h('input', { type: 'number', min, max, step, value: show(get(), nd), class: bare ? 'bare' : '', title,
-      attrs: { 'aria-label': label, inputmode: 'decimal' } });
+    // Plain text, not type=number: the browser would format decimals with the Windows locale ("4,6") while
+    // every readout uses a point. Either separator is accepted when typing.
+    const input = h('input', { type: 'text', value: show(get(), nd), class: 'num' + (bare ? ' bare' : ''), title,
+      attrs: { 'aria-label': label, inputmode: 'decimal', autocomplete: 'off', spellcheck: 'false', role: 'spinbutton',
+        'aria-valuemin': min, 'aria-valuemax': max } });
+    const parse = (t) => parseFloat(String(t).trim().replace(',', '.'));
+    input.addEventListener('keydown', (e) => {
+      if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
+      e.preventDefault();
+      const cur = parse(input.value);
+      const d = step * (e.shiftKey ? 10 : e.altKey ? 0.1 : 1) * (e.key === 'ArrowUp' ? 1 : -1);
+      const v = clamp(Math.round(((Number.isFinite(cur) ? cur : get() ?? 0) + d) / (step * (e.altKey ? 0.1 : 1))) * step * (e.altKey ? 0.1 : 1), min ?? -Infinity, max ?? Infinity);
+      input.value = show(v, nd);
+      set(v, DONE);
+    });
     const read = () => {
-      const v = parseFloat(input.value);
+      const v = parse(input.value);
       return Number.isFinite(v) && (min == null || v >= min) && (max == null || v <= max) ? v : null;
     };
     input.addEventListener('input', () => {
@@ -44,7 +57,7 @@ export function createLeftPanel(root) {
       if (v != null && v !== get()) set(v, LIVE);
     });
     input.addEventListener('change', () => {
-      let v = parseFloat(input.value);
+      let v = parse(input.value);
       v = Number.isFinite(v) ? clamp(v, min ?? -Infinity, max ?? Infinity) : get();
       input.classList.remove('invalid');
       set(v, DONE);
@@ -219,8 +232,8 @@ export function createLeftPanel(root) {
           for (const k of Object.keys(p.room.materials)) if (p.room.materials[k] === m.id) p.room.materials[k] = 'concrete';
         }, { structural: true }) }, icon('trash')),
       h('div', { class: 'mat-alpha' }, m.alpha.map((a, i) => h('label', null, h('span', { text: BANDS[i] }),
-        h('input', { type: 'number', min: 0, max: 1, step: 0.01, value: a, class: 'bare', attrs: { 'aria-label': `${m.name} absorption at ${BANDS[i]} Hz` },
-          onchange: (e) => setMat(m.id, (x) => { x.alpha = x.alpha.map((v, j) => (j === i ? clamp(Number(e.target.value) || 0, 0, 1) : v)); }) }))))));
+        h('input', { type: 'text', value: String(a), class: 'num bare', attrs: { 'aria-label': `${m.name} absorption at ${BANDS[i]} Hz`, inputmode: 'decimal' },
+          onchange: (e) => setMat(m.id, (x) => { x.alpha = x.alpha.map((v, j) => (j === i ? clamp(parseFloat(e.target.value.replace(',', '.')) || 0, 0, 1) : v)); }) }))))));
     return group('My materials', rows,
       h('button', { class: 'btn small', onclick: () => mutate((p) => {
         p.custom_materials = [...(p.custom_materials || []), { id: `custom_${uid()}`, name: 'My material', alpha: [0.1, 0.1, 0.1, 0.1, 0.1, 0.1] }];

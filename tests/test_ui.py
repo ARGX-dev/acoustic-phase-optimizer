@@ -420,6 +420,33 @@ def test_keyboard_nudge_scrub_and_shortcuts(ui):
     page.wait_for_selector(".dialog", state="detached")
 
 
+def test_drag_a_speaker_in_3d(ui):
+    page = ui["page"]
+    page.get_by_role("tab", name="Speakers").click()
+    page.locator("#stage-toolbar .seg button", has_text="3D").click()
+    page.wait_for_selector(".view3d canvas", timeout=15000)
+    page.locator(".view-buttons button", has_text="Top").click()
+    time.sleep(1.5)
+    label = page.locator(".label3d", has_text="Sub C").first
+    box = label.bounding_box()
+    x, y = box["x"] + box["width"] / 2, box["y"] + box["height"] + 4
+    before = page.evaluate("() => { const s = window.__apo?.state?.project.speakers.find(q => q.name === 'Sub C'); return s && [s.x, s.y]; }")
+    page.mouse.move(x, y)
+    page.mouse.down()
+    page.mouse.move(x + 60, y + 30, steps=8)
+    page.mouse.up()
+    time.sleep(0.6)
+    page.get_by_role("tab", name="Speakers").click()
+    assert "Sub C" in page.locator(".row-list .row-item.selected").inner_text()
+    moved = (float(page.locator("input[aria-label='From stage']").input_value()), float(page.locator("input[aria-label='Across']").input_value()))
+    shot(page, "17-3d-drag")
+    page.keyboard.press("Control+z")
+    time.sleep(0.6)
+    back = (float(page.locator("input[aria-label='From stage']").input_value()), float(page.locator("input[aria-label='Across']").input_value()))
+    assert moved != back, (moved, back, before)
+    page.locator("#stage-toolbar .seg button", has_text="Plan").click()
+
+
 def test_delete_saved_and_discard_prompt(ui):
     page = ui["page"]
     ui["dialogs"].clear()

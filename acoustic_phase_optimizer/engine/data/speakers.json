@@ -422,7 +422,7 @@
    "lf_db": -10,
    "hf_hz": null,
    "source": "https://www.qscaudio.com/resource-files/productresources/spk/k.2/q_spk_k2_specs.pdf",
-   "note": "Peak SPL from QSC's K.2 table as quoted by a search summary; confirm on the spec sheet.",
+   "note": "Peak SPL not yet confirmed on QSC's spec sheet.",
    "spl_basis": "peak",
    "approximate": true
   },
@@ -439,7 +439,7 @@
    "lf_db": -10,
    "hf_hz": null,
    "source": "https://www.qscaudio.com/resource-files/productresources/spk/k.2/q_spk_k2_specs.pdf",
-   "note": "Peak SPL from QSC's K.2 table as quoted by a search summary; confirm on the spec sheet.",
+   "note": "Peak SPL not yet confirmed on QSC's spec sheet.",
    "spl_basis": "peak",
    "approximate": true
   },

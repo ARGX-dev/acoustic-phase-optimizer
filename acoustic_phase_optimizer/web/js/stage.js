@@ -325,7 +325,7 @@ export function createStage(root, foot) {
     e.preventDefault();
     const [sx, sy] = local(e);
     // A trackpad's two-finger scroll pans (it sends fractional or sideways deltas); a pinch arrives with ctrlKey.
-    const trackpad = !e.ctrlKey && e.deltaMode === 0 && (e.deltaX !== 0 || !Number.isInteger(e.deltaY));
+    const trackpad = !e.ctrlKey && e.deltaMode === 0 && Math.abs(e.deltaX) > Math.abs(e.deltaY);
     if (trackpad && zoom.k > 1) {
       zoom = { ...zoom, tx: zoom.tx - e.deltaX, ty: zoom.ty - e.deltaY };
       schedule();
