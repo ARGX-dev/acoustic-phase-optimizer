@@ -518,6 +518,37 @@ def test_a_weighting(ui):
     page.wait_for_function("!document.querySelector('#stage-foot .scale').textContent.includes('dB(A)')", timeout=20000)
 
 
+def test_import_measurement_overlay(ui, tmp_path):
+    import math
+
+    page = ui["page"]
+    rows = ["* Measurement data measured by REW V5.31", "* Source: test", "Freq(Hz) SPL(dB) Phase(degrees)"]
+    f = 15.0
+    while f < 22000:
+        rows.append(f"{f:.3f} {100 - 6 * math.log2(max(f, 60) / 1000) / 3:.3f} {(-f * 0.36) % 360 - 180:.2f}")
+        f *= 2 ** (1 / 96)
+    path = tmp_path / "FOH centre.txt"
+    path.write_text("\n".join(rows), encoding="utf-8")
+    page.get_by_role("tab", name="Mics").click()
+    with page.expect_file_chooser() as fc:
+        page.get_by_role("button", name="Import a measurement…").click()
+    fc.value.set_files(str(path))
+    page.wait_for_selector(".meas-row")
+    page.wait_for_selector(".chart-legend .chip:has-text('FOH centre (measured)')")
+    assert page.locator(".chart-legend .chip .key.dashed").count() == 1
+    shot(page, "22-measurement")
+    # the parser also reads semicolon CSV with decimal commas (Smaart / European Excel)
+    n = page.evaluate("""async () => {
+        const m = await import('/js/measure.js');
+        const text = 'Frequency;Magnitude;Phase\\n' + Array.from({length: 20}, (_, i) => `${(100 * 1.2 ** i).toFixed(1).replace('.', ',')};${(80.5).toString().replace('.', ',')};10`).join('\\n');
+        const r = m.parseResponse(text);
+        return [r.freqs.length, r.spl[0], r.phase[0]];
+    }""")
+    assert n == [20, 80.5, 10]
+    page.get_by_role("button", name="Delete FOH centre").click()
+    page.wait_for_selector(".meas-row", state="detached")
+
+
 def test_delete_saved_and_discard_prompt(ui):
     page = ui["page"]
     ui["dialogs"].clear()

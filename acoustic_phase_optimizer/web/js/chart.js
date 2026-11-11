@@ -1,6 +1,7 @@
 // Response panel: magnitude, phase and arrival times at the probe, a mic, or the audience average.
 // One y-scale per plot; a crosshair reads every series at once; a table view mirrors the data.
 
+import { resample } from './measure.js';
 import { on, setUI, state } from './store.js';
 import { clamp, clear, fmt, fmtHz, h, icon } from './util.js';
 import { cssVar, seriesColor } from './theme.js';
@@ -57,6 +58,7 @@ export function createChart(toolbar, legend, root) {
         { id: 'avg', name: 'Direct sound, audience average', color: c.ink, width: 2, values: avg.spl },
         { id: 'tot', name: 'Including reverberation', color: c.muted, width: 1.5, values: avg.total },
         { id: 'target', name: `Target (${fmt(tilt, 1, true)} dB/oct)`, color: c.accent, width: 1.5, values: f.map((x) => offset + tilt * Math.log2(x / 1000)) },
+        ...measured(f, 'spl'),
       ] };
     }
     const pt = state.point;
@@ -71,12 +73,13 @@ export function createChart(toolbar, legend, root) {
     const per = live.map((s) => ({ id: s.id, name: s.name, color: seriesColor(s.color), width: 1.5, values: byId.get(s.id)[mode === 'phase' ? 'phase' : 'spl'] }));
     if (mode === 'phase') {
       return { mode, kind: 'lines', x: pt.freqs, unit: '°', wrap: true,
-        series: [...per, { id: 'sum', name: 'All speakers', color: c.ink, width: 2, values: pt.phase }] };
+        series: [...per, { id: 'sum', name: 'All speakers', color: c.ink, width: 2, values: pt.phase }, ...measured(pt.freqs, 'phase')] };
     }
     return { mode, kind: 'lines', x: pt.freqs, unit: 'dB', series: [
       ...per,
       { id: 'psum', name: 'If nothing cancelled', color: c.muted, width: 1.25, values: pt.power_sum },
       { id: 'sum', name: 'All speakers', color: c.ink, width: 2, values: pt.spl_smooth },
+      ...measured(pt.freqs, 'spl'),
     ] };
   }
 
@@ -88,7 +91,7 @@ export function createChart(toolbar, legend, root) {
       legend.append(h('button', { class: 'chip' + (hidden.has(s.id) ? ' off' : ''), title: 'Show or hide this trace',
         attrs: { 'aria-pressed': String(!hidden.has(s.id)) },
         onclick: () => { hidden.has(s.id) ? hidden.delete(s.id) : hidden.add(s.id); refresh(); } },
-      h('span', { class: 'key', style: { borderColor: s.color } }), h('span', { text: s.name })));
+      h('span', { class: 'key' + (s.dash ? ' dashed' : ''), style: { borderColor: s.color } }), h('span', { text: s.name })));
     }
   }
 
@@ -116,6 +119,15 @@ export function createChart(toolbar, legend, root) {
     }
     ctx.strokeStyle = cssVar('--line-strong');
     ctx.beginPath(); ctx.moveTo(a.l, a.b + 0.5); ctx.lineTo(a.r, a.b + 0.5); ctx.stroke();
+  }
+
+  // Measured traces: dashed, in the measurement's own colour, resampled onto the chart's grid.
+  function measured(grid, key) {
+    return (state.project.measurements || []).filter((m) => key === 'spl' || m.phase).map((m) => {
+      const v = resample(m, grid, { key });
+      return { id: `meas_${m.id}`, name: `${m.name} (measured)`, color: seriesColor(m.color), width: 1.75, dash: [6, 4],
+        values: key === 'spl' ? v.map((x) => (x == null ? null : x + (m.offset_db || 0))) : v };
+    });
   }
 
   function draw() {
@@ -194,6 +206,7 @@ export function createChart(toolbar, legend, root) {
     for (const s of shown) {
       ctx.strokeStyle = s.color;
       ctx.lineWidth = s.width;
+      ctx.setLineDash(s.dash || []);
       ctx.beginPath();
       let pen = false, prev = null;
       for (let i = 0; i < f.length; i++) {
@@ -205,6 +218,7 @@ export function createChart(toolbar, legend, root) {
       }
       ctx.stroke();
     }
+    ctx.setLineDash([]);
     ctx.restore();
     model.geom = { X, Y, f0, f1 };
 

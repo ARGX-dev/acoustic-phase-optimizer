@@ -123,6 +123,24 @@ class Mic(BaseModel):
     z: float = 1.2
 
 
+class Measurement(BaseModel):
+    """A measured response (REW / Smaart export) shown over the prediction. Display only."""
+
+    id: str = Field(default_factory=_id)
+    name: str = Field("Measurement", max_length=80)
+    freqs: list[float] = Field(..., min_length=8, max_length=2000)
+    spl: list[float] = Field(..., min_length=8, max_length=2000)
+    phase: list[float | None] | None = Field(None, max_length=2000)
+    offset_db: float = Field(0.0, ge=-80, le=80)
+    color: int = Field(5, ge=0, le=7)
+
+    @model_validator(mode="after")
+    def _same_length(self) -> Measurement:
+        if len(self.spl) != len(self.freqs) or (self.phase is not None and len(self.phase) != len(self.freqs)):
+            raise ValueError("frequency, level and phase lists must be the same length")
+        return self
+
+
 class Settings(BaseModel):
     grid_resolution: float = Field(0.5, ge=0.1, le=5)
     reflection_order: int = Field(2, ge=0, le=4)
@@ -164,6 +182,7 @@ class Project(BaseModel):
     notes: str = ""
     scan: ScanRef | None = None
     custom_materials: list[CustomMaterial] = Field(default_factory=list, max_length=40)
+    measurements: list[Measurement] = Field(default_factory=list, max_length=8)
 
     @model_validator(mode="after")
     def _hang_defaults(self):

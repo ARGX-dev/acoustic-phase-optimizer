@@ -8,6 +8,7 @@ import { clamp, clear, fmt, fmtHz, h, icon, toast, uid } from './util.js';
 import { pickSpeakerType, speakerPicker } from './picker.js';
 import { openDialog } from './dialog.js';
 import { api } from './api.js';
+import { matchOffset, parseResponse } from './measure.js';
 import { seriesColor } from './theme.js';
 
 const TABS = [['room', 'Room'], ['speakers', 'Speakers'], ['mics', 'Mics'], ['setup', 'Setup']];
@@ -468,6 +469,55 @@ export function createLeftPanel(root) {
     ];
   }
 
+  // ------------------------------------------------------------------ measurements
+  function predictedCurve() {
+    if (state.ui.source === 'average') return state.sim?.average ? { f: state.sim.freqs, v: state.sim.average.spl } : null;
+    return state.point ? { f: state.point.freqs, v: state.point.spl_smooth } : null;
+  }
+
+  function importMeasurement() {
+    const input = h('input', { type: 'file', accept: '.txt,.csv,.tsv,.frd,.dat,text/plain,text/csv', style: { display: 'none' },
+      onchange: async () => {
+        const f = input.files?.[0];
+        input.remove();
+        if (!f) return;
+        if (f.size > 20_000_000) { toast('That file is larger than 20 MB.', { error: true }); return; }
+        try {
+          const m = parseResponse(await f.text());
+          const used = new Set([...(P().measurements || []).map((x) => x.color), ...P().speakers.map((x) => x.color)]);
+          const color = [5, 6, 7, 3, 2, 1, 0, 4].find((c) => !used.has(c)) ?? 5;
+          const pred = predictedCurve();
+          const offset = pred ? matchOffset(m, pred.f, pred.v) : 0;
+          const name = f.name.replace(/\.[^.]+$/, '').slice(0, 80) || 'Measurement';
+          if ((P().measurements || []).length >= 8) { toast('Up to 8 measurements per venue. Delete one first.', { error: true }); return; }
+          mutate((p) => { p.measurements = [...(p.measurements || []), { id: `m${uid()}`, name, ...m, offset_db: offset, color }]; }, { structural: true });
+          toast(`Imported "${name}": ${m.freqs.length} points${m.phase ? ' with phase' : ''}, ${fmtHzRange(m.freqs)}.${offset ? ` Level offset ${fmt(offset, 1, true)} dB to line it up with the prediction (200 Hz–2 kHz).` : ''}`, { ms: 8000 });
+        } catch (e) { toast(e.message, { error: true }); }
+      } });
+    document.body.append(input);
+    input.click();
+  }
+  const fmtHzRange = (f) => `${Math.round(f[0])} Hz–${f.at(-1) >= 1000 ? `${fmt(f.at(-1) / 1000, 1)} kHz` : `${Math.round(f.at(-1))} Hz`}`;
+
+  function measurementsGroup() {
+    const list = P().measurements || [];
+    const setM = (id, fn) => mutate((p) => { const m = p.measurements.find((x) => x.id === id); if (m) fn(m); });
+    return group('Measurements',
+      list.length ? h('div', {}, list.map((m) => h('div', { class: 'meas-row' },
+        h('span', { class: 'swatch', style: { background: seriesColor(m.color) } }),
+        h('input', { type: 'text', class: 'bare name', value: m.name, maxLength: 80, attrs: { 'aria-label': 'Measurement name' }, onchange: (e) => setM(m.id, (x) => { x.name = e.target.value.trim() || 'Measurement'; }) }),
+        num('Level offset', () => (P().measurements || []).find((x) => x.id === m.id)?.offset_db ?? 0, (v, o) => setM(m.id, (x) => { x.offset_db = v; }),
+          { min: -80, max: 80, step: 0.5, nd: 1, bare: true, title: 'Level offset in dB added to the measured curve' }),
+        h('button', { class: 'btn small ghost', title: 'Line the measured curve up with the prediction between 200 Hz and 2 kHz', onclick: () => {
+          const pred = predictedCurve();
+          if (!pred) { toast('No prediction to match yet.', { error: true }); return; }
+          setM(m.id, (x) => { x.offset_db = matchOffset(x, pred.f, pred.v); });
+        } }, 'Match'),
+        h('button', { class: 'icon-btn small', attrs: { 'aria-label': `Delete ${m.name}` }, onclick: () => mutate((p) => { p.measurements = p.measurements.filter((x) => x.id !== m.id); }, { structural: true }) }, icon('trash'))))) : null,
+      h('button', { class: 'btn small', style: { marginTop: '8px' }, onclick: importMeasurement }, icon('plus'), 'Import a measurement…'),
+      h('p', { class: 'hint', text: 'Overlay a measured response on the chart: REW "Export measurement as text", a Smaart ASCII export, or any CSV of frequency, dB and phase. Shown dashed, smoothed to 1/6 octave like the prediction. Measurements are rarely calibrated, so the level is matched to the prediction on import.' }));
+  }
+
   // ------------------------------------------------------------------ mics
   function micsTab() {
     listBox = h('div', { class: 'row-list' });
@@ -480,6 +530,7 @@ export function createLeftPanel(root) {
       group('Measurement positions', listBox,
         h('button', { class: 'btn small', style: { marginTop: '8px' }, onclick: addMic }, icon('plus'), 'Add at the probe'),
         h('p', { class: 'hint', text: 'Mark where you would stand a measurement mic. Pick any of them in the response chart to see what it would read.' })),
+      measurementsGroup(),
       m ? h('div', { class: 'editor' },
         group(null, h('div', { class: 'grid2' }, textField('Name', g('name'), set('name')))),
         group('Position', h('div', { class: 'grid3' },

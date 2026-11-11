@@ -560,3 +560,15 @@ def test_weighting_curves_and_maps():
     assert w["weighting"] == "A"
     assert np.mean(w["maps"]["direct"]) < np.mean(z["maps"]["direct"])
     assert w["metrics"]["score"] == z["metrics"]["score"]  # weighting is reporting, not optimisation
+
+
+def test_measurements_validate():
+    from pydantic import ValidationError
+
+    p = presets.theater().model_dump()
+    f = [20 * 2 ** (i / 3) for i in range(30)]
+    p["measurements"] = [{"name": "FOH", "freqs": f, "spl": [90.0] * 30, "phase": [0.0] * 30}]
+    assert Project(**p).measurements[0].name == "FOH"
+    p["measurements"][0]["spl"] = [90.0] * 29
+    with pytest.raises(ValidationError):
+        Project(**p)
