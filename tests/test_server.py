@@ -315,3 +315,23 @@ def test_import_over_the_cap_is_refused(api):
         status = 413
     assert status == 413
     assert "library" in api("GET", "/api/speakers")  # engine still answering
+
+
+
+def test_export_includes_sub_array_offsets(api):
+    from acoustic_phase_optimizer.engine import subarray
+
+    p = presets.festival()
+    p.speakers = [s for s in p.speakers if s.role != "sub"] + subarray.build(p, "cardioid", "sub_18", 1, 1.0, 30, 6)
+    rear = p.speakers[-1]
+    rear.delay_ms = 4.0  # an alignment delay on top of the pattern
+    out = api("POST", "/api/export", {"project": p.model_dump(), "format": "json"}, raw=True)
+    rows = json.loads(out[2])["outputs"]
+    r = next(x for x in rows if x["name"] == rear.name)
+    assert r["delay_ms"] == pytest.approx(4.0 + rear.array_delay_ms, abs=0.01)
+    assert r["polarity"] == "Inverted"
+
+
+def test_no_api_docs(api):
+    status, _, body = api("GET", "/api/docs", raw=True)
+    assert status == 404 and "swagger" not in body.lower()

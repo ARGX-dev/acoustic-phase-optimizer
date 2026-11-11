@@ -483,6 +483,8 @@ def test_section_matches_plan_at_ear_height():
     val = sec["values"][iz * sec["nu"] + iu]
     assert abs(val - plan) < 1.5, (val, plan)
     assert sec["nu"] * sec["nz"] <= 5200
+    rough = section(p, "length", x, coarse=True)
+    assert rough["nu"] * rough["nz"] < sec["nu"] * sec["nz"] / 2
     across = section(p, "width", y, "1000")
     assert across["axis"] == "width" and len(across["values"]) == across["nu"] * across["nz"]
 
@@ -596,3 +598,14 @@ def test_sti_in_simulation():
     th = simulate(presets.gymnasium())
     assert 0.2 < th["metrics"]["sti"] < out["metrics"]["sti"]
     assert len(th["maps"]["sti"]) == len(th["maps"]["direct"])
+
+
+
+def test_sub_array_that_does_not_fit_is_refused():
+    from acoustic_phase_optimizer.engine import subarray
+
+    p = presets.theater()
+    with pytest.raises(ValueError, match="outside the room front-to-back"):
+        subarray.build(p, "endfire", "sub_18", 4, 1.2, 10, 1.4)  # the rear boxes would be behind the stage wall
+    with pytest.raises(ValueError, match="outside the room across"):
+        subarray.build(p, "line", "sub_18", 12, 2.0, p.room.width / 2, 3)

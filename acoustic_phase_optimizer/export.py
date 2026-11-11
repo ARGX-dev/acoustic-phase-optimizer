@@ -25,15 +25,18 @@ def outputs(project: Project) -> list[dict]:
     c = speed_of_sound(env.temperature_c, env.humidity_pct, env.pressure_kpa)
     rows = []
     for n, s in enumerate(project.speakers, start=1):
+        # What the processor output must actually do: the alignment delay plus any sub-array pattern offset,
+        # and the polarity after both flips. A rear cardioid box exported as "0 ms, normal" would be wrong.
+        d = s.delay_ms + s.array_delay_ms
         rows.append({
             "output": n,
             "name": s.name,
             "role": ROLE_NAMES.get(s.role, s.role),
-            "delay_ms": round(s.delay_ms, 2),
-            "delay_m": round(s.delay_ms * c / 1000.0, 2),
-            "delay_ft": round(s.delay_ms * c / 1000.0 / 0.3048, 2),
+            "delay_ms": round(d, 2),
+            "delay_m": round(d * c / 1000.0, 2),
+            "delay_ft": round(d * c / 1000.0 / 0.3048, 2),
             "gain_db": round(s.gain_db, 1),
-            "polarity": "Inverted" if s.invert else "Normal",
+            "polarity": "Inverted" if s.invert != s.array_invert else "Normal",
             "mute": bool(s.mute),
             "hpf_hz": s.hp_hz or None,
             "lpf_hz": s.lp_hz or None,

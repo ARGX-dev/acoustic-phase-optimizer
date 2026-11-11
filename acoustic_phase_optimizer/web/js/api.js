@@ -34,13 +34,16 @@ async function request(method, path, body, { signal, as = 'json', keepalive = fa
   return res.json();
 }
 
+// Measured overlays are display-only and can be large; computations never need them.
+const lean = (project) => (project?.measurements?.length ? { ...project, measurements: [] } : project);
+
 export const api = {
   meta: () => request('GET', '/api/meta'),
   venue: (id) => request('GET', `/api/venues/${encodeURIComponent(id)}`),
-  simulate: (project, preview = false, signal) => request('POST', '/api/simulate', { project, preview }, { signal }),
-  section: (project, axis, at, band, signal) => request('POST', '/api/section', { project, axis, at, band }, { signal }),
+  simulate: (project, preview = false, signal) => request('POST', '/api/simulate', { project: lean(project), preview }, { signal }),
+  section: (project, axis, at, band, signal, coarse = false) => request('POST', '/api/section', { project: lean(project), axis, at, band, coarse }, { signal }),
   subarray: (project, opts) => request('POST', '/api/subarray', { project, ...opts }),
-  point: (project, x, y, z) => request('POST', '/api/point', { project, x, y, z }),
+  point: (project, x, y, z) => request('POST', '/api/point', { project: lean(project), x, y, z }),
   align: (project) => request('POST', '/api/align', { project }),
   autoEq: (project, max_bands) => request('POST', '/api/autoeq', { project, max_bands }),
   optimize: (project, weights, time_budget_s) => request('POST', '/api/optimize', { project, weights, time_budget_s }),

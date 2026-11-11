@@ -97,7 +97,8 @@ def simulate(project: Project, preview: bool = False) -> dict:
 SECTION_MAX_POINTS = 3200
 
 
-def section(project: Project, axis: str = "length", at: float | None = None, band: str = "all") -> dict:
+def section(project: Project, axis: str = "length", at: float | None = None, band: str = "all",
+            coarse: bool = False) -> dict:
     """Direct level (direct sound + early reflections, as in the plan's Direct map) on a vertical slice.
 
     axis="length": the slice runs away from the stage at `at` metres across the room.
@@ -112,7 +113,7 @@ def section(project: Project, axis: str = "length", at: float | None = None, ban
     else:
         span = room.width
         at = float(np.clip(room.length / 2 if at is None else at, 0.0, room.length))
-    step = max(0.1, float(np.sqrt(span * room.height / SECTION_MAX_POINTS)))
+    step = max(0.1, float(np.sqrt(span * room.height / (SECTION_MAX_POINTS / 4 if coarse else SECTION_MAX_POINTS))))
     nu = max(2, int(span / step) + 1)
     nz = max(2, int(room.height / step) + 1)
     us = np.linspace(0.05, span - 0.05, nu)
@@ -147,7 +148,7 @@ def section(project: Project, axis: str = "length", at: float | None = None, ban
     wt = weighting_gain(freqs[sel], project.settings.weighting)[None, :] if band == "all" else 1.0
     level = spl((early[:, sel] * wt).mean(1)) if sel.any() else np.full(len(pts), np.nan)
     return {
-        "axis": axis, "at": round(at, 2), "band": band,
+        "axis": axis, "at": round(at, 2), "band": band, "coarse": coarse,
         "nu": nu, "nz": nz, "u0": float(us[0]), "u1": float(us[-1]), "z0": float(zs[0]), "z1": float(zs[-1]),
         "span": span, "height": room.height,
         "values": _r(level, 1),

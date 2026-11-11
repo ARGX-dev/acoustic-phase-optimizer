@@ -345,7 +345,7 @@ export function createLeftPanel(root) {
       h('p', { class: 'hint', text: `${s.array_boxes} × ${type.label.replace(/, hang of \d+$/, '')}: ${fmt(s.level_db, 0)} dB peak at 1 m, ${fmt(s.coverage_v, 0)}° vertical. Each box ${type.spec.box_spl} dB.` })) : null;
     const mates = s.array_group ? P().speakers.filter((q) => q.array_group === s.array_group) : [];
     const subArray = mates.length > 1 ? group('Sub array',
-      h('p', { class: 'hint', text: `One of ${mates.length} boxes in an array. Its pattern offset is ${fmt(s.array_delay_ms, 2)} ms${s.array_invert ? ', polarity inverted' : ''}; the optimizer moves the whole array together and never changes the offsets.` }),
+      h('p', { class: 'hint', text: `One of ${mates.length} boxes in an array. Processor output: ${fmt(s.delay_ms + s.array_delay_ms, 2)} ms (alignment ${fmt(s.delay_ms, 2)} + pattern ${fmt(s.array_delay_ms, 2)})${s.invert !== s.array_invert ? ', polarity inverted' : ''}. The optimizer moves the whole array together and never changes the pattern. The pattern was worked out for the boxes where they were built: if you move one, rebuild the array.` }),
       h('button', { class: 'btn small', title: 'Fold each box\'s offset into its own delay and polarity, and let the optimizer treat them separately',
         onclick: () => mutate((p) => {
           for (const q of p.speakers) {

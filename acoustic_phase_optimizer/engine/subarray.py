@@ -40,8 +40,16 @@ def build(project: Project, kind: Kind, model: str, count: int, spacing: float, 
     out: list[Speaker] = []
 
     def box(name: str, bx: float, by: float, delay: float = 0.0, invert: bool = False) -> Speaker:
-        s = make_speaker(model, name, round(min(max(bx, 0.1), room.width - 0.1), 2),
-                         round(min(max(by, 0.1), room.length - 0.1), 2), height, yaw=0, pitch=0, role="sub")
+        # The pattern delays are computed from these exact positions, so a box that does not fit is refused
+        # rather than moved (a moved box would keep a delay for a spacing that is no longer there).
+        if not 0.1 - 1e-6 <= by <= room.length - 0.1 + 1e-6:
+            need = 0.1 - by if by < 0.1 else by - (room.length - 0.1)
+            raise ValueError(f"{name} would be {abs(need):.1f} m outside the room front-to-back. "
+                             f"Move the array {'further from' if by < 0.1 else 'closer to'} the stage or use fewer boxes.")
+        if not 0.1 - 1e-6 <= bx <= room.width - 0.1 + 1e-6:
+            raise ValueError(f"{name} would be outside the room across. Use a smaller spacing or fewer boxes "
+                             f"(this array is {(count - 1) * spacing:.1f} m wide; the room is {room.width:.1f} m).")
+        s = make_speaker(model, name, round(bx, 2), round(by, 2), height, yaw=0, pitch=0, role="sub")
         s.array_group, s.array_delay_ms, s.array_invert, s.color = group, round(delay, 3), invert, base_color
         return s
 

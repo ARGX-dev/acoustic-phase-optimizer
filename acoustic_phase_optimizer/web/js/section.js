@@ -19,7 +19,7 @@ export function createSection(root) {
   root.append(host);
   const ctx = canvas.getContext('2d');
   let W = 0, H = 0, dpr = 1, visible = false;
-  let data = null, pending = false, error = null, ctrl = null, image = null, imageKey = '';
+  let data = null, pending = false, error = null, ctrl = null, image = null, imageKey = '', version = 0;
   let view = { s: 1, ox: 0, oy: 0 };
   let drag = null, hover = null, raf = 0;
 
@@ -42,6 +42,7 @@ export function createSection(root) {
   }
 
   // ------------------------------------------------------------------ data
+  let coarse = false;
   const fetchNow = async () => {
     if (!visible || !state.project) return;
     ctrl?.abort();
@@ -50,7 +51,8 @@ export function createSection(root) {
     schedule();
     try {
       const band = state.ui.band || 'all';
-      data = await api.section(state.project, axis(), at(), band, ctrl.signal);
+      data = await api.section(state.project, axis(), at(), band, ctrl.signal, coarse);
+      version += 1;
       error = null;
     } catch (e) {
       if (e.name === 'AbortError') return;
@@ -71,7 +73,7 @@ export function createSection(root) {
   }
 
   function heat(sc) {
-    const key = [data, sc.lo, sc.hi, sc.css].map(String).join('|') + data?.timing_ms;
+    const key = [version, sc.lo, sc.hi, sc.css].join('|');
     if (image && imageKey === key) return image;
     const { nu, nz, values } = data;
     const c = document.createElement('canvas');
@@ -262,7 +264,7 @@ export function createSection(root) {
         h('span', { text: `${fmt(sc.lo, 0)} ${unit()}` }), h('div', { class: 'bar', style: { background: sc.css } }), h('span', { text: `${fmt(sc.hi, 0)} ${unit()}` })));
     }
     if (pending) items.push(h('span', { class: 'badge', text: 'Updating' }));
-    items.push(h('span', { class: 'readout', text: hover || 'Direct level on a vertical slice through the probe · drag a speaker to move it, drag its aim handle to tilt · click to move the probe' }));
+    items.push(h('span', { class: 'readout', text: hover || 'Direct level on a vertical slice through the probe · each hang is computed as one source (its stack is drawn for reference) · drag a speaker to move it, drag its aim handle to tilt' }));
     return items;
   }
 
@@ -352,7 +354,12 @@ export function createSection(root) {
   }).observe(host);
 
   let lastAt = null;
-  on('project', () => { if (visible) { schedule(); refetch(); } });
+  on('project', (d) => {
+    if (!visible) return;
+    coarse = !!d?.interacting; // quick, rough slices while dragging; the full one when the drag ends
+    schedule();
+    refetch();
+  });
   on('probe', () => {
     if (!visible) return;
     schedule();

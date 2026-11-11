@@ -54,6 +54,7 @@ class SectionIn(ProjectIn):
     axis: Literal["length", "width"] = "length"
     at: float | None = None
     band: Literal["all", "63", "125", "250", "500", "1000", "2000", "4000", "8000"] = "all"
+    coarse: bool = False  # while dragging: a quarter of the points
 
 
 class SubArrayIn(ProjectIn):
@@ -143,7 +144,7 @@ class Presence:
             return now - self.last_seen > timeout_s
 
 
-LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1", "testserver"}
+LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
 
 
 def content_security_policy() -> str:
@@ -162,7 +163,7 @@ def content_security_policy() -> str:
         "script-src 'self' " + " ".join(hashes),
         "style-src 'self' 'unsafe-inline'",  # element.style from the UI code
         "img-src 'self' data: blob:",
-        "connect-src 'self'",
+        "connect-src 'self' blob:",  # GLTFLoader fetches embedded textures through blob: URLs
         "worker-src 'self' blob:",
         "object-src 'none'",
         "base-uri 'none'",
@@ -172,7 +173,8 @@ def content_security_policy() -> str:
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="Acoustic Phase Optimizer", version=__version__, docs_url="/api/docs", redoc_url=None)
+    # No interactive API docs: their page loads scripts from a CDN, which this app never does.
+    app = FastAPI(title="Acoustic Phase Optimizer", version=__version__, docs_url=None, redoc_url=None, openapi_url=None)
     jobs = JobManager()
     app.state.presence = presence = Presence()
 
@@ -202,9 +204,8 @@ def create_app() -> FastAPI:
         response.headers.setdefault("Cache-Control", "no-cache")
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["Referrer-Policy"] = "no-referrer"
-        if not request.url.path.startswith("/api/docs"):
-            response.headers["Content-Security-Policy"] = csp
-            response.headers["X-Frame-Options"] = "DENY"
+        response.headers["Content-Security-Policy"] = csp
+        response.headers["X-Frame-Options"] = "DENY"
         return response
 
     @app.exception_handler(Exception)
@@ -252,7 +253,7 @@ def create_app() -> FastAPI:
 
     @app.post("/api/section")
     def api_section(body: SectionIn) -> dict:
-        return section(body.project, body.axis, body.at, body.band)
+        return section(body.project, body.axis, body.at, body.band, body.coarse)
 
     @app.post("/api/subarray")
     def api_subarray(body: SubArrayIn) -> dict:
@@ -263,8 +264,11 @@ def create_app() -> FastAPI:
         if body.model not in SPEAKER_TYPES and body.model not in BY_ID:
             raise HTTPException(422, f"Unknown loudspeaker model {body.model!r}.")
         p = body.project
-        new = subarray.build(p, body.kind, body.model, body.count, body.spacing, body.x, body.y,
-                             depth=body.depth, spread_deg=body.spread_deg)
+        try:
+            new = subarray.build(p, body.kind, body.model, body.count, body.spacing, body.x, body.y,
+                                 depth=body.depth, spread_deg=body.spread_deg)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from None
         keep = [s for s in p.speakers if not (body.replace and s.role == "sub")]
         if len(keep) + len(new) > 64:
             raise HTTPException(422, "That would make more than 64 speakers.")

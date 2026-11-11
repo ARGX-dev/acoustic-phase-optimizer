@@ -13,7 +13,7 @@ const METRICS = [
     const r = v >= 0.75 ? 'excellent' : v >= 0.6 ? 'good' : v >= 0.45 ? 'fair' : v >= 0.3 ? 'poor' : 'bad';
     return `${fmt(v, 2)} · ${r}`;
   }, better: 'high', nd: 2,
-    help: 'Estimated Speech Transmission Index (IEC 60268-16, male speech) from direct, early and reverberant sound. Background noise is not included, so treat it as an upper bound. 0.5 is the usual minimum for voice alarm; 0.6+ is good.' },
+    help: 'Estimated Speech Transmission Index (IEC 60268-16, male speech) from direct, early and reverberant sound. Background noise is not included, and late arrivals from delay speakers count as useful sound rather than echoes, so treat it as an upper bound. 0.5 is the usual minimum for voice alarm; 0.6+ is good.' },
   { key: 'echo_pct', label: 'Seats with late arrivals', show: (v) => `${fmt(v, 0)}%`, better: 'low',
     help: 'Seats where two audible speakers arrive more than 30 ms apart, which is heard as an echo. Alignment fixes this.' },
   { key: 'summation', label: 'Summation', show: (v) => `${fmt(v, 2, true)} dB`, better: 'high',

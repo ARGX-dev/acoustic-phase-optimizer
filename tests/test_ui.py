@@ -9,6 +9,7 @@ The tests share one page and run in file order, like a person using the app.
 from __future__ import annotations
 
 import os
+import re
 import socket
 import threading
 import time
@@ -74,6 +75,47 @@ def ui(tmp_path_factory):
     browser.close()
     pw.stop()
     server.should_exit = True
+
+
+def textured_glb(path):
+    """A 4 x 6 m floor quad with an embedded 2 x 2 PNG texture: the shape of a Polycam GLB, in a few hundred bytes."""
+    import json as _json
+    import struct
+    import zlib
+
+    def png():
+        raw = b"".join(b"\x00" + bytes([200, 60, 60, 255, 60, 200, 60, 255]) for _ in range(2))
+        def chunk(t, d):
+            return struct.pack(">I", len(d)) + t + d + struct.pack(">I", zlib.crc32(t + d) & 0xFFFFFFFF)
+        return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", 2, 2, 8, 6, 0, 0, 0))
+                + chunk(b"IDAT", zlib.compress(raw)) + chunk(b"IEND", b""))
+
+    pos = struct.pack("<12f", 0, 0, 0, 4, 0, 0, 4, 0, 6, 0, 0, 6)
+    uv = struct.pack("<8f", 0, 0, 1, 0, 1, 1, 0, 1)
+    idx = struct.pack("<6H", 0, 2, 1, 0, 3, 2) + b"\x00\x00"
+    img = png()
+    img += b"\x00" * (-len(img) % 4)
+    blob = pos + uv + idx + img
+    views = [{"buffer": 0, "byteOffset": 0, "byteLength": len(pos)},
+             {"buffer": 0, "byteOffset": len(pos), "byteLength": len(uv)},
+             {"buffer": 0, "byteOffset": len(pos) + len(uv), "byteLength": 12},
+             {"buffer": 0, "byteOffset": len(pos) + len(uv) + len(idx), "byteLength": len(png())}]
+    gltf = {
+        "asset": {"version": "2.0"}, "scene": 0, "scenes": [{"nodes": [0]}], "nodes": [{"mesh": 0}],
+        "meshes": [{"primitives": [{"attributes": {"POSITION": 0, "TEXCOORD_0": 1}, "indices": 2, "material": 0}]}],
+        "materials": [{"pbrMetallicRoughness": {"baseColorTexture": {"index": 0}}}],
+        "textures": [{"source": 0}], "images": [{"bufferView": 3, "mimeType": "image/png"}],
+        "accessors": [
+            {"bufferView": 0, "componentType": 5126, "count": 4, "type": "VEC3", "min": [0, 0, 0], "max": [4, 0, 6]},
+            {"bufferView": 1, "componentType": 5126, "count": 4, "type": "VEC2"},
+            {"bufferView": 2, "componentType": 5123, "count": 6, "type": "SCALAR"}],
+        "bufferViews": views, "buffers": [{"byteLength": len(blob)}],
+    }
+    js = _json.dumps(gltf).encode()
+    js += b" " * (-len(js) % 4)
+    body = struct.pack("<II", len(js), 0x4E4F534A) + js + struct.pack("<II", len(blob), 0x004E4942) + blob
+    path.write_bytes(struct.pack("<III", 0x46546C67, 2, 12 + len(body)) + body)
+    return path
 
 
 def confirm(page) -> bool:
@@ -603,7 +645,7 @@ def test_no_console_errors(ui):
     assert not ui["errors"], ui["errors"]
 
 
-def test_strict_csp_blocks_nothing(ui):
+def test_strict_csp_blocks_nothing(ui, tmp_path):
     ctx = ui["browser"].new_context(viewport={"width": 1560, "height": 960})
     page = ctx.new_page()
     errors = []
@@ -614,7 +656,23 @@ def test_strict_csp_blocks_nothing(ui):
     page.wait_for_selector(".score .num", timeout=30000)
     page.locator("#stage-toolbar .seg button", has_text="3D").click()
     page.wait_for_selector(".view3d canvas", timeout=15000)
-    time.sleep(1.5)
+    time.sleep(1.0)
+    # the features that load code or data at run time, under the real policy
+    page.locator("#stage-toolbar .seg button", has_text="Section").click()
+    page.wait_for_selector("#stage-foot .scale", timeout=20000)
+    page.get_by_role("tab", name="Speakers").click()
+    page.get_by_role("button", name="Build a sub array…").click()
+    page.wait_for_selector(".dialog .sub-sketch")
+    page.keyboard.press("Escape")
+    page.locator("#stage-toolbar .seg button", has_text="3D").click()
+    page.get_by_role("tab", name="Room").click()
+    with page.expect_file_chooser() as fc:
+        # "Import a 3D scan…", or "Replace…" when an earlier test left a scan in the shared session
+        page.locator("button", has_text=re.compile(r"^(Import a 3D scan…|Replace…)$")).first.click()
+    fc.value.set_files(str(textured_glb(tmp_path / "textured.glb")))
+    # The texture loads (no CSP violation); a flat test quad is then rightly refused as a room.
+    page.wait_for_selector(".dialog :text('m tall')", timeout=20000)
     violations = page.evaluate("window.__csp")
     ctx.close()
+    errors = [e for e in errors if "status of 422" not in e]
     assert violations == [] and errors == [], (violations, errors)
