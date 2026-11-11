@@ -1,0 +1,4 @@
+acoustic_phase_optimizer/web/vendor/** -text
+tests/fixtures/*.glb binary
+tests/fixtures/*.usdz binary
+tests/fixtures/*.ktx2 binary

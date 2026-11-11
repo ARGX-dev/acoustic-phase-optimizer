@@ -23,7 +23,7 @@ dd0989eea0aef821a515ec0f9602cad26ea5290589e7ca779eb9b2b80f6dfb37 *./three/exampl
 ce938459ed99d5234f9665270cca8552464d0d1703a094e49760631e6b14c7a3 *./three/examples/jsm/loaders/TGALoader.js
 2fc767b02d8f8e7c30610f4daef50a09c0616cf23d2a455473a6ef12d4477ae9 *./three/examples/jsm/loaders/USDLoader.js
 de0fdef9cf8d392a4799b73b64adb678c1324176366635de47d1c738e315de0a *./three/examples/jsm/loaders/usd/USDAParser.js
-50272ecd531db21ba060b3cbfc5c5e248aa96ec497a88df7b3bca5965db0e19a *./three/examples/jsm/loaders/usd/USDCParser.js
+7f3855108fd44c02f13242807000a30633abdcc61cb931a2c6e6d09cd6cfe555 *./three/examples/jsm/loaders/usd/USDCParser.js
 ab69972fe70cdb53a6ffa935ba4dbe541cbac4dc6c1b28faa3a3ad389e15cefb *./three/examples/jsm/loaders/usd/USDComposer.js
 56981604d66cccc26558c710afe08a15177030f8dd3842255d1cc53b4c9b7f3b *./three/examples/jsm/math/ColorSpaces.js
 c25b7930e570e9ec56173cd3b866ec8d2e10016630db3937efb439daf1cedbf6 *./three/examples/jsm/utils/BufferGeometryUtils.js
