@@ -437,7 +437,7 @@ def create_app() -> FastAPI:
     async def api_scan_upload(request: Request, ext: str) -> dict:
         ext = ext.lower().lstrip(".")
         if ext not in storage.SCAN_TYPES:
-            raise HTTPException(415, "Scans can be GLB, OBJ or PLY files.")
+            raise HTTPException(415, "Scans and models can be GLB, OBJ, PLY, MVR, 3DS, DAE, FBX or STL files.")
         size = int(request.headers.get("content-length") or 0)
         if size > storage.MAX_SCAN_BYTES:
             raise HTTPException(413, f"The scan is {size / 1e6:.0f} MB; the limit is {storage.MAX_SCAN_BYTES // 1_000_000} MB.")

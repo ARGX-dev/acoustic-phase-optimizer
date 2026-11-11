@@ -82,7 +82,9 @@ def delete_project(key: str) -> bool:
     return False
 
 
-SCAN_TYPES = {"glb": "model/gltf-binary", "obj": "text/plain", "ply": "application/octet-stream"}
+SCAN_TYPES = {"glb": "model/gltf-binary", "obj": "text/plain", "ply": "application/octet-stream",
+              "mvr": "application/zip", "3ds": "application/octet-stream", "dae": "model/vnd.collada+xml",
+              "fbx": "application/octet-stream", "stl": "model/stl"}
 MAX_SCAN_BYTES = 300 * 1024 * 1024
 
 

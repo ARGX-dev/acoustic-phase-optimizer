@@ -12,7 +12,33 @@ import { cssVar } from './theme.js';
 import { openDialog } from './dialog.js';
 import { fromDisp, len, lenNum, lenUnit, toDisp } from './units.js';
 
-export const SCAN_EXTS = ['glb', 'obj', 'ply'];
+export const SCAN_EXTS = ['glb', 'obj', 'ply', 'mvr', '3ds', 'dae', 'fbx', 'stl'];
+// Native up axis of each format, as the import's first guess (the dialog lets you change it).
+const Z_UP = new Set(['mvr', '3ds', 'stl']);
+const NOT_READABLE = {
+  usdz: 'USDZ scans cannot be read yet. Export the scan as GLB or OBJ instead (Polycam, Scaniverse and 3d Scanner App all can).',
+  gltf: 'A .gltf comes with separate buffer and texture files. Export a single-file GLB instead.',
+  dwg: 'DWG is a closed format. From Vectorworks or AutoCAD, export MVR, 3DS, FBX, COLLADA (DAE), OBJ or STL instead.',
+  dxf: 'DXF cannot be read yet. Export MVR, 3DS, FBX, COLLADA (DAE), OBJ or STL instead.',
+  vwx: 'Vectorworks files are a closed format. Use File > Export > Export MVR (or 3DS, FBX, COLLADA, OBJ, STL).',
+  rvt: 'Revit files are a closed format. Export FBX or OBJ from Revit instead.',
+  ifc: 'IFC cannot be read yet. Export MVR, 3DS, FBX, COLLADA (DAE), OBJ or STL instead.',
+  step: 'STEP needs a full CAD kernel to read. Export a mesh format instead: MVR, 3DS, FBX, COLLADA (DAE), OBJ or STL.',
+  stp: 'STEP needs a full CAD kernel to read. Export a mesh format instead: MVR, 3DS, FBX, COLLADA (DAE), OBJ or STL.',
+  igs: 'IGES needs a full CAD kernel to read. Export a mesh format instead: MVR, 3DS, FBX, COLLADA (DAE), OBJ or STL.',
+  iges: 'IGES needs a full CAD kernel to read. Export a mesh format instead: MVR, 3DS, FBX, COLLADA (DAE), OBJ or STL.',
+  sat: 'SAT needs a full CAD kernel to read. Export a mesh format instead: MVR, 3DS, FBX, COLLADA (DAE), OBJ or STL.',
+};
+/** Loaders ask for textures by path; serve them nothing rather than fetching from the app's server. */
+function quietManager() {
+  const m = new THREE.LoadingManager();
+  m.setURLModifier((u) => (/^(data|blob):/.test(u) ? u : 'data:,'));
+  return m;
+}
+const plain = (geo) => {
+  if (!geo.attributes.normal) geo.computeVertexNormals();
+  return new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: 0xb9b6ae, roughness: 0.9, side: THREE.DoubleSide }));
+};
 const MAX_BYTES = 300 * 1024 * 1024;
 const UNITS = [['1', 'metres'], ['0.01', 'centimetres'], ['0.001', 'millimetres'], ['0.3048', 'feet'], ['0.0254', 'inches']];
 const SIDES = ['-y', '+x', '+y', '-x'];
@@ -26,8 +52,32 @@ function friendly(e) {
   return `The scan could not be read: ${m}`;
 }
 
-/** Parse a scan file into a three.js object (native coordinates, whatever units the file uses). */
+/** Parse a scan or model file into a three.js object (native coordinates, whatever units the file uses). */
 export async function parseScan(buffer, ext) {
+  const both = (o) => { o.traverse((c) => { if (c.isMesh) { (Array.isArray(c.material) ? c.material : [c.material]).forEach((mt) => { mt.side = THREE.DoubleSide; }); if (!c.geometry.attributes.normal) c.geometry.computeVertexNormals(); } }); return o; };
+  if (ext === 'mvr') return (await import('./mvr.js')).parseMvr(buffer); // metres, Z up
+  if (ext === 'stl') {
+    const { STLLoader } = await import('three/addons/loaders/STLLoader.js');
+    return plain(new STLLoader().parse(buffer));
+  }
+  if (ext === '3ds') {
+    const { TDSLoader } = await import('three/addons/loaders/TDSLoader.js');
+    return both(new TDSLoader(quietManager()).parse(buffer, ''));
+  }
+  if (ext === 'dae') {
+    const { ColladaLoader } = await import('three/addons/loaders/ColladaLoader.js');
+    // The loader warns on every Z-up file (most CAD exports) that it rotates rather than converts: expected here.
+    const warn = console.warn;
+    console.warn = (...a) => { if (!/Z-UP coordinate system/.test(String(a[0]))) warn(...a); };
+    let dae;
+    try { dae = new ColladaLoader(quietManager()).parse(new TextDecoder().decode(buffer), ''); } finally { console.warn = warn; }
+    if (!dae?.scene) throw new Error('the file has no scene');
+    return both(dae.scene); // COLLADA states its unit and up axis; the loader turns it into metres, Y up
+  }
+  if (ext === 'fbx') {
+    const { FBXLoader } = await import('three/addons/loaders/FBXLoader.js');
+    return both(new FBXLoader(quietManager()).parse(buffer, ''));
+  }
   if (ext === 'glb') {
     const gltf = await new Promise((res, rej) => new GLTFLoader().parse(buffer, '', res, rej));
     const root = gltf.scene || gltf.scenes?.[0];
@@ -170,29 +220,37 @@ export async function scanObject(ref) {
 export async function importScan(file) {
   const ext = (file.name.split('.').pop() || '').toLowerCase();
   if (!SCAN_EXTS.includes(ext)) {
-    toast(ext === 'usdz' ? 'USDZ scans cannot be read yet. Export the scan as GLB or OBJ instead (Polycam, Scaniverse and 3d Scanner App all can).'
-      : 'Choose a GLB, OBJ or PLY file.', { error: true });
+    toast(NOT_READABLE[ext] || 'Choose a scan (GLB, OBJ, PLY) or a model (MVR, 3DS, FBX, COLLADA .dae, STL).', { error: true });
     return;
   }
   if (file.size > MAX_BYTES) { toast(`That scan is ${Math.round(file.size / 1e6)} MB; the limit is 300 MB. Export it at a lower detail level.`, { error: true }); return; }
   const busy = toast(`Reading ${file.name}…`, { ms: 60000 });
-  let raw, buffer;
+  let raw, buffer, obj;
   try {
     buffer = await file.arrayBuffer();
-    const obj = await parseScan(buffer, ext);
+    obj = await parseScan(buffer, ext);
     raw = samplePoints(obj);
   } catch (e) {
     busy.remove();
     toast(friendly(e), { error: true });
     return;
   } finally { busy.remove(); }
+  const mvr = obj?.userData?.mvr;
+  if (mvr) {
+    toast(`MVR: ${mvr.instances} pieces of geometry from ${mvr.files} file${mvr.files === 1 ? '' : 's'}`
+      + (mvr.fixtures ? `; ${mvr.fixtures} fixtures left out (MVR keeps their shapes in GDTF files)` : '')
+      + (mvr.missing.length ? `; not in the archive: ${mvr.missing.slice(0, 3).join(', ')}${mvr.missing.length > 3 ? '…' : ''}` : '') + '.', { ms: 8000 });
+  }
 
   const size = new THREE.Vector3();
   raw.box.getSize(size);
   const span = Math.max(size.x, size.y, size.z);
+  // FBX states its unit (centimetres per file unit); MVR and COLLADA arrive in metres; otherwise guess from the size.
+  const fbxUnit = ext === 'fbx' ? Number(obj?.userData?.unitScaleFactor) / 100 : NaN;
+  const known = UNITS.find(([v]) => Math.abs(Number(v) - fbxUnit) < 1e-6);
   const choice = {
-    up: ext === 'ply' && size.z < size.y ? 'z' : 'y',
-    unit: span > 1500 ? '0.001' : span > 150 ? '0.01' : '1',
+    up: Z_UP.has(ext) || (ext === 'ply' && size.z < size.y) ? 'z' : 'y',
+    unit: ext === 'mvr' || ext === 'dae' ? '1' : known ? known[0] : span > 1500 ? '0.001' : span > 150 ? '0.01' : '1',
     side: null, fit: null, dims: null, error: null,
   };
 
@@ -329,7 +387,7 @@ function applyScan(name, ext, id, choice) {
 
 /** Pick a file and import it. */
 export function chooseScanFile() {
-  const input = h('input', { type: 'file', accept: '.glb,.obj,.ply', style: { display: 'none' },
+  const input = h('input', { type: 'file', accept: SCAN_EXTS.map((e) => `.${e}`).join(','), style: { display: 'none' },
     onchange: () => { const f = input.files?.[0]; input.remove(); if (f) importScan(f); } });
   document.body.append(input);
   input.click();

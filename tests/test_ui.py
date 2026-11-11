@@ -295,6 +295,131 @@ def room_obj(path: Path, w=12.0, l=20.0, h=5.0, yaw_deg=30.0) -> Path:
     return path
 
 
+def room_3ds(w=12.0, l=20.0, h=5.0) -> bytes:
+    """A 3DS room (six faces as 12 triangles) in millimetres, as MVR requires for 3DS."""
+    import struct
+
+    def chunk(cid, data):
+        return struct.pack("<HI", cid, 6 + len(data)) + data
+
+    corners = [(x * 1000, y * 1000, z * 1000) for z in (0, h) for y in (0, l) for x in (0, w)]
+    quads = [(0, 1, 3, 2), (4, 6, 7, 5), (0, 4, 5, 1), (2, 3, 7, 6), (0, 2, 6, 4), (1, 5, 7, 3)]
+    tris = [t for a, b, c, d in quads for t in ((a, b, c), (a, c, d))]
+    verts = struct.pack("<H", len(corners)) + b"".join(struct.pack("<3f", *c) for c in corners)
+    faces = struct.pack("<H", len(tris)) + b"".join(struct.pack("<4H", *t, 0) for t in tris)
+    mesh = chunk(0x4100, chunk(0x4110, verts) + chunk(0x4120, faces))
+    return chunk(0x4D4D, chunk(0x0002, struct.pack("<I", 3)) + chunk(0x3D3D, chunk(0x4000, b"room\x00" + mesh)))
+
+
+def venue_mvr(path, tmp):
+    """An MVR as Vectorworks writes one: a 3DS room inside a group, two GLB props through a symbol, a fixture."""
+    import math
+    import zipfile
+
+    a = math.radians(30)
+    c, s_ = math.cos(a), math.sin(a)
+    rot = f"{{{c:.6f},{s_:.6f},0}}{{{-s_:.6f},{c:.6f},0}}{{0,0,1}}{{2000,3000,0}}"
+    xml = f"""<?xml version="1.0" encoding="UTF-8" standalone="no" ?>
+<GeneralSceneDescription verMajor="1" verMinor="6" provider="test">
+  <Scene>
+    <AUXData>
+      <Symdef name="riser" uuid="S1"><ChildList><Geometry3D fileName="prop.glb"/></ChildList></Symdef>
+    </AUXData>
+    <Layers>
+      <Layer name="Venue" uuid="L1">
+        <ChildList>
+          <GroupObject name="Building" uuid="G1">
+            <Matrix>{{1,0,0}}{{0,1,0}}{{0,0,1}}{{1000,0,0}}</Matrix>
+            <ChildList>
+              <SceneObject name="Hall" uuid="O1">
+                <Matrix>{rot}</Matrix>
+                <Geometries><Geometry3D fileName="hall"/></Geometries>
+              </SceneObject>
+            </ChildList>
+          </GroupObject>
+          <SceneObject name="Riser A" uuid="O2">
+            <Geometries><Symbol uuid="Y1" symdef="S1"><Matrix>{{1,0,0}}{{0,1,0}}{{0,0,1}}{{3000,4000,0}}</Matrix></Symbol></Geometries>
+          </SceneObject>
+          <SceneObject name="Riser B" uuid="O3">
+            <Geometries><Symbol uuid="Y2" symdef="S1"><Matrix>{{1,0,0}}{{0,1,0}}{{0,0,1}}{{6000,9000,0}}</Matrix></Symbol></Geometries>
+          </SceneObject>
+          <Fixture name="Spot 1" uuid="F1"><GDTFSpec>Spot.gdtf</GDTFSpec><GDTFMode>Std</GDTFMode>
+            <Matrix>{{1,0,0}}{{0,1,0}}{{0,0,1}}{{5000,5000,4000}}</Matrix></Fixture>
+        </ChildList>
+      </Layer>
+    </Layers>
+  </Scene>
+</GeneralSceneDescription>"""
+    glb = textured_glb(tmp / "prop.glb").read_bytes()
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("GeneralSceneDescription.xml", xml)
+        z.writestr("hall.3ds", room_3ds())
+        z.writestr("prop.glb", glb, compress_type=zipfile.ZIP_STORED)
+    return path
+
+
+def test_import_mvr_venue(ui, tmp_path):
+    import base64
+
+    page = ui["page"]
+    path = venue_mvr(tmp_path / "venue.mvr", tmp_path)
+    # the reader itself: metres, Z up, transforms compounded, symbols instanced, fixtures counted
+    info = page.evaluate("""async (b64) => {
+        const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+        const THREE = await import('three');
+        const g = await (await import('/js/mvr.js')).parseMvr(bytes.buffer);
+        const sizes = [];
+        g.children[0].children.forEach((o) => { const b = new THREE.Box3().setFromObject(o); const s = b.getSize(new THREE.Vector3()); sizes.push([s.x, s.y, s.z].map((v) => +v.toFixed(2))); });
+        let bad = null;
+        try { await (await import('/js/mvr.js')).parseMvr(new Uint8Array(300).buffer); } catch (e) { bad = e.message; }
+        return { mvr: g.userData.mvr, sizes, bad };
+    }""", base64.b64encode(path.read_bytes()).decode())
+    assert info["mvr"]["instances"] == 3 and info["mvr"]["fixtures"] == 1 and info["mvr"]["missing"] == []
+    props = sorted(info["sizes"])[:2]
+    assert all(sorted(p_)[1:] == pytest.approx([4.0, 6.0], abs=0.01) for p_ in props), info  # a 4 x 6 m glTF quad stays 4 x 6 m
+    assert "not an MVR file" in info["bad"]
+    # and through the import dialog: the room is measured from the 3DS hall
+    page.get_by_role("tab", name="Room").click()
+    with page.expect_file_chooser() as fc:
+        page.get_by_role("button", name=re.compile("Import a 3D scan…|Replace…")).click()
+    fc.value.set_files(str(path))
+    page.wait_for_selector(".dialog .scan-preview", timeout=20000)
+    page.wait_for_function("document.querySelector('.dialog [aria-label=\"Stage to back\"]').value !== ''", timeout=20000)
+    dims = sorted(float(page.locator(f".dialog [aria-label='{k}']").input_value()) for k in ("Stage to back", "Width"))
+    assert dims == pytest.approx([12.0, 20.0], abs=0.4)
+    assert float(page.locator(".dialog [aria-label='Height']").input_value()) == pytest.approx(5.0, abs=0.2)
+    shot(page, "27-mvr-dialog")
+    page.locator(".dialog .btn", has_text="Cancel").click()
+    page.wait_for_selector(".dialog", state="detached", timeout=10000)
+
+
+def test_stl_and_collada_readers(ui):
+    import base64
+    import struct
+
+    tri = struct.pack("<12f", 0, 0, 1, 0, 0, 0, 3, 0, 0, 0, 4, 0) + b"\x00\x00"
+    stl = b"\x00" * 80 + struct.pack("<I", 1) + tri
+    dae = """<?xml version="1.0"?><COLLADA xmlns="http://www.collada.org/2005/11/COLLADASchema" version="1.4.1">
+<asset><unit meter="0.01" name="centimeter"/><up_axis>Z_UP</up_axis></asset>
+<library_geometries><geometry id="g"><mesh>
+<source id="p"><float_array id="pa" count="9">0 0 0 300 0 0 0 400 0</float_array>
+<technique_common><accessor source="#pa" count="3" stride="3"><param name="X" type="float"/><param name="Y" type="float"/><param name="Z" type="float"/></accessor></technique_common></source>
+<vertices id="v"><input semantic="POSITION" source="#p"/></vertices>
+<triangles count="1"><input semantic="VERTEX" source="#v" offset="0"/><p>0 1 2</p></triangles>
+</mesh></geometry></library_geometries>
+<library_visual_scenes><visual_scene id="s"><node id="n"><instance_geometry url="#g"/></node></visual_scene></library_visual_scenes>
+<scene><instance_visual_scene url="#s"/></scene></COLLADA>"""
+    sizes = ui["page"].evaluate("""async ([stl, dae]) => {
+        const THREE = await import('three');
+        const { parseScan } = await import('/js/scan.js');
+        const buf = (b64) => Uint8Array.from(atob(b64), (c) => c.charCodeAt(0)).buffer;
+        const size = (o) => { o.updateMatrixWorld(true); const s = new THREE.Box3().setFromObject(o).getSize(new THREE.Vector3()); return [s.x, s.y, s.z].map((v) => +v.toFixed(3)); };
+        return [size(await parseScan(buf(stl), 'stl')), size(await parseScan(buf(dae), 'dae'))];
+    }""", [base64.b64encode(stl).decode(), base64.b64encode(dae.encode()).decode()])
+    assert sizes[0] == [3, 4, 0]  # STL as written (units chosen in the dialog)
+    assert sizes[1] == pytest.approx([3, 0, 4], abs=0.01)  # COLLADA: centimetres to metres, Z up turned to Y up
+
+
 def test_import_scan_sets_the_room(ui, tmp_path):
     page = ui["page"]
     page.get_by_role("tab", name="Room").click()

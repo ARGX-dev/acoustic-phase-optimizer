@@ -163,7 +163,7 @@ class ScanRef(BaseModel):
 
     id: str = Field(pattern=r"^[0-9a-f]{16,64}$")
     name: str = "scan"
-    ext: Literal["glb", "obj", "ply"]
+    ext: Literal["glb", "obj", "ply", "mvr", "3ds", "dae", "fbx", "stl"]
     up: Literal["y", "z"] = "y"
     unit_scale: float = Field(1.0, gt=0, le=10)
     yaw_deg: float = 0.0
