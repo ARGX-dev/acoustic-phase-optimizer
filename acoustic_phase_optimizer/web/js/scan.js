@@ -1,4 +1,4 @@
-// Importing a 3D scan (GLB, OBJ or PLY): read it in the browser, measure it, let the user confirm the room,
+// Importing a 3D scan or venue model (GLB/glTF, USDZ, OBJ, PLY, MVR, 3DS, FBX, COLLADA, STL): read it in the browser, measure it, let the user confirm the room,
 // then store the file and keep only a small reference in the project. Loaded on demand with three.js.
 
 import * as THREE from 'three';
@@ -12,12 +12,13 @@ import { cssVar } from './theme.js';
 import { openDialog } from './dialog.js';
 import { fromDisp, len, lenNum, lenUnit, toDisp } from './units.js';
 
-export const SCAN_EXTS = ['glb', 'obj', 'ply', 'mvr', '3ds', 'dae', 'fbx', 'stl'];
+export const SCAN_EXTS = ['glb', 'obj', 'ply', 'mvr', '3ds', 'dae', 'fbx', 'stl', 'usdz', 'usd', 'usda', 'usdc'];
+// Chosen alongside a .gltf (which is packed into a GLB before import), never imported on their own.
+const GLTF_PARTS = ['gltf', 'bin', 'png', 'jpg', 'jpeg', 'webp'];
+const USD = new Set(['usdz', 'usd', 'usda', 'usdc']);
 // Native up axis of each format, as the import's first guess (the dialog lets you change it).
 const Z_UP = new Set(['mvr', '3ds', 'stl']);
 const NOT_READABLE = {
-  usdz: 'USDZ scans cannot be read yet. Export the scan as GLB or OBJ instead (Polycam, Scaniverse and 3d Scanner App all can).',
-  gltf: 'A .gltf comes with separate buffer and texture files. Export a single-file GLB instead.',
   dwg: 'DWG is a closed format. From Vectorworks or AutoCAD, export MVR, 3DS, FBX, COLLADA (DAE), OBJ or STL instead.',
   dxf: 'DXF cannot be read yet. Export MVR, 3DS, FBX, COLLADA (DAE), OBJ or STL instead.',
   vwx: 'Vectorworks files are a closed format. Use File > Export > Export MVR (or 3DS, FBX, COLLADA, OBJ, STL).',
@@ -56,6 +57,7 @@ function friendly(e) {
 export async function parseScan(buffer, ext) {
   const both = (o) => { o.traverse((c) => { if (c.isMesh) { (Array.isArray(c.material) ? c.material : [c.material]).forEach((mt) => { mt.side = THREE.DoubleSide; }); if (!c.geometry.attributes.normal) c.geometry.computeVertexNormals(); } }); return o; };
   if (ext === 'mvr') return (await import('./mvr.js')).parseMvr(buffer); // metres, Z up
+  if (USD.has(ext)) return (await import('./formats.js')).parseUsd(buffer, ext); // metres, Y up
   if (ext === 'stl') {
     const { STLLoader } = await import('three/addons/loaders/STLLoader.js');
     return plain(new STLLoader().parse(buffer));
@@ -217,10 +219,28 @@ export async function scanObject(ref) {
 }
 
 // ------------------------------------------------------------- the import
+const extOf = (f) => (f.name.split('.').pop() || '').toLowerCase();
+
+/** Import from a set of chosen files: one scan or model, or a .gltf with its buffers and textures. */
+export async function importFiles(files) {
+  const gltf = files.find((f) => extOf(f) === 'gltf');
+  if (gltf) {
+    let packed;
+    try { packed = await (await import('./formats.js')).gltfToGlb(gltf, files); } catch (e) { toast(`The glTF could not be read: ${e.message}`, { error: true }); return; }
+    if (packed.missing.length) {
+      toast(`Some textures were not among the chosen files and are left plain: ${packed.missing.slice(0, 3).join(', ')}${packed.missing.length > 3 ? '…' : ''}.`, { ms: 8000 });
+    }
+    return importScan(packed.file);
+  }
+  const main = files.find((f) => SCAN_EXTS.includes(extOf(f))) || files[0];
+  if (main) return importScan(main);
+}
+
 export async function importScan(file) {
-  const ext = (file.name.split('.').pop() || '').toLowerCase();
+  const ext = extOf(file);
   if (!SCAN_EXTS.includes(ext)) {
-    toast(NOT_READABLE[ext] || 'Choose a scan (GLB, OBJ, PLY) or a model (MVR, 3DS, FBX, COLLADA .dae, STL).', { error: true });
+    toast(NOT_READABLE[ext] || (GLTF_PARTS.includes(ext) ? 'Choose the .gltf file together with its .bin and texture files.'
+      : 'Choose a scan (GLB, glTF, USDZ, OBJ, PLY) or a model (MVR, 3DS, FBX, COLLADA .dae, STL).'), { error: true });
     return;
   }
   if (file.size > MAX_BYTES) { toast(`That scan is ${Math.round(file.size / 1e6)} MB; the limit is 300 MB. Export it at a lower detail level.`, { error: true }); return; }
@@ -439,22 +459,33 @@ export async function folderToMvr(files) {
   return new File([...parts, ...central, new Uint8Array(end.buffer)], folder.toLowerCase().endsWith('.mvr') ? folder : `${folder}.mvr`);
 }
 
-/** Pick a folder holding an unpacked MVR (Windows sometimes extracts .mvr files) and import it. */
+/** Pick a folder: an unpacked MVR (Windows sometimes extracts .mvr files) or a glTF with its files, and import it. */
 export function chooseMvrFolder() {
   const input = h('input', { type: 'file', style: { display: 'none' }, attrs: { webkitdirectory: '', multiple: '' },
     onchange: async () => {
       const files = [...(input.files || [])];
       input.remove();
       if (!files.length) return;
-      try { importScan(await folderToMvr(files)); } catch (e) { toast(`Could not read the folder: ${e.message}`, { error: true }); }
+      try {
+        if (files.some((f) => f.name.toLowerCase() === 'generalscenedescription.xml')) { importScan(await folderToMvr(files)); return; }
+        const gltfs = files.filter((f) => extOf(f) === 'gltf');
+        if (gltfs.length) {
+          // the top-most .gltf is the model; others deeper down are usually variants or samples
+          gltfs.sort((a, b) => a.webkitRelativePath.split('/').length - b.webkitRelativePath.split('/').length);
+          importFiles([gltfs[0], ...files.filter((f) => extOf(f) !== 'gltf')]);
+          return;
+        }
+        throw new Error('it holds neither an unpacked MVR (GeneralSceneDescription.xml) nor a .gltf');
+      } catch (e) { toast(`Could not read the folder: ${e.message}`, { error: true }); }
     } });
   document.body.append(input);
   input.click();
 }
 
 export function chooseScanFile() {
-  const input = h('input', { type: 'file', accept: SCAN_EXTS.map((e) => `.${e}`).join(','), style: { display: 'none' },
-    onchange: () => { const f = input.files?.[0]; input.remove(); if (f) importScan(f); } });
+  const input = h('input', { type: 'file', accept: [...SCAN_EXTS, ...GLTF_PARTS].map((e) => `.${e}`).join(','), style: { display: 'none' },
+    attrs: { multiple: '' }, // a .gltf is chosen together with its .bin and textures
+    onchange: () => { const files = [...(input.files || [])]; input.remove(); if (files.length) importFiles(files); } });
   document.body.append(input);
   input.click();
 }

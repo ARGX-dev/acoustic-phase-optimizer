@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import pathlib
 import socket
 import threading
 import time
@@ -221,6 +222,14 @@ def test_scan_upload_fetch_and_fit(api):
     assert status == 200
     assert api("GET", "/api/scans/0123456789abcdef0123.ply", raw=True)[0] == 404
     assert api("GET", "/api/scans/..%2F..%2Fsession.ply", raw=True)[0] == 404
+
+    usdz = (pathlib.Path(__file__).parent / "fixtures" / "roomplan.usdz").read_bytes()
+    req = urllib.request.Request(f"http://127.0.0.1:{api.port}/api/scans?ext=usdz", data=usdz, method="POST",
+                                 headers={"Content-Type": "application/octet-stream"})
+    with urllib.request.urlopen(req, timeout=30) as r:
+        uref = json.loads(r.read())
+    with urllib.request.urlopen(f"http://127.0.0.1:{api.port}/api/scans/{uref['id']}.usdz", timeout=30) as r:
+        assert r.read() == usdz and r.headers["Content-Type"].startswith("model/vnd.usdz+zip")
 
     bad = urllib.request.Request(f"http://127.0.0.1:{api.port}/api/scans?ext=exe", data=body, method="POST")
     with pytest.raises(urllib.error.HTTPError) as e:

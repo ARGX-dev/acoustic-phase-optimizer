@@ -213,12 +213,12 @@ export function createLeftPanel(root) {
     const sc = P().scan;
     const pick = () => import('./scan.js').then((m) => m.chooseScanFile()).catch((e) => toast(`Scan import is unavailable: ${e.message}`, { error: true }));
     const pickFolder = () => import('./scan.js').then((m) => m.chooseMvrFolder()).catch((e) => toast(`Scan import is unavailable: ${e.message}`, { error: true }));
-    const MVR_FOLDER_TIP = 'For an .mvr that was unzipped into a folder of .glb, .gdtf and GeneralSceneDescription.xml files';
+    const MVR_FOLDER_TIP = 'A folder holding an unzipped .mvr (GeneralSceneDescription.xml with .glb and .gdtf files), or a .gltf with its .bin and texture files';
     if (!sc) {
       return group('3D scan',
         h('button', { class: 'btn block', onclick: pick }, icon('cube'), 'Import a 3D scan…'),
-        h('button', { class: 'btn small block', style: { marginTop: '6px' }, title: MVR_FOLDER_TIP, onclick: pickFolder }, 'Import an unpacked MVR folder…'),
-        h('p', { class: 'hint', text: 'A scan (GLB, OBJ or PLY from Polycam, Scaniverse, 3d Scanner App or a laser scanner) or a venue model (MVR, 3DS, FBX, COLLADA or STL, e.g. from Vectorworks: File > Export). The room size is measured from it.' }));
+        h('button', { class: 'btn small block', style: { marginTop: '6px' }, title: MVR_FOLDER_TIP, onclick: pickFolder }, 'Import a folder (unpacked MVR or glTF)…'),
+        h('p', { class: 'hint', text: 'A scan (GLB, glTF, USDZ, OBJ or PLY from Polycam, Scaniverse, 3d Scanner App, iPhone RoomPlan or a laser scanner) or a venue model (MVR, 3DS, FBX, COLLADA or STL, e.g. from Vectorworks: File > Export). For a .gltf, choose it together with its .bin and texture files. The room size is measured from it.' }));
     }
     const setScan = (k) => (v, o) => mutate((p) => { if (p.scan) p.scan[k] = v; }, o);
     const out = h('output', { text: `${Math.round(sc.opacity * 100)}%` });
@@ -232,7 +232,7 @@ export function createLeftPanel(root) {
       h('div', { class: 'slider-row' }, h('span', { text: 'Opacity' }), opacity, out),
       h('div', { style: { display: 'flex', gap: '6px', marginTop: '8px' } },
         h('button', { class: 'btn small', onclick: pick }, 'Replace…'),
-        h('button', { class: 'btn small', title: MVR_FOLDER_TIP, onclick: pickFolder }, 'MVR folder…'),
+        h('button', { class: 'btn small', title: MVR_FOLDER_TIP, onclick: pickFolder }, 'Folder…'),
         h('span', { style: { flex: 1 } }),
         h('button', { class: 'btn small danger', onclick: () => mutate((p) => { p.scan = null; }, { structural: true }) }, icon('trash'), 'Remove scan')),
       h('p', { class: 'hint', text: 'The prediction uses the box below; adjust it if the scan was measured oddly.' }));

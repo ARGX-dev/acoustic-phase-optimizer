@@ -30,15 +30,18 @@ strict Content-Security-Policy.
   pressure or altitude. Six example venues (gymnasium, theatre, house of worship, conference room, festival
   field, stadium) or an empty room. The Room tab shows reverb time per octave, critical distance, Schroeder
   frequency and air loss; for open air it shows free-field facts instead.
-- **Import a 3D scan or a venue model.** A scan as GLB, OBJ or PLY from a LiDAR app (Polycam, Scaniverse,
-  3d Scanner App) or a laser scanner, or a CAD model as MVR, 3DS, FBX, COLLADA (.dae) or STL, for example
+- **Import a 3D scan or a venue model.** A scan as GLB, glTF, USDZ, OBJ or PLY from a LiDAR app (Polycam,
+  Scaniverse, 3d Scanner App, iPhone RoomPlan) or a laser scanner, or a CAD model as MVR, 3DS, FBX, COLLADA (.dae) or STL, for example
   from Vectorworks (File > Export). MVR files are read in full: scene objects, trusses, screens, nested
   groups and symbols, in millimetres; fixtures are counted but not drawn, since MVR keeps their shapes in
-  GDTF files. If Windows has unpacked an .mvr into a folder, use **Import an unpacked MVR folder…**. The app measures the room from it (floor, ceiling, wall direction), you pick the stage wall
+  GDTF files. USDZ is read in binary (crate) and text form, with its own units and up axis; .usd, .usda and
+  .usdc layers work too. A .gltf is chosen together with its .bin and texture files (or import the folder it
+  is in) and is packed into one GLB. If Windows has unpacked an .mvr into a folder, use **Import a folder
+  (unpacked MVR or glTF)…**. The app measures the room from it (floor, ceiling, wall direction), you pick the stage wall
   and confirm the size, and the model is shown in the 3D view. The sound prediction still uses the fitted
   box, not the modelled shape.
   Not readable: closed formats (DWG, Vectorworks .vwx, Revit, DWF, Cinema 4D), formats that need a full CAD
-  kernel (IFC, STEP, IGES, SAT), DXF, USDZ, and Draco/meshopt-compressed GLBs. The app says which export
+  kernel (IFC, STEP, IGES, SAT), DXF, and Draco/meshopt-compressed GLBs. The app says which export
   to use instead.
 - **Place speakers on the plan, in the section or in 3D.** Drag to move, drag the handle to aim. Mains,
   fills, front fills, delays and subs. Left/right pairs are linked so they stay matched. Arrow keys nudge,

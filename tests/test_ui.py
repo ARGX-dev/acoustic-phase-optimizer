@@ -9,6 +9,7 @@ The tests share one page and run in file order, like a person using the app.
 from __future__ import annotations
 
 import os
+import pathlib
 import re
 import socket
 import threading
@@ -418,7 +419,7 @@ def test_import_mvr_venue(ui, tmp_path):
     folder = tmp_path / "unpacked venue.mvr"
     zipfile.ZipFile(path).extractall(folder)
     with page.expect_file_chooser() as fc:
-        page.get_by_role("button", name="Import an unpacked MVR folder…").click()
+        page.get_by_role("button", name="Import a folder (unpacked MVR or glTF)…").click()
     fc.value.set_files(str(folder))
     page.wait_for_selector(".dialog .scan-preview", timeout=20000)
     page.wait_for_function("document.querySelector('.dialog [aria-label=\"Stage to back\"]').value !== ''", timeout=20000)
@@ -999,7 +1000,158 @@ def test_strict_csp_blocks_nothing(ui, tmp_path):
             break
         time.sleep(0.2)
     assert float(page.locator(".dialog [aria-label='Height']").input_value()) == pytest.approx(5.0, abs=0.2)
+    page.keyboard.press("Escape")
+    page.wait_for_selector(".dialog", state="detached", timeout=10000)
+    with page.expect_file_chooser() as fc:
+        page.locator("button", has_text=re.compile(r"^(Import a 3D scan…|Replace…)$")).first.click()
+    fc.value.set_files(str(pathlib.Path(__file__).parent / "fixtures" / "roomplan.usdz"))
+    page.wait_for_selector(".dialog .scan-preview", timeout=20000)
+    for _ in range(100):
+        if page.locator(".dialog [aria-label='Stage to back']").input_value():
+            break
+        time.sleep(0.2)
+    assert float(page.locator(".dialog [aria-label='Height']").input_value()) == pytest.approx(5.0, abs=0.2)
     violations = page.evaluate("window.__csp")
     ctx.close()
     errors = [e for e in errors if "status of 422" not in e]
     assert violations == [] and errors == [], (violations, errors)
+
+
+FIXTURES = pathlib.Path(__file__).parent / "fixtures"
+
+
+def gltf_room(folder: pathlib.Path, w=12.0, length=20.0, h=5.0, tex_dir="") -> pathlib.Path:
+    """A box room as a .gltf with a separate .bin and a PNG texture (as Sketchfab and many exporters write)."""
+    import json
+    import struct
+    import zlib
+
+    folder.mkdir(parents=True, exist_ok=True)
+    pos = [(x, y, z) for x in (0, w) for y in (0, h) for z in (0, length)]
+    quads = [(0, 1, 3, 2), (4, 6, 7, 5), (0, 4, 5, 1), (2, 3, 7, 6), (0, 2, 6, 4), (1, 5, 7, 3)]
+    idx = [i for a, b, c, d in quads for i in (a, b, c, a, c, d)]
+    uv = [(x / w, z / length) for x, _, z in pos]
+    blob = (b"".join(struct.pack("<3f", *v) for v in pos) + b"".join(struct.pack("<2f", *t) for t in uv)
+            + b"".join(struct.pack("<H", i) for i in idx))
+    (folder / "room data.bin").write_bytes(blob)
+
+    def chunk(t, d):
+        return struct.pack(">I", len(d)) + t + d + struct.pack(">I", zlib.crc32(t + d) & 0xFFFFFFFF)
+    png = (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", 2, 2, 8, 2, 0, 0, 0))
+           + chunk(b"IDAT", zlib.compress(b"\x00" + b"\xc0\x40\x40" * 2 + b"\x00" + b"\x40\xc0\x40" * 2)) + chunk(b"IEND", b""))
+    if tex_dir:
+        (folder / tex_dir).mkdir(exist_ok=True)
+    (folder / tex_dir / "wall.png").write_bytes(png)
+    gltf = {
+        "asset": {"version": "2.0"}, "scene": 0, "scenes": [{"nodes": [0]}], "nodes": [{"mesh": 0}],
+        "meshes": [{"primitives": [{"attributes": {"POSITION": 0, "TEXCOORD_0": 1}, "indices": 2, "material": 0}]}],
+        "materials": [{"pbrMetallicRoughness": {"baseColorTexture": {"index": 0}}}],
+        "textures": [{"source": 0}], "images": [{"uri": (f"{tex_dir}/" if tex_dir else "") + "wall.png"}],
+        "buffers": [{"uri": "room%20data.bin", "byteLength": len(blob)}],
+        "bufferViews": [{"buffer": 0, "byteOffset": 0, "byteLength": 96}, {"buffer": 0, "byteOffset": 96, "byteLength": 64},
+                        {"buffer": 0, "byteOffset": 160, "byteLength": 72}],
+        "accessors": [{"bufferView": 0, "componentType": 5126, "count": 8, "type": "VEC3", "min": [0, 0, 0], "max": [w, h, length]},
+                      {"bufferView": 1, "componentType": 5126, "count": 8, "type": "VEC2"},
+                      {"bufferView": 2, "componentType": 5123, "count": 36, "type": "SCALAR"}],
+    }
+    path = folder / "room.gltf"
+    path.write_text(json.dumps(gltf), encoding="utf-8")
+    return path
+
+
+def _dialog_dims(page):
+    page.wait_for_selector(".dialog .scan-preview", timeout=20000)
+    page.wait_for_function("document.querySelector('.dialog [aria-label=\"Stage to back\"]').value !== ''", timeout=20000)
+    return (sorted(float(page.locator(f".dialog [aria-label='{k}']").input_value()) for k in ("Stage to back", "Width")),
+            float(page.locator(".dialog [aria-label='Height']").input_value()))
+
+
+def test_usd_reader_matches_openusd(ui, tmp_path):
+    """Binary (crate) USDZ written by OpenUSD itself; bounds from OpenUSD's own BBoxCache (see fixtures/make_usdz.py)."""
+    import base64
+    import io
+    import zipfile
+
+    expected = {
+        "roomplan.usdz": [[1, 0, -4], [21.392, 5, 19.321]],  # Y up, metres: a turned and moved shell, a Cube riser
+        "cm_zup.usdz": [[0, 0, -20], [12, 5, 0]],  # centimetres, Z up: 12 x 20 x 5 m, turned to Y up
+        "mixed.usdz": [[0.5, 0, -3.75], [10.75, 3, 0.25]],  # matrix op, quaternion, fractional translate, pentagon
+    }
+    for name, want in expected.items():
+        got = ui["page"].evaluate("""async (b64) => {
+            const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+            const THREE = await import('three');
+            const g = await (await import('/js/scan.js')).parseScan(bytes.buffer, 'usdz');
+            const bb = new THREE.Box3().setFromObject(g);
+            return [bb.min.toArray(), bb.max.toArray()];
+        }""", base64.b64encode((FIXTURES / name).read_bytes()).decode())
+        assert got[0] == pytest.approx(want[0], abs=0.002) and got[1] == pytest.approx(want[1], abs=0.002), (name, got)
+    # A package whose directory claims a huge unpacked size is refused before anything is unpacked.
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("scene.usda", "#usda 1.0\n" + " " * 5000)
+    data = bytearray(buf.getvalue())
+    cd = data.rfind(b"PK\x01\x02")
+    data[cd + 24:cd + 28] = (0x7FFFFFFF).to_bytes(4, "little")
+    err = ui["page"].evaluate("""async (b64) => {
+        const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+        try { await (await import('/js/scan.js')).parseScan(bytes.buffer, 'usdz'); return null; } catch (e) { return e.message; }
+    }""", base64.b64encode(bytes(data)).decode())
+    assert err and "more than the app will read" in err
+
+
+def test_import_usdz_and_gltf(ui, tmp_path):
+    page = ui["page"]
+    page.get_by_role("tab", name="Room").click()
+    if page.get_by_role("button", name="Remove scan").count():
+        page.get_by_role("button", name="Remove scan").click()
+    # USDZ from an iPhone-style export: measured, used, and read back after a reload
+    with page.expect_file_chooser() as fc:
+        page.get_by_role("button", name=re.compile("^(Import a 3D scan…|Replace…)$")).first.click()
+    fc.value.set_files(str(FIXTURES / "roomplan.usdz"))
+    dims, height = _dialog_dims(page)
+    assert dims == pytest.approx([12.0, 20.0], abs=0.4) and height == pytest.approx(5.0, abs=0.2)
+    page.locator(".dialog .btn.primary").click()
+    page.wait_for_selector(".dialog", state="detached", timeout=20000)
+    time.sleep(1.5)  # autosave
+    page.reload()
+    page.wait_for_selector(".view3d canvas", timeout=20000)
+    time.sleep(2.0)
+    page.get_by_role("tab", name="Room").click()
+    assert page.locator(".scan-card .name").inner_text() == "roomplan"
+    assert page.evaluate("import('/js/store.js').then((m) => m.state.project.scan.ext)") == "usdz"
+    page.get_by_role("button", name="Remove scan").click()
+    page.locator("#stage-toolbar .seg button", has_text="Plan").click()
+
+    # glTF chosen together with its .bin and texture: packed into one GLB
+    gltf = gltf_room(tmp_path / "files")
+    with page.expect_file_chooser() as fc:
+        page.get_by_role("button", name="Import a 3D scan…").click()
+    fc.value.set_files([str(gltf), str(tmp_path / "files" / "room data.bin"), str(tmp_path / "files" / "wall.png")])
+    dims, height = _dialog_dims(page)
+    assert dims == pytest.approx([12.0, 20.0], abs=0.4) and height == pytest.approx(5.0, abs=0.2)
+    assert not page.locator(".toast", has_text="left plain").count()  # the texture was found
+    page.locator(".dialog .btn.primary").click()
+    page.wait_for_selector(".dialog", state="detached", timeout=20000)
+    page.get_by_role("tab", name="Room").click()
+    assert page.evaluate("import('/js/store.js').then((m) => m.state.project.scan.ext)") == "glb"
+    page.get_by_role("button", name="Remove scan").click()
+    page.locator("#stage-toolbar .seg button", has_text="Plan").click()
+
+    # the .gltf alone: its buffer is named in the message
+    with page.expect_file_chooser() as fc:
+        page.get_by_role("button", name="Import a 3D scan…").click()
+    fc.value.set_files(str(gltf))
+    page.locator(".toast", has_text="room data.bin").wait_for(timeout=10000)
+
+    # the folder it came in, texture in a subfolder
+    folder = tmp_path / "exported model"
+    gltf_room(folder, tex_dir="textures")
+    with page.expect_file_chooser() as fc:
+        page.get_by_role("button", name="Import a folder (unpacked MVR or glTF)…").click()
+    fc.value.set_files(str(folder))
+    dims, height = _dialog_dims(page)
+    assert dims == pytest.approx([12.0, 20.0], abs=0.4)
+    assert not page.locator(".toast", has_text="left plain").count()
+    page.locator(".dialog .btn", has_text="Cancel").click()
+    page.wait_for_selector(".dialog", state="detached", timeout=10000)
