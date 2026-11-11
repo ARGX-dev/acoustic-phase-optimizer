@@ -16,7 +16,10 @@ Per-speaker results are cached, so moving one speaker only recomputes one.
 
 Model per speaker:
   * shoebox image sources up to `reflection_order` (Allen & Berkley) with
-    frequency-dependent wall reflection |R| = sqrt(1 - alpha)
+    frequency-dependent wall reflection |R| = sqrt(1 - alpha); or, when the room
+    uses its scanned shape, image sources on the scan's flat surfaces (up to
+    second order) kept only where each reflection point lies on its surface and
+    no leg is blocked, with the RT60 and diffuse level from a ray trace
   * frequency-dependent directivity: separable raised-cosine lobes whose -6 dB
     full angle equals the nominal coverage above `directivity_hz`, relaxing to
     omnidirectional at low frequencies
@@ -38,9 +41,10 @@ from dataclasses import dataclass, replace
 
 import numpy as np
 
+from . import geometry
 from .air import air_absorption_db_per_m, speed_of_sound
 from .eq import processing
-from .materials import SURFACES, RoomStats, room_stats, surface_alphas
+from .materials import OCTAVE_BANDS, SURFACES, RoomStats, room_stats, shape_alphas, stats_from, surface_alphas
 from .model import Project, Speaker
 
 P_REF = 20e-6
@@ -49,6 +53,8 @@ EARLY_MS = 50.0  # reflections later than this after the direct sound count as l
 MAX_GRID_POINTS = 2600
 PREVIEW_GRID_POINTS = 640
 MIN_DISTANCE = 0.25
+SHAPE_MAX_ORDER = 2  # reflection order on a scanned shape (image sources multiply with every surface)
+RAY_BANDS = np.array([63.0, *OCTAVE_BANDS, 8000.0])
 DEFAULT_BOX_H = 0.3  # a line-array box of unknown height, m
 HANG_MAX_SEGMENTS = 64  # boxes x sub-segments of curved boxes
 LOG_REAR_FLOOR = float(np.log(10 ** (-24 / 20)))
@@ -222,6 +228,58 @@ class Context:
     order: int
     stats: RoomStats
     key: str
+    mesh: geometry.MeshRoom | None = None  # the scanned shape, when the room uses it
+    surf_log_beta: np.ndarray | None = None  # (surfaces, F) 0.5 ln(1 - alpha) per scanned surface
+
+
+_RT_CACHE: OrderedDict[str, np.ndarray] = OrderedDict()
+
+
+def uses_shape(project: Project) -> bool:
+    return project.room.model == "shape" and project.room.shape is not None
+
+
+def trace_start(project: Project) -> np.ndarray:
+    """Where the ray trace starts: over the middle of the audience, half way up the room."""
+    a, r = project.audience, project.room
+    return np.array([(a.x0 + a.x1) / 2, (a.y0 + a.y1) / 2, r.height / 2])
+
+
+def shape_acoustics(project: Project, freqs: np.ndarray, air_db: np.ndarray, c: float
+                    ) -> tuple[RoomStats, geometry.MeshRoom, np.ndarray]:
+    """Statistics of the scanned shape: its real surface and absorption, volume and RT60 from a ray trace.
+
+    Returns the stats, the runtime mesh and the absorption per scanned surface on `freqs`.
+    """
+    room = project.room
+    mesh = geometry.mesh_room(room.shape)
+    sa = shape_alphas(project, freqs)
+    start = trace_start(project)
+    paths = geometry.trace(mesh, start)
+    ab = shape_alphas(project, RAY_BANDS)
+    key = _sha(mesh.key, repr(np.round(start, 2).tolist()), np.round(ab, 4).tobytes().hex(), f"{c:.2f}")
+    with _LOCK:
+        rt_b = _RT_CACHE.get(key)
+    if rt_b is None:  # surfaces only: the air is added exactly, per frequency, below
+        rt_b = geometry.decay_rt60(paths, ab, np.zeros(len(RAY_BANDS)), c)
+        with _LOCK:
+            _RT_CACHE[key] = rt_b
+            while len(_RT_CACHE) > 32:
+                _RT_CACHE.popitem(last=False)
+    S = mesh.area
+    V = paths.mfp * S / 4.0 if paths.mfp > 0 else room.width * room.length * room.height
+    good = np.isfinite(rt_b) & (rt_b > 0)
+    rt = None
+    if good.any():
+        # The traced decay as an equivalent absorption area (smooth in frequency), plus the air's 4mV. A band whose
+        # decay the trace was too short to read (a very hard room) takes Eyring's area for the real shape instead.
+        a_eyr = -S * np.log(1.0 - np.clip((mesh.surface_area[:, None] * ab).sum(axis=0) / S, 1e-4, 0.999))
+        a_b = np.where(good, 0.161 * V / np.where(good, rt_b, 1.0), a_eyr)
+        a_surf = np.exp(np.interp(np.log(freqs), np.log(RAY_BANDS), np.log(a_b)))
+        m = air_db / (10.0 * np.log10(np.e))
+        rt = 0.161 * V / (a_surf + 4.0 * m * V)
+    A = (mesh.surface_area[:, None] * sa).sum(axis=0)
+    return stats_from(V, S, A, air_db, rt, paths.escaped), mesh, sa
 
 
 def make_context(project: Project, freqs: np.ndarray | None = None) -> Context:
@@ -232,12 +290,60 @@ def make_context(project: Project, freqs: np.ndarray | None = None) -> Context:
     air_db = air_absorption_db_per_m(freqs, env.temperature_c, env.humidity_pct, env.pressure_kpa)
     alphas = surface_alphas(project, freqs)
     log_beta = {s: 0.5 * np.log(1.0 - alphas[s]) for s in SURFACES}
-    stats = room_stats(room.width, room.length, room.height, alphas, freqs, air_db)
-    mat_key = ",".join(f"{v:.4f}" for s in SURFACES for v in alphas[s][:: max(1, len(freqs) // 24)])
-    key = "|".join([room.model_dump_json(), env.model_dump_json(), str(st.reflection_order), mat_key,
-                    f"{freqs[0]:.3f}", f"{freqs[-1]:.3f}", str(len(freqs))])
+    sub = slice(None, None, max(1, len(freqs) // 24))
+    mat_key = ",".join(f"{v:.4f}" for s in SURFACES for v in alphas[s][sub])
+    order = st.reflection_order
+    mesh = surf_log_beta = None
+    shape_key = ""
+    if uses_shape(project):
+        stats, mesh, sa = shape_acoustics(project, freqs, air_db, c)
+        surf_log_beta = 0.5 * np.log(1.0 - sa)
+        order = min(order, SHAPE_MAX_ORDER)
+        a = project.audience
+        shape_key = ":".join([mesh.key, ",".join(f"{v:.4f}" for v in sa[:, sub].ravel()),
+                              repr((a.x0, a.x1, a.y0, a.y1))])
+    else:
+        stats = room_stats(room.width, room.length, room.height, alphas, freqs, air_db)
+    key = "|".join([room.model_dump_json(exclude={"shape"}), shape_key, env.model_dump_json(), str(st.reflection_order),
+                    mat_key, f"{freqs[0]:.3f}", f"{freqs[-1]:.3f}", str(len(freqs))])
     return Context(freqs, c, air_db / 20.0 * np.log(10.0), 2 * np.pi * freqs / c, log_beta,
-                   (room.width, room.length, room.height), st.reflection_order, stats, key)
+                   (room.width, room.length, room.height), order, stats, key, mesh, surf_log_beta)
+
+
+def reflections(src: np.ndarray, points: np.ndarray, ctx: Context):
+    """Every modelled sound path from a source at `src`, direct sound first.
+
+    Yields (order, image position, emit, log_beta, rows): `emit` maps the direction from the image to a receiver
+    back to the emission direction at the real source (a per-axis sign vector for the box, a 3x3 matrix for the
+    scanned shape); `log_beta` (F,) is the summed ln|R| of the surfaces hit; `rows` is None when the path reaches
+    every point, else the indices of the points it reaches. On a scanned shape the direct sound is never blocked
+    (sound bends round the furniture and parts a scan holds).
+    """
+    if ctx.mesh is None:
+        zero = np.zeros(len(ctx.freqs))
+        for im in image_sources(src, ctx.dims, ctx.order):
+            lb = zero
+            for surf, cnt in im.hits.items():
+                lb = lb + cnt * ctx.log_beta[surf]
+            yield im.order, im.pos, im.flip, lb, None
+        return
+    mesh = ctx.mesh
+    for im in geometry.mesh_images(src, mesh, ctx.order):
+        rows = None
+        if im.order:
+            ok = geometry.path_valid(im, points, mesh)
+            if not ok.any():
+                continue
+            rows = None if ok.all() else np.nonzero(ok)[0]
+        lb = np.zeros(len(ctx.freqs))
+        for k in im.chain:
+            lb = lb + ctx.surf_log_beta[mesh.mirrors[k].surface]
+        yield im.order, im.pos, im.M, lb, rows
+
+
+def emission(vec: np.ndarray, emit: np.ndarray) -> np.ndarray:
+    """Emission direction(s) at the real source for receiver offsets `vec` from an image (see `reflections`)."""
+    return vec * emit if emit.ndim == 1 else vec @ emit.T
 
 
 def source_position(spk: Speaker, dims: tuple[float, float, float]) -> np.ndarray:
@@ -360,28 +466,28 @@ def speaker_field(spk: Speaker, points: np.ndarray, ctx: Context, early_ms: floa
         H += hang_direct(spk, points, src, ctx)
         # every reflection (early or late) carries the power the boxes really radiate, per frequency
         log_refl = 0.5 * np.log(hang_power_ratio(spk, ctx))[None, :]
-    for im in image_sources(src, ctx.dims, ctx.order):
-        if hang and im.order == 0:
+    for order, pos, emit, lb, rows in reflections(src, points, ctx):
+        if hang and order == 0:
             continue  # the direct sound came from the boxes above
-        vec = points - im.pos
+        pts = points if rows is None else points[rows]
+        vec = pts - pos
         d = np.maximum(np.linalg.norm(vec, axis=1), MIN_DISTANCE)
-        early = d <= early_limit + 1e-9
-        emit = vec * im.flip / d[:, None]
-        la = log_directivity(spk, emit, freqs)
-        for surf, cnt in im.hits.items():
-            la += cnt * ctx.log_beta[surf][None, :]
+        early = d <= (early_limit if rows is None else early_limit[rows]) + 1e-9
+        la = log_directivity(spk, emission(vec, emit) / d[:, None], freqs)
+        la += lb[None, :]
         la -= np.outer(d, ctx.air_np)
         la -= np.log(d)[:, None]
         if hang:
             la = la + log_refl
-        if early.all():
+        if rows is None and early.all():
             H += np.exp(la - 1j * np.outer(d, ctx.k)).astype(np.complex64)
-        elif not early.any():
+        elif rows is None and not early.any():
             L += np.exp(2.0 * la).astype(np.float32)
         else:
+            idx = np.arange(P) if rows is None else rows
             e, n = np.nonzero(early)[0], np.nonzero(~early)[0]
-            H[e] += np.exp(la[e] - 1j * np.outer(d[e], ctx.k)).astype(np.complex64)
-            L[n] += np.exp(2.0 * la[n]).astype(np.float32)
+            H[idx[e]] += np.exp(la[e] - 1j * np.outer(d[e], ctx.k)).astype(np.complex64)
+            L[idx[n]] += np.exp(2.0 * la[n]).astype(np.float32)
     box = box_response(spk, freqs)
     amp = speaker_amplitude(spk)
     H *= (box * amp).astype(np.complex64)[None, :]
@@ -408,7 +514,7 @@ class FieldModel:
     E_rev: np.ndarray  # (S, F)
     dist: np.ndarray  # (S, P)
     c: float
-    rt60: np.ndarray  # (F,) Eyring
+    rt60: np.ndarray  # (F,) Eyring for the box; ray-traced (Eyring where unreadable) for a scanned shape
     _H2: np.ndarray | None = None
     _LE: np.ndarray | None = None
 
@@ -519,7 +625,7 @@ def get_field(project: Project, preview: bool = False) -> FieldModel:
                 mf = speaker_field(spk, mp, ctx)
                 H[i, len(gp):], L[i, len(gp):], dist[i, len(gp):] = mf.H, mf.L, mf.dist
         fm = FieldModel(ctx.freqs, np.vstack([gp, mp]), grid, len(gp), [s.id for s in project.speakers],
-                        H, L, E, dist, ctx.c, ctx.stats.rt60_eyring)
+                        H, L, E, dist, ctx.c, ctx.stats.rt60)
         _FIELD_CACHE.put(full_key, fm)
         return fm
 

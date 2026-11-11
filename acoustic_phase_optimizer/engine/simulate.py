@@ -14,17 +14,20 @@ from .field import (
     box_response,
     combine,
     dsp_weights,
+    emission,
     freq_grid,
     get_field,
     hang_direct,
     hang_power_ratio,
-    image_sources,
     is_hang,
     log_directivity,
     make_context,
+    reflections,
+    shape_acoustics,
     source_position,
     speaker_amplitude,
     speaker_field,
+    uses_shape,
 )
 from .materials import OCTAVE_BANDS, room_stats, surface_alphas
 from .metrics import BANDS, analyse, arrivals, band_levels, db, smooth, spl, sti_estimate, summarise, tone_floor, weighting_gain
@@ -226,18 +229,17 @@ def _events(spk, index: int, point: np.ndarray, ctx: Context, f_ref: int, delay_
         direct_hang = abs(hang_direct(spk, point[None, :], src, ctx)[0, f_ref])
         refl = float(np.sqrt(hang_power_ratio(spk, ctx)[f_ref]))
     out = []
-    for im in image_sources(src, ctx.dims, ctx.order):
-        vec = point - im.pos
+    for order, pos, emit, lb, _rows in reflections(src, point[None, :], ctx):
+        vec = point - pos
         d = max(float(np.linalg.norm(vec)), MIN_DISTANCE)
-        la = float(log_directivity(spk, (vec * im.flip / d)[None, :], one)[0, 0])
-        for surf, cnt in im.hits.items():
-            la += cnt * float(ctx.log_beta[surf][f_ref])
+        la = float(log_directivity(spk, emission(vec, emit)[None, :] / d, one)[0, 0])
+        la += float(lb[f_ref])
         la -= d * float(ctx.air_np[f_ref])
         p = amp * np.exp(la) / d
         if hang:
-            p = amp * direct_hang if im.order == 0 else p * refl
+            p = amp * direct_hang if order == 0 else p * refl
         out.append({"t": round(d / ctx.c * 1000.0 + delay_ms, 2), "db": round(float(spl(p * p)), 1),
-                    "speaker": index, "order": im.order})
+                    "speaker": index, "order": order})
     return out
 
 
@@ -245,10 +247,20 @@ def room_report(project: Project) -> dict:
     """Statistical room acoustics per octave band."""
     env, r = project.environment, project.room
     air = air_absorption_db_per_m(OCTAVE_BANDS, env.temperature_c, env.humidity_pct, env.pressure_kpa)
-    st = room_stats(r.width, r.length, r.height, surface_alphas(project, OCTAVE_BANDS), OCTAVE_BANDS, air)
-    rt_mid = float(np.mean(st.rt60_eyring[2:4]))
+    shape = uses_shape(project)
+    if shape:
+        c = speed_of_sound(env.temperature_c, env.humidity_pct, env.pressure_kpa)
+        st = shape_acoustics(project, OCTAVE_BANDS, air, c)[0]
+    else:
+        st = room_stats(r.width, r.length, r.height, surface_alphas(project, OCTAVE_BANDS), OCTAVE_BANDS, air)
+    rt_mid = float(np.mean(st.rt60[2:4]))
     return {
         "bands": OCTAVE_BANDS.tolist(),
+        "model": "shape" if shape else "box",
+        "rt60": _r(st.rt60, 2),
+        "rt60_rays": None if st.rt60_rays is None else [None if not np.isfinite(v) else round(float(v), 2)
+                                                         for v in st.rt60_rays],
+        "escaped": round(st.escaped, 3),
         "volume_m3": round(st.volume, 1),
         "surface_m2": round(st.surface, 1),
         "rt60_sabine": _r(st.rt60_sabine, 2),

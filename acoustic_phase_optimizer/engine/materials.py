@@ -71,7 +71,7 @@ def reflection_amplitude(material_id: str, freqs: np.ndarray) -> np.ndarray:
     return np.sqrt(1.0 - absorption(material_id, freqs))
 
 
-def surface_alphas(project, freqs: np.ndarray) -> dict[str, np.ndarray]:
+def surface_alphas(project, freqs: np.ndarray, occupancy: bool = True) -> dict[str, np.ndarray]:
     """Absorption per surface for a project: its own materials first, then the built-in list.
 
     Audience occupancy blends the seated-audience coefficients into the floor over the audience area, so a
@@ -87,11 +87,38 @@ def surface_alphas(project, freqs: np.ndarray) -> dict[str, np.ndarray]:
             mats[s] = "open"
     out = {s: absorption(mats[s], freqs, custom) for s in SURFACES}
     occ = getattr(project.audience, "occupancy", 0.0)
-    if occ > 0:
+    if occ > 0 and occupancy:
         r, a = project.room, project.audience
         frac = max(0.0, min(1.0, (a.x1 - a.x0) * (a.y1 - a.y0) / (r.width * r.length)))
         full = absorption("audience", freqs)
         out["floor"] = np.clip(out["floor"] + frac * occ * np.maximum(full - out["floor"], 0.0), 0.005, 0.999)
+    return out
+
+
+def shape_alphas(project, freqs: np.ndarray, base: dict[str, np.ndarray] | None = None) -> np.ndarray:
+    """Absorption per surface of the scanned shape, (surfaces, F).
+
+    A surface without its own material takes the material of its role in the room's materials (furniture and small
+    parts take the side walls'). Audience occupancy blends into the floor surfaces as for the box.
+    """
+    shape = project.room.shape
+    custom = {m.id: m.alpha for m in getattr(project, "custom_materials", [])}
+    base = base if base is not None else surface_alphas(project, freqs, occupancy=False)
+    rows = []
+    for s in shape.surfaces:
+        if s.material:
+            rows.append(absorption(s.material, freqs, custom))
+        else:
+            rows.append(base["left" if s.role == "other" else s.role])
+    out = np.array(rows).reshape(len(rows), len(freqs))
+    occ = getattr(project.audience, "occupancy", 0.0)
+    floors = [i for i, s in enumerate(shape.surfaces) if s.role == "floor"]
+    if occ > 0 and floors:
+        a = project.audience
+        floor_area = sum(shape.surfaces[i].area for i in floors) or 1.0
+        frac = max(0.0, min(1.0, (a.x1 - a.x0) * (a.y1 - a.y0) / floor_area))
+        full = absorption("audience", freqs)
+        out[floors] = np.clip(out[floors] + frac * occ * np.maximum(full - out[floors], 0.0), 0.005, 0.999)
     return out
 
 
@@ -104,6 +131,36 @@ class RoomStats:
     rt60_eyring: np.ndarray
     room_constant: np.ndarray  # R = S*a / (1 - a), m^2
     critical_distance: np.ndarray  # for Q = 1, m
+    rt60_rays: np.ndarray | None = None  # ray-traced, scanned shape only; NaN where the decay could not be read
+    escaped: float = 0.0  # share of traced rays that left the scanned shape through an opening
+
+    @property
+    def rt60(self) -> np.ndarray:
+        """The best reverberation time available: ray-traced where it could be read, Eyring elsewhere."""
+        if self.rt60_rays is None:
+            return self.rt60_eyring
+        return np.where(np.isfinite(self.rt60_rays), self.rt60_rays, self.rt60_eyring)
+
+
+def stats_from(V: float, S: float, A: np.ndarray, air_db_per_m: np.ndarray, rt60_rays: np.ndarray | None = None,
+               escaped: float = 0.0) -> RoomStats:
+    """Sabine/Eyring statistics from volume, surface and total absorption area A (m^2 per frequency).
+
+    With a ray-traced RT60 the room constant follows the traced decay, so the diffuse level agrees with it.
+    """
+    a_mean = np.clip(A / S, 1e-4, 0.999)
+    m = air_db_per_m / (10.0 * np.log10(np.e))  # intensity attenuation, 1/m
+    rt_sab = 0.161 * V / (A + 4.0 * m * V)
+    rt_ey = 0.161 * V / (-S * np.log(1.0 - a_mean) + 4.0 * m * V)
+    a_tot = (A + 4.0 * m * V) / S
+    if rt60_rays is not None:
+        good = np.isfinite(rt60_rays) & (rt60_rays > 0)
+        a_ray = 1.0 - np.exp(-0.161 * V / (S * np.where(good, rt60_rays, 1.0)))  # Eyring inverted
+        a_tot = np.where(good, a_ray, a_tot)
+    a_tot = np.clip(a_tot, 1e-4, 0.999)
+    R = S * a_tot / (1.0 - a_tot)
+    dc = 0.141 * np.sqrt(R)
+    return RoomStats(V, S, a_mean, rt_sab, rt_ey, R, dc, rt60_rays, escaped)
 
 
 def room_stats(
@@ -124,15 +181,5 @@ def room_stats(
         "left": L * H,
         "right": L * H,
     }
-    V = W * L * H
-    S = sum(areas.values())
     A = sum(areas[s] * alphas[s] for s in SURFACES)
-    a_mean = np.clip(A / S, 1e-4, 0.999)
-    m = air_db_per_m / (10.0 * np.log10(np.e))  # intensity attenuation, 1/m
-    rt_sab = 0.161 * V / (A + 4.0 * m * V)
-    rt_ey = 0.161 * V / (-S * np.log(1.0 - a_mean) + 4.0 * m * V)
-    a_tot = (A + 4.0 * m * V) / S
-    a_tot = np.clip(a_tot, 1e-4, 0.999)
-    R = S * a_tot / (1.0 - a_tot)
-    dc = 0.141 * np.sqrt(R)
-    return RoomStats(V, S, a_mean, rt_sab, rt_ey, R, dc)
+    return stats_from(W * L * H, sum(areas.values()), A, air_db_per_m)

@@ -8,6 +8,7 @@ toward +x; pitch negative tilts down.
 
 from __future__ import annotations
 
+import math
 import uuid
 from typing import Literal
 
@@ -32,6 +33,45 @@ class Materials(BaseModel):
     right: MaterialId = "concrete"
 
 
+SurfaceRole = Literal["floor", "ceiling", "front", "back", "left", "right", "other"]
+
+
+class Surface(BaseModel):
+    """One flat surface (or the group of small parts) of a scanned room."""
+
+    name: str = Field("Surface", max_length=60)
+    role: SurfaceRole = "other"  # which wall of the box it stands for; sets its material when none is chosen
+    material: MaterialId | None = None  # None: the room's material for its role (side walls for small parts)
+    area: float = Field(0.0, ge=0)
+
+
+class RoomShape(BaseModel):
+    """The scanned room's real shape for the sound prediction (engine/geometry.py:build_shape).
+
+    Triangles in room coordinates, each tagged with the surface it belongs to. Made from the scan as it was
+    placed; `source` records that placement so the app can tell when the scan has moved since.
+    """
+
+    source: str = Field("", max_length=200)
+    vertices: list[float] = Field(max_length=3 * 3 * 4000)
+    triangles: list[int] = Field(max_length=3 * 4000)
+    surface: list[int] = Field(max_length=4000)
+    surfaces: list[Surface] = Field(min_length=1, max_length=160)
+
+    @model_validator(mode="after")
+    def _consistent(self) -> RoomShape:
+        nv = len(self.vertices)
+        if nv % 3 or len(self.triangles) % 3 or len(self.surface) * 3 != len(self.triangles) or not self.surface:
+            raise ValueError("room shape: vertices, triangles and surface tags do not match")
+        if min(self.triangles) < 0 or max(self.triangles) >= nv // 3:
+            raise ValueError("room shape: a triangle refers to a corner that does not exist")
+        if min(self.surface) < 0 or max(self.surface) >= len(self.surfaces):
+            raise ValueError("room shape: a triangle refers to a surface that does not exist")
+        if not all(math.isfinite(v) and abs(v) < 1e5 for v in self.vertices):
+            raise ValueError("room shape: corner coordinates must be finite")
+        return self
+
+
 class Room(BaseModel):
     # indoor: every surface reflects; stadium: no roof; outdoor: only the ground reflects
     kind: Literal["indoor", "stadium", "outdoor"] = "indoor"
@@ -39,6 +79,9 @@ class Room(BaseModel):
     length: float = Field(30.0, gt=1, le=300)
     height: float = Field(8.0, gt=1.5, le=60)
     materials: Materials = Field(default_factory=Materials)
+    # box: the fitted shoebox (fast); shape: the scanned room's real surfaces (needs `shape`)
+    model: Literal["box", "shape"] = "box"
+    shape: RoomShape | None = None
 
 
 class Environment(BaseModel):
@@ -165,7 +208,8 @@ class ScanRef(BaseModel):
     """An imported 3D scan, shown in the 3D view. The file lives in the data folder; only this reference travels.
 
     To place it: convert to z-up metres (up axis, unit scale), then room = Rz(yaw_deg) @ p + t.
-    The acoustic model still uses the fitted box (Room); the scan is for looking at.
+    The prediction uses the fitted box (Room) unless Room.model is "shape", which uses Room.shape, made
+    from this scan.
     """
 
     id: str = Field(pattern=r"^[0-9a-f]{16,64}$")
