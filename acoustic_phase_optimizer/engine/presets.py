@@ -38,6 +38,15 @@ def make_speaker(model: str, name: str, x: float, y: float, z: float, yaw: float
     return Speaker(model=model, name=name, x=x, y=y, z=z, yaw=yaw, pitch=pitch, **t)
 
 
+def hung(spk: Speaker, splay: float) -> Speaker:
+    """A line-array speaker with its splay set, level and vertical coverage following (as in the app)."""
+    from .library import ROW_BY_ID, hang
+
+    spk.array_splay = splay
+    spk.level_db, spk.coverage_v = hang(ROW_BY_ID[spk.model], spk.array_boxes, splay)
+    return spk
+
+
 def gymnasium() -> Project:
     return Project(
         name="High school gymnasium",
@@ -123,12 +132,13 @@ def festival() -> Project:
         environment=Environment(temperature_c=24, humidity_pct=35),
         audience=Audience(x0=4, y0=8, x1=56, y1=86, ear_height=1.7),
         speakers=[
-            make_speaker("lacoustics_k2", "Main L", 18, 2.0, 13, yaw=6, pitch=-4),
-            make_speaker("lacoustics_k2", "Main R", 42, 2.0, 13, yaw=-6, pitch=-4),
+            # aimed as "Aim at the audience" does: top box on the last row, bottom box on the first
+            hung(make_speaker("lacoustics_k2", "Main L", 18, 2.0, 13, yaw=6, pitch=-30.5), 6.5),
+            hung(make_speaker("lacoustics_k2", "Main R", 42, 2.0, 13, yaw=-6, pitch=-30.5), 6.5),
             make_speaker("lacoustics_ks28", "Sub L", 26, 1.5, 0.6),
             make_speaker("lacoustics_ks28", "Sub R", 34, 1.5, 0.6),
-            make_speaker("lacoustics_kara2", "Delay L", 16, 48, 10, yaw=0, pitch=-6, role="delay"),
-            make_speaker("lacoustics_kara2", "Delay R", 44, 48, 10, yaw=0, pitch=-6, role="delay"),
+            hung(make_speaker("lacoustics_kara2", "Delay L", 16, 48, 10, yaw=15.5, pitch=-31.5, role="delay"), 5.5),
+            hung(make_speaker("lacoustics_kara2", "Delay R", 44, 48, 10, yaw=-15.5, pitch=-31.5, role="delay"), 5.5),
         ],
         mics=[Mic(name="FOH", x=30, y=40, z=1.7), Mic(name="Front", x=24, y=12, z=1.7),
               Mic(name="Behind delays", x=36, y=70, z=1.7)],
@@ -145,12 +155,12 @@ def stadium() -> Project:
         environment=Environment(temperature_c=18, humidity_pct=60),
         audience=Audience(x0=8, y0=12, x1=82, y1=110, ear_height=1.7),
         speakers=[
-            make_speaker("db_gsl8", "Main L", 30, 3, 20, yaw=8, pitch=-5),
-            make_speaker("db_gsl8", "Main R", 60, 3, 20, yaw=-8, pitch=-5),
+            hung(make_speaker("db_gsl8", "Main L", 30, 3, 20, yaw=6, pitch=-34), 7.0),
+            hung(make_speaker("db_gsl8", "Main R", 60, 3, 20, yaw=-6, pitch=-34), 7.0),
             make_speaker("db_sl_sub", "Sub L", 40, 2, 0.6),
             make_speaker("db_sl_sub", "Sub R", 50, 2, 0.6),
-            make_speaker("db_ksl8", "Delay L", 25, 60, 15, pitch=-6, role="delay"),
-            make_speaker("db_ksl8", "Delay R", 65, 60, 15, pitch=-6, role="delay"),
+            hung(make_speaker("db_ksl8", "Delay L", 25, 60, 15, yaw=17, pitch=-34, role="delay"), 5.5),
+            hung(make_speaker("db_ksl8", "Delay R", 65, 60, 15, yaw=-17, pitch=-34, role="delay"), 5.5),
         ],
         mics=[Mic(name="FOH", x=45, y=50, z=1.7), Mic(name="Pitch rear", x=45, y=100, z=1.7)],
         settings=Settings(reflection_order=1, grid_resolution=2.0),

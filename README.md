@@ -110,7 +110,8 @@ Limits worth knowing:
 - The room is a box. An imported scan sets its size and is shown in 3D; it does not change the acoustics.
 - In a line-array hang every box is computed for the direct sound (each a short line source on the hang's
   curve), so the beam narrowing with frequency, the long throw and the low-frequency build-up come out of
-  the model. Reflections from a hang still use one combined source. Box heights come from the datasheets
+  the model. Reflections from a hang still use one combined source, scaled per frequency to the power the
+  boxes actually radiate. Box heights come from the datasheets
   (d&b V8 and Y8: the architect's-specification maximum; Meyer LEOPARD: estimated from its woofer size).
 - Raked seating lifts the ears evenly from the front row to the back row (one straight slope). The floor
   under it is still flat for reflections.

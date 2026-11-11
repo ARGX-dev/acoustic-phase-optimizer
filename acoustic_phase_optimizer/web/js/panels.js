@@ -188,7 +188,7 @@ export function createLeftPanel(root) {
           num('Ends, across', () => P().audience.x1, setIn(['audience', 'x1']), { min: 0, step: 0.5, unit: 'm' }),
           num('Ear height', () => P().audience.ear_height, setIn(['audience', 'ear_height']), { min: 0.3, max: 20, step: 0.1, unit: 'm',
             title: `At the front row: ${len(1.2)} seated, ${len(1.7)} standing` }),
-          num('Rake: back row higher by', () => P().audience.rake || 0, setIn(['audience', 'rake']), { min: 0, max: 40, step: 0.1, unit: 'm',
+          num('Rake: back row higher by', () => P().audience.rake || 0, setIn(['audience', 'rake']), { min: 0, max: Math.max(0, P().room.height - P().audience.ear_height - 0.1), step: 0.1, unit: 'm',
             title: 'Raked seating or a balcony slope: the ears rise evenly from the front row to the back row. 0 for a flat floor.' })),
         h('div', { class: 'slider-row', style: { marginTop: '10px' } }, h('span', { text: 'Seats filled' }), occ, occOut),
         h('p', { class: 'hint', text: 'People absorb sound. Soundcheck in an empty room, then set the expected crowd to see the show.' })),
@@ -371,7 +371,9 @@ export function createLeftPanel(root) {
             { min: 0, max: type.spec.splay_max, step: 0.5, unit: '°', nd: 1, title: `0° to ${type.spec.splay_max}° between boxes` })),
       h('p', { class: 'hint', text: `${s.array_boxes} × ${type.label.replace(/, hang of \d+$/, '')}, ${len(s.array_boxes * (s.array_box_h || 0.3))} long, fanned over ${fmt(s.array_boxes * s.array_splay, 0)}°. Each box (${type.spec.box_spl} dB peak at 1 m) is computed on its own, so throw, the narrowing beam and the low-frequency build-up come from how the boxes add up.` }),
       s.array_boxes * (s.array_box_h || 0.3) / 2 > s.z
-        ? h('p', { class: 'hint warn', text: `The hang is longer than twice its height above the floor: its lower boxes would be below the floor. Raise it to at least ${len(s.array_boxes * (s.array_box_h || 0.3) / 2 + 0.2)}.` }) : null) : null;
+        ? h('p', { class: 'hint warn', text: `The hang is longer than twice its height above the floor: its lower boxes would be below the floor. Raise it to at least ${len(s.array_boxes * (s.array_box_h || 0.3) / 2 + 0.2)}.` })
+        : s.z + s.array_boxes * (s.array_box_h || 0.3) / 2 > r.height
+          ? h('p', { class: 'hint warn', text: `The top of the hang would be above the ceiling. Lower it to at most ${len(r.height - s.array_boxes * (s.array_box_h || 0.3) / 2 - 0.1)}, or use fewer boxes.` }) : null) : null;
     const mates = s.array_group ? P().speakers.filter((q) => q.array_group === s.array_group) : [];
     const subArray = mates.length > 1 ? group('Sub array',
       h('p', { class: 'hint', text: `One of ${mates.length} boxes in an array. Processor output: ${fmt(s.delay_ms + s.array_delay_ms, 2)} ms (alignment ${fmt(s.delay_ms, 2)} + pattern ${fmt(s.array_delay_ms, 2)})${s.invert !== s.array_invert ? ', polarity inverted' : ''}. The optimizer moves the whole array together and never changes the pattern. The pattern was worked out for the boxes where they were built: if you move one, rebuild the array.` }),

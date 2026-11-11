@@ -734,3 +734,35 @@ def test_rake_changes_the_prediction_and_old_files_are_flat():
     old["audience"].pop("rake")
     from acoustic_phase_optimizer.engine.model import Project as _P
     assert _P(**old).audience.rake == 0
+
+
+def test_hang_room_energy_follows_the_power_the_boxes_radiate():
+    from acoustic_phase_optimizer.engine import field as F
+
+    p = presets.stadium()
+    s = p.speakers[0]
+    ctx = F.make_context(p)
+    pts = np.array([[45.0, 60.0, 1.7]])
+    hang = F.speaker_field(s, pts, ctx)
+    lumped = F.speaker_field(s.model_copy(update={"array_boxes": 0}), pts, ctx)
+    ratio = F.hang_power_ratio(s, ctx)
+    assert np.allclose(hang.E, lumped.E * ratio)
+    lo, hi = int(np.argmin(abs(ctx.freqs - 63))), int(np.argmin(abs(ctx.freqs - 8000)))
+    assert 10 * np.log10(ratio[lo]) > 5  # boxes couple at low frequency
+    assert ratio[hi] < ratio[lo]
+
+
+def test_hang_direct_arrival_matches_the_summed_boxes():
+    from acoustic_phase_optimizer.engine import field as F
+    from acoustic_phase_optimizer.engine.metrics import spl
+    from acoustic_phase_optimizer.engine.simulate import _events
+
+    p = presets.festival()
+    s = p.speakers[0]
+    ctx = F.make_context(p)
+    pt = np.array([30.0, 40.0, 1.7])
+    i = int(np.argmin(abs(ctx.freqs - 1000)))
+    ev = [e for e in _events(s, 0, pt, ctx, i, 0.0, 1.0) if e["order"] == 0][0]
+    direct = abs(F.hang_direct(s, pt[None, :], F.source_position(s, ctx.dims), ctx)[0, i]) * F.speaker_amplitude(s)
+    direct *= abs(F.box_response(s, ctx.freqs[i:i + 1])[0])
+    assert ev["db"] == pytest.approx(float(spl(direct ** 2)), abs=0.1)

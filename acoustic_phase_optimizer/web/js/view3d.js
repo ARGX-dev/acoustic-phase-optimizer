@@ -260,6 +260,7 @@ export function create3D(root) {
 
   function cabinet(s) {
     if (s.role === 'sub') return new THREE.BoxGeometry(0.6, 0.55, 0.7);
+    if (s.array_boxes >= 2) return new THREE.BoxGeometry(1.0, s.array_boxes * (s.array_box_h || 0.3), 0.55); // a hang, its real length
     if (s.coverage_h >= 140 && s.coverage_v <= 30) return new THREE.BoxGeometry(0.22, 1.1, 0.25); // column
     if (s.coverage_v <= 25) return new THREE.BoxGeometry(1.1, 1.6, 0.55); // a hang of line-array boxes
     const size = s.level_db >= 128 ? 0.62 : s.level_db >= 118 ? 0.45 : 0.3;

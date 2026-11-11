@@ -34,7 +34,7 @@ import itertools
 import threading
 from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import numpy as np
 
@@ -302,6 +302,32 @@ def hang_direct(spk: Speaker, points: np.ndarray, centre: np.ndarray, ctx: Conte
     return out
 
 
+_POWER_CACHE: dict[str, np.ndarray] = {}
+
+
+def hang_power_ratio(spk: Speaker, ctx: Context) -> np.ndarray:
+    """Power the hang's boxes radiate over the power of the single combined source, per frequency.
+
+    Reflections and the diffuse tail are computed from the combined source; scaling them by this keeps the
+    room's energy consistent with the direct sound the boxes produce (more at low frequency, where the boxes
+    couple, and usually less at high frequency, where each box is narrow).
+    """
+    key = repr((sorted(spk.model_dump(include=_GEOMETRY_FIELDS - {"x", "y", "z", "yaw", "pitch"}).items()),
+                float(ctx.freqs[0]), float(ctx.freqs[-1]), len(ctx.freqs), round(ctx.c, 2)))
+    if key not in _POWER_CACHE:
+        far = 1e6  # free field: no room, no air, far enough that the hang is a point
+        free = replace(ctx, air_np=np.zeros_like(ctx.air_np), dims=(3 * far, 3 * far, 3 * far))
+        centre = np.array([far, far, far])
+        r = 400.0
+        H = hang_direct(spk.model_copy(update={"yaw": 0.0, "pitch": 0.0}), centre + r * _sphere(), centre, free)
+        hang_power = np.mean(np.abs(H) ** 2, axis=0) * r * r
+        lumped_power = 1.0 / directivity_factor(spk, ctx.freqs)  # mean of D^2 over the sphere, on-axis 1
+        if len(_POWER_CACHE) > 64:
+            _POWER_CACHE.clear()
+        _POWER_CACHE[key] = hang_power / lumped_power
+    return _POWER_CACHE[key]
+
+
 @dataclass
 class SpeakerField:
     H: np.ndarray  # (P, F) complex64
@@ -349,6 +375,10 @@ def speaker_field(spk: Speaker, points: np.ndarray, ctx: Context, early_ms: floa
     L *= (box2 * amp * amp).astype(np.float32)[None, :]
     remaining = (1.0 - ctx.stats.mean_alpha) ** ctx.order
     E = amp * amp * 16 * np.pi / (directivity_factor(spk, freqs) * ctx.stats.room_constant) * remaining * box2
+    if hang:
+        ratio = hang_power_ratio(spk, ctx)
+        L *= ratio.astype(np.float32)[None, :]
+        E = E * ratio
     return SpeakerField(H, L, E, np.linalg.norm(points - src, axis=1))
 
 

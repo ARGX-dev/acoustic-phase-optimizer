@@ -335,3 +335,17 @@ def test_export_includes_sub_array_offsets(api):
 def test_no_api_docs(api):
     status, _, body = api("GET", "/api/docs", raw=True)
     assert status == 404 and "swagger" not in body.lower()
+
+
+def test_speaker_template_imports_cleanly(api):
+    with urllib.request.urlopen(f"http://127.0.0.1:{api.port}/api/speakers/template.csv", timeout=30) as r:
+        text = r.read()
+    assert b"box_h_mm" in text.splitlines()[0]
+    req = urllib.request.Request(f"http://127.0.0.1:{api.port}/api/speakers/import", data=text, method="POST")
+    with urllib.request.urlopen(req, timeout=30) as r:
+        res = json.loads(r.read())
+    assert res["added"] == 2 and res["error_count"] == 0, res
+    mine = {t["id"]: t for t in api("GET", "/api/speakers")["user"]}
+    assert mine["my_line_10"]["array_box_h"] == 0.29
+    for i in ("my_top_12", "my_line_10"):
+        api("DELETE", f"/api/speakers/user/{i}")

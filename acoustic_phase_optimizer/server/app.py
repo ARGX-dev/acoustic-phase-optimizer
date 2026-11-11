@@ -427,9 +427,24 @@ def create_app() -> FastAPI:
 
     @app.get("/api/speakers/template.csv")
     def api_speaker_template() -> Response:
-        head = ",".join(f for f in SpeakerRow.model_fields if f not in ("user", "approximate"))
-        example = "my_top_12,MyBrand,Top 12,point,12,90,60,130,peak,50,-10,,,https://example.com/datasheet.pdf,,"
-        return Response(head + "\n" + example + "\n", media_type="text/csv",
+        import csv
+        import io
+
+        cols = [f for f in SpeakerRow.model_fields if f not in ("user", "approximate")]
+        # Examples keyed by column name, so a new column can never shift them into the wrong place.
+        examples = [
+            {"id": "my_top_12", "brand": "MyBrand", "model": "Top 12", "kind": "point", "woofer_in": 12, "coverage_h": 90,
+             "coverage_v": 60, "max_spl": 130, "spl_basis": "peak", "lf_hz": 50, "lf_db": -10,
+             "source": "https://example.com/datasheet.pdf"},
+            {"id": "my_line_10", "brand": "MyBrand", "model": "Line 10", "kind": "element", "woofer_in": 10, "coverage_h": 90,
+             "coverage_v": 10, "max_spl": 136, "spl_basis": "peak", "lf_hz": 60, "lf_db": -10, "box_h_mm": 290,
+             "source": "https://example.com/line10.pdf", "note": "coverage_v of a line-array box = its largest splay"},
+        ]
+        out = io.StringIO()
+        w = csv.DictWriter(out, fieldnames=cols, lineterminator="\n")
+        w.writeheader()
+        w.writerows(examples)
+        return Response(out.getvalue(), media_type="text/csv",
                         headers={"Content-Disposition": 'attachment; filename="speakers-template.csv"'})
 
     # ------------------------------------------------------------------------ scans

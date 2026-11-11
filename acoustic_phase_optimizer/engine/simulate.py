@@ -16,7 +16,10 @@ from .field import (
     dsp_weights,
     freq_grid,
     get_field,
+    hang_direct,
+    hang_power_ratio,
     image_sources,
+    is_hang,
     log_directivity,
     make_context,
     source_position,
@@ -218,6 +221,10 @@ def _events(spk, index: int, point: np.ndarray, ctx: Context, f_ref: int, delay_
     src = source_position(spk, ctx.dims)
     one = ctx.freqs[f_ref:f_ref + 1]
     amp = speaker_amplitude(spk) * gain * abs(box_response(spk, one)[0])
+    hang = is_hang(spk)
+    if hang:  # the direct sound is the boxes' sum; reflections carry the hang's real radiated power
+        direct_hang = abs(hang_direct(spk, point[None, :], src, ctx)[0, f_ref])
+        refl = float(np.sqrt(hang_power_ratio(spk, ctx)[f_ref]))
     out = []
     for im in image_sources(src, ctx.dims, ctx.order):
         vec = point - im.pos
@@ -227,6 +234,8 @@ def _events(spk, index: int, point: np.ndarray, ctx: Context, f_ref: int, delay_
             la += cnt * float(ctx.log_beta[surf][f_ref])
         la -= d * float(ctx.air_np[f_ref])
         p = amp * np.exp(la) / d
+        if hang:
+            p = amp * direct_hang if im.order == 0 else p * refl
         out.append({"t": round(d / ctx.c * 1000.0 + delay_ms, 2), "db": round(float(spl(p * p)), 1),
                     "speaker": index, "order": im.order})
     return out
