@@ -8,6 +8,7 @@ The tests share one page and run in file order, like a person using the app.
 
 from __future__ import annotations
 
+import json
 import os
 import pathlib
 import re
@@ -1221,6 +1222,75 @@ def test_impulse_response_import_viewer_and_trky(ui, tmp_path):
     page.wait_for_selector(".dialog .ir-table", timeout=30000)
     page.locator(".dialog .btn", has_text="Close").click()
     page.get_by_role("button", name="Delete Row 10 seat 4").click()
+    page.wait_for_selector(".meas-row", state="detached")
+
+
+def test_live_sweep_capture_and_arrivals(ui):
+    """A live take with the mic replaced by the app's own output fed back through a known delay."""
+    page = ui["page"]
+    page.get_by_role("tab", name="Mics").click()
+    page.evaluate("""() => {
+        window.__delay = 0.010;
+        navigator.mediaDevices.getUserMedia = async () => {
+            const g = (await import('/js/live.js')).audioGraph();
+            const d = g.ctx.createDelay(1);
+            d.delayTime.value = window.__delay;
+            // a room: the direct sound, then a noise decay with a reverb time of 0.6 s from 5 ms on
+            const fs = g.ctx.sampleRate, n = Math.round(fs * 1.2), room = g.ctx.createBuffer(1, n, fs), x = room.getChannelData(0);
+            let seed = 7;
+            const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647 - 0.5) * 2;
+            x[0] = 1;
+            for (let i = Math.round(fs * 0.005); i < n; i++) x[i] = 0.015 * rnd() * 10 ** (-3 * (i / fs) / 0.6);
+            const conv = g.ctx.createConvolver();
+            conv.normalize = false;
+            conv.buffer = room;
+            const dest = g.ctx.createMediaStreamDestination();
+            g.node.connect(d).connect(conv).connect(dest);
+            return dest.stream;
+        };
+    }""")
+    page.get_by_role("button", name="Measure…", exact=True).click()
+    dlg = page.locator(".dialog")
+    dlg.get_by_role("button", name="1.5 s").click()
+    spk = page.evaluate("async () => (await import('/js/store.js')).state.project.speakers.slice(0, 2).map((s) => [s.id, s.name])")
+    assert len(spk) == 2, spk
+    for (sid, _), delay in zip(spk, (0.010, 0.0)):
+        page.evaluate(f"window.__delay = {delay}")
+        dlg.get_by_label("Speaker playing").select_option(value=sid)
+        dlg.get_by_label("Mic position").select_option(index=1)
+        before = page.locator(".meas-row").count()
+        dlg.get_by_role("button", name="Measure", exact=True).click()
+        page.wait_for_function(f"document.querySelectorAll('.meas-row').length > {before} || document.querySelector('.live-result [role=alert]')", timeout=60000)
+        assert dlg.locator(".live-result [role=alert]").count() == 0, dlg.locator(".live-result [role=alert]").inner_text()
+        assert dlg.locator(".live-result .ir-table").count() == 1
+        assert dlg.locator(".live-result [role=alert]").count() == 0
+        t30 = dlg.locator(".live-result .ir-table tr", has_text="T30").locator("td.single").inner_text()
+        assert float(t30) == pytest.approx(0.6, rel=0.15), t30
+    shot(page, "31-live-sweep")
+    dlg.locator(".dialog-actions .btn", has_text="Close").click()
+    page.wait_for_selector(".dialog", state="detached")
+    assert page.evaluate("async () => (await import('/js/live.js')).audioGraph()") is None  # mic and audio closed
+
+    takes = page.evaluate("""async () => (await import('/js/store.js')).state.project.measurements
+        .filter((m) => m.source === 'sweep').map((m) => [m.name, m.arrival_ms, m.speaker_ids, m.mic_id])""")
+    assert len(takes) == 2 and takes[0][2] and takes[0][3], takes
+    assert takes[0][1] - takes[1][1] == pytest.approx(10.0, abs=0.1), takes  # the latency of the chain cancels
+
+    page.get_by_role("button", name="Compare arrivals…").click()
+    page.locator(".dialog select").select_option(label=takes[0][0])  # the late one as the reference
+    row = page.locator(".dialog tbody tr").first
+    want = page.evaluate("""async () => { const p = (await import('/js/store.js')).state.project, s = p.speakers[1];
+        return ['fill', 'front_fill', 'delay'].includes(s.role) ? s.delay_ms + 10 + p.settings.precedence_ms : s.delay_ms + 10; }""")
+    assert row.locator("td").nth(4).inner_text() == f"{want:.2f} ms", row.inner_text()
+    get = "async () => (await import('/js/store.js')).state.project.speakers.slice(0, 2).map((s) => s.delay_ms)"
+    before = page.evaluate(get)
+    page.get_by_role("button", name="Apply suggested delays").click()
+    after = page.evaluate(get)
+    assert after[0] == before[0] and after[1] == pytest.approx(want, abs=0.01), (before, after)
+    page.keyboard.press("Control+z")
+    page.wait_for_function(f"async () => JSON.stringify(await ({get})()) === {json.dumps(json.dumps(before))}")
+    for name, *_ in takes:
+        page.get_by_role("button", name=f"Delete {name}").click()
     page.wait_for_selector(".meas-row", state="detached")
 
 

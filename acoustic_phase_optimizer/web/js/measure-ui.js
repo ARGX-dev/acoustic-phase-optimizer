@@ -264,7 +264,7 @@ export function suggestDelays(project, takes, refId) {
 export function arrivalsDialog() {
   const takes = (P().measurements || []).filter((m) => m.arrival_ms != null);
   if (takes.length < 2) { toast('Measure at least two speakers from the same mic position to compare arrivals.', { error: true }); return; }
-  const chains = new Set(takes.map((t) => t.chain || '?'));
+  const spots = new Set(takes.map((t) => t.mic_id || '?'));
   const refDefault = takes.find((t) => P().speakers.find((s) => s.id === t.speaker_ids?.[0])?.role === 'main') || takes[0];
   let refId = refDefault.id;
   const body = h('div', { class: 'arrivals' });
@@ -282,9 +282,9 @@ export function arrivalsDialog() {
           h('td', { text: r.next == null ? '—' : `${fmt(r.next, 2)} ms`, title: r.note })))),
       ),
       ...rows.filter((r) => r.note).map((r) => h('p', { class: 'hint', text: `${r.name}: ${r.note}` })),
-      h('p', { class: 'hint', text: (chains.size > 1 || takes.some((t) => !t.loopback)
-        ? 'Arrival times without a loopback include the audio chain\'s latency. That is the same for takes made with the same interface and settings, so compare those; takes from different set-ups can be a few ms apart. '
-        : '') + 'Each speaker is moved to arrive with the reference, plus the precedence offset for fills. Mirror-image partners get the same change.' }));
+      h('p', { class: 'hint', text: (spots.size > 1 ? 'These takes come from different mic positions, so their arrivals also differ by distance: compare takes from one position. ' : '')
+        + (takes.some((t) => !t.loopback) ? 'Arrival times without a loopback include the latency of the audio chain. It is the same for takes made with the same interface and settings, so compare those; takes from different set-ups or imported files can be several ms apart. ' : '')
+        + 'Each speaker is moved to arrive with the reference, plus the precedence offset for fills. Mirror-image partners get the same change.' }));
   };
   render();
   openDialog({ title: 'Compare arrivals', body, wide: true, actions: [
@@ -292,6 +292,7 @@ export function arrivalsDialog() {
     { label: 'Apply suggested delays', kind: 'primary', run: () => {
       const apply = rows.filter((r) => r.next != null && r.speakerId && Math.abs(r.next - r.now) >= 0.01);
       if (!apply.length) { toast('Nothing to change.'); return true; }
+      const measured = new Set(takes.flatMap((t) => t.speaker_ids || []));
       const twins = Object.fromEntries(apply.map((r) => [r.speakerId, partnerOf(r.speakerId)?.id]));
       mutate((p) => {
         for (const r of apply) {
@@ -299,7 +300,7 @@ export function arrivalsDialog() {
           if (!s) continue;
           s.delay_ms = r.next;
           const twin = twins[r.speakerId] && p.speakers.find((x) => x.id === twins[r.speakerId]);
-          if (twin && !twin.lock_delay && !apply.some((o) => o.speakerId === twin.id)) twin.delay_ms = r.next;
+          if (twin && !twin.lock_delay && !measured.has(twin.id)) twin.delay_ms = r.next; // a measured partner has its own row
         }
       }, { structural: true });
       toast(`Changed the delay of ${apply.length} speaker${apply.length === 1 ? '' : 's'}. Undo takes it back.`);

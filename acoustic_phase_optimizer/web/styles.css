@@ -442,9 +442,20 @@ a.link:hover { text-decoration: underline; }
 .ir-table td.single { font-weight: 650; color: var(--ink); }
 .ir-table tr.pred td, .ir-table tr.pred th { color: var(--accent); }
 .ir-notes { margin: 0; padding-left: 18px; font-size: 12px; color: var(--ink-2); }
+.live { display: flex; flex-direction: column; gap: 10px; }
+.live-row { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 14px; }
+.live-row input.num { width: 80px; }
+.live-status { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 12px; align-items: center; }
+.live-status .hint { grid-column: 1 / -1; margin: 0; font-variant-numeric: tabular-nums; }
+.live-meter { height: 6px; border-radius: 3px; background: var(--surface-3); overflow: hidden; }
+.live-meter div { height: 100%; width: 0%; background: var(--good); transition: width 0.1s linear; }
+.live-meter.hot div { background: var(--critical); }
+.live-result:empty { display: none; }
+.live .error-text { color: var(--critical); margin: 0; }
 
 .lib-actions { display: flex; align-items: center; gap: 6px; margin-top: 8px; }
 .lib-actions a.btn { text-decoration: none; }
+.lib-actions.wrap { flex-wrap: wrap; }
 .picker-item .tag.mine { border-color: var(--accent); }
 
 /* ------------------------------------------------------------- controls */

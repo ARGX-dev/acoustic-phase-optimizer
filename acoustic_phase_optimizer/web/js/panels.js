@@ -10,6 +10,7 @@ import { openDialog } from './dialog.js';
 import { api } from './api.js';
 import { matchOffset, parseResponse } from './measure.js';
 import { addImpulseResponse, alignLevel, arrivalsDialog, measuredRt, showIR } from './measure-ui.js';
+import { liveSweepDialog } from './live.js';
 import { seriesColor } from './theme.js';
 import { aimPatch } from './aim.js';
 import { area, dispStep, fromDisp, len, lenUnit, speed, toDisp, volume } from './units.js';
@@ -654,8 +655,9 @@ export function createLeftPanel(root) {
         } }, 'Match'),
         h('button', { class: 'icon-btn small', attrs: { 'aria-label': `Delete ${m.name}` }, onclick: () => mutate((p) => { p.measurements = p.measurements.filter((x) => x.id !== m.id); }, { structural: true }) }, icon('trash')),
         m.ir_id ? irRow(m, setM) : null))) : null,
-      h('div', { class: 'lib-actions' },
+      h('div', { class: 'lib-actions wrap' },
         h('button', { class: 'btn small', onclick: importMeasurement }, icon('plus'), 'Import a measurement…'),
+        h('button', { class: 'btn small', onclick: liveSweepDialog, title: 'Play a sweep and record it with a measurement mic on the audio interface of this computer' }, 'Measure…'),
         list.filter((m) => m.arrival_ms != null).length >= 2 ? h('button', { class: 'btn small ghost', onclick: arrivalsDialog, title: 'Compare when the sound of each speaker arrives and suggest delays' }, 'Compare arrivals…') : null),
       h('p', { class: 'hint', text: 'Overlay a measured response on the chart: REW "Export measurement as text", a Smaart ASCII export, any CSV of frequency, dB and phase, or an impulse response WAV (which also gives reverb time, clarity and arrival time). Shown dashed, smoothed to 1/6 octave like the prediction. Measurements are rarely calibrated, so the level is matched to the prediction on import.' }));
   }
