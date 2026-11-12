@@ -108,7 +108,7 @@ strict Content-Security-Policy.
   - Locked values are never touched. Every run shows a before/after comparison and can be undone.
 - **Take it with you.** Export the processor settings as CSV, text or JSON, or in a form a processor takes:
   - *dbx DriveRack VENU360 sheet*: every output's crossover, PEQ, alignment delay, gain and polarity, laid
-    out in the order VENU360 Control shows them, with checks against the unit's published limits (6 outputs,
+    out block by block along each output's processing chain, with checks against the unit's published limits (6 outputs,
     1000 ms of alignment delay, PEQ Q up to 16). dbx publishes no settings file the VENU360 can import, so
     this is a sheet to type in by hand.
   - *REW / Equalizer APO filters*: one text file per output (`Filter 1: ON PK Fc 250 Hz Gain -4.5 dB Q 2`),

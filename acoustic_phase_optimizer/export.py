@@ -144,6 +144,10 @@ def venu360_checks(project: Project) -> list[str]:
             if b.q > VENU360_PEQ_Q:
                 out.append(f"Output {r['output']} ({r['name']}): PEQ band {i} has Q {b.q:g}; output PEQ goes up to "
                            f"Q {VENU360_PEQ_Q:g}.")
+            if b.type in ("highpass", "lowpass"):
+                out.append(f"Output {r['output']} ({r['name']}): PEQ band {i} is a 2nd-order "
+                           f"{'high' if b.type == 'highpass' else 'low'} pass. If the output PEQ has no such type, "
+                           "set it in the crossover block instead.")
     return out
 
 
@@ -185,8 +189,8 @@ def to_venu360(project: Project) -> str:
         out.append("")
     out.append("CHECKS")
     out += [f"  ! {x}" for x in venu360_checks(project)] or ["  Within the VENU360's published limits."]
-    out.append("  Check on your unit: that each output has as many free PEQ bands as listed, and that shelf")
-    out.append("  filters are offered there. Delays are relative: the earliest output sits at 0 ms.")
+    out.append("  Check on your unit: that each output has as many free PEQ bands as listed, and that the shelf")
+    out.append("  and pass filter types are offered there. Delays are relative: the earliest output sits at 0 ms.")
     return "\n".join(out) + "\n"
 
 

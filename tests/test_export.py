@@ -91,7 +91,10 @@ def test_venu360_sheet_and_limits():
     txt = export.to_venu360(p)
     assert "OUTPUT 1  \"Main L/R\"" in txt and "High Pass 80 Hz, Linkwitz-Riley 24 dB/oct" in txt
     assert "Alignment Delay  12.50 ms" in txt and "Low Shelf" in txt and "by hand" in txt
-    assert "Within the VENU360's published limits." in txt
+    assert "PEQ band 4 is a 2nd-order high pass" in txt
+    clean = project()
+    clean.speakers[0].peq = clean.speakers[0].peq[:3]
+    assert "Within the VENU360's published limits." in export.to_venu360(clean)
     p = project(2)
     p.speakers = [p.speakers[0].model_copy(update={"id": f"s{i}", "name": f"S{i}"}) for i in range(8)]
     p.speakers[3].delay_ms = 1200
@@ -100,4 +103,5 @@ def test_venu360_sheet_and_limits():
     assert any("8 outputs" in c for c in checks)
     assert any("Output 4" in c and "1000 ms" in c for c in checks)
     assert any("Output 3" in c and "Q 20" in c for c in checks)
+    assert any("Output 1" in c and "high pass" in c for c in checks)  # the PEQ high-pass band
     assert "OUTPUT 2 (unit 2)" in export.to_venu360(p)

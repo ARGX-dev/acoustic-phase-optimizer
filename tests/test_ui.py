@@ -218,6 +218,7 @@ def test_save_open_and_export(ui, tmp_path):
     assert page.evaluate("fetch('/api/branding').then(r => r.json()).then(b => b.company)") == "Acme Audio"
 
     # Save as PDF: the report window opens Print once the report has loaded (print stubbed out here)
+    # (stays on the shared context: later pages get a harmless no-op print)
     ctx.add_init_script("window.print = () => { document.documentElement.dataset.printed = '1'; };")
     page.get_by_role("button", name="Export").click()
     page.get_by_role("menuitem", name="Client report…").click()

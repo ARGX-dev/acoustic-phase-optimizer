@@ -250,13 +250,13 @@ def render_report(project: Project, baseline: Project | None = None, branding: B
                  ("clarity", "Clarity", "Early energy relative to late reverberant energy", -6.0, 12.0, "dB", SEQUENTIAL, None),
                  ("interference", "Summation and cancellation", "How speakers add (blue) or cancel (red), 1/3-octave smoothed",
                   -6.0, 6.0, "dB", DIVERGING, "0")]
+        out.append('<div class="maps">')  # one grid, so print fills both columns
         for key, title, desc, a, b, unit, stops, mid in specs:
-            out.append('<div class="maps">')
             pairs = [("Before", baseline, base), ("After", project, sim)] if base and base["maps"] else [("", project, sim)]
             for tag, proj, s in pairs:
                 out.append(f"<figure><figcaption>{title}{' - ' + tag.lower() if tag else ''}<small>{desc}</small></figcaption>"
                            f"{_map_svg(proj, s, key, a, b, stops)}{_legend(a, b, unit, stops, mid)}</figure>")
-            out.append("</div>")
+        out.append("</div>")
         sections.append(("maps", "Coverage maps", "".join(out)))
 
         if project.speakers:
