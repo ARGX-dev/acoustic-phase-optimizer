@@ -138,7 +138,14 @@ def optimize(args: argparse.Namespace) -> int:
     out.write_text(project.model_dump_json(indent=2), encoding="utf-8")
     print(f"  saved {out}")
     if args.report:
-        Path(args.report).write_text(render_report(project, baseline), encoding="utf-8")
+        from .engine.model import Branding
+        from .server import storage
+
+        try:  # the company details set in the app's report dialog
+            branding = Branding.model_validate(storage.load_branding())
+        except ValueError:
+            branding = None
+        Path(args.report).write_text(render_report(project, baseline, branding), encoding="utf-8")
         print(f"  report {args.report}")
     print()
     print(to_text(project))

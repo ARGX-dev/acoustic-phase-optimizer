@@ -157,7 +157,7 @@ def test_example_venue_loads_without_a_discard_prompt(ui):
     page.wait_for_selector(".score .num", timeout=30000)
 
 
-def test_save_open_and_export(ui):
+def test_save_open_and_export(ui, tmp_path):
     page, ctx = ui["page"], ui["ctx"]
     name = page.locator(".venue-name").input_value()
     page.keyboard.press("Control+s")
@@ -178,11 +178,55 @@ def test_save_open_and_export(ui):
     assert len(Path(dl.value.path()).read_text(encoding="utf-8")) > 50
 
     page.get_by_role("button", name="Export").click()
+    with page.expect_download() as dl:
+        page.get_by_role("menuitem", name="dbx DriveRack VENU360 sheet").click()
+    assert dl.value.suggested_filename.endswith("-venu360.txt")
+    assert "by hand" in Path(dl.value.path()).read_text(encoding="utf-8")
+
+    # the client report: branding kept app-wide, client and reference in the project, a logo scaled down
+    import re
+
+    import numpy as np
+
+    from acoustic_phase_optimizer.report import png
+
+    logo = tmp_path / "logo.png"
+    logo.write_bytes(png(np.full((900, 1800, 3), 200, np.uint8)))
+    page.get_by_role("button", name="Export").click()
+    page.get_by_role("menuitem", name="Client report…").click()
+    dlg = page.locator(".dialog")
+    dlg.get_by_label("Client").fill("Town Council")
+    dlg.get_by_label("Reference").fill("Q-17")
+    dlg.get_by_label("Company").fill("Acme Audio")
+    dlg.get_by_label("Logo file").set_input_files(str(logo))
+    dlg.locator(".logo-preview img").wait_for()
+    src = dlg.locator(".logo-preview img").get_attribute("src")
+    assert src.startswith("data:image/png;base64,") and len(src) < 300_000
+    shot(page, "13-report-dialog")
     with ctx.expect_page() as newp:
-        page.get_by_role("menuitem", name="Printable report").click()
+        dlg.get_by_role("button", name="Open report").click()
     rep = newp.value
-    rep.wait_for_load_state()
-    assert "<svg" in rep.content()
+    rep.wait_for_function("document.querySelector('.cover h1') !== null", timeout=60000)
+    html = rep.content()
+    assert "Acme Audio" in html and "Town Council" in html and "Q-17" in html and 'class="resp"' in html
+    w = rep.evaluate("[document.querySelector('.cover .logo').naturalWidth, document.querySelector('.cover .logo').naturalHeight]")
+    assert w == [480, 240]  # 1800 x 900 fitted into 600 x 240
+    pdf = rep.pdf(format="A4", print_background=True)
+    pages = len(re.findall(rb"/Type\s*/Page[^s]", pdf))
+    assert 4 <= pages <= 12, pages
+    rep.close()
+    assert page.evaluate("fetch('/api/branding').then(r => r.json()).then(b => b.company)") == "Acme Audio"
+
+    # Save as PDF: the report window opens Print once the report has loaded (print stubbed out here)
+    ctx.add_init_script("window.print = () => { document.documentElement.dataset.printed = '1'; };")
+    page.get_by_role("button", name="Export").click()
+    page.get_by_role("menuitem", name="Client report…").click()
+    assert page.locator(".dialog").get_by_label("Company").input_value() == "Acme Audio"  # kept
+    with ctx.expect_page() as newp:
+        page.locator(".dialog").get_by_role("button", name="Save as PDF").click()
+    rep = newp.value
+    rep.wait_for_function("document.documentElement.dataset.printed === '1'", timeout=60000)
+    assert "Acme Audio" in rep.content()
     rep.close()
 
 

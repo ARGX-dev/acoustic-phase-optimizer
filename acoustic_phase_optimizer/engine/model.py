@@ -219,6 +219,24 @@ class Measurement(BaseModel):
         return self
 
 
+class ReportInfo(BaseModel):
+    """What the venue's report says about the job; the company's own details are app-wide (Branding)."""
+
+    client: str = Field("", max_length=120)
+    reference: str = Field("", max_length=60)  # job or quote number
+
+
+class Branding(BaseModel):
+    """The user's company on report covers. Kept in the data folder, not in projects, and checked here because
+    the values go into the report's HTML and CSS."""
+
+    company: str = Field("", max_length=120)
+    engineer: str = Field("", max_length=120)
+    contact: str = Field("", max_length=200)
+    accent: str = Field("#256abf", pattern=r"^#[0-9a-fA-F]{6}$")
+    logo: str | None = Field(None, max_length=300_000, pattern=r"^data:image/(png|jpeg);base64,[A-Za-z0-9+/]+={0,2}$")
+
+
 class Settings(BaseModel):
     grid_resolution: float = Field(0.5, ge=0.1, le=5)
     reflection_order: int = Field(2, ge=0, le=4)
@@ -263,6 +281,7 @@ class Project(BaseModel):
     scan: ScanRef | None = None
     custom_materials: list[CustomMaterial] = Field(default_factory=list, max_length=40)
     measurements: list[Measurement] = Field(default_factory=list, max_length=8)
+    report: ReportInfo = Field(default_factory=ReportInfo)
 
     @model_validator(mode="after")
     def _hang_defaults(self):

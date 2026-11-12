@@ -25,7 +25,7 @@ from ..engine.field import get_field
 from ..engine.library import LIBRARY, ROW_BY_ID, SpeakerRow, to_speaker_type
 from ..engine.materials import MATERIALS
 from ..engine.metrics import BANDS, Weights
-from ..engine.model import Project, Speaker
+from ..engine.model import Branding, Project, Speaker
 from ..engine.optimize import auto_eq, deep_optimize, diff_speakers, evaluate, link_units, quick_align
 from ..engine.scanfit import fit_box
 from ..engine.simulate import point_response, room_report, section, simulate
@@ -82,11 +82,12 @@ class OptimizeIn(ProjectIn):
 
 
 class ExportIn(ProjectIn):
-    format: Literal["csv", "json", "txt"]
+    format: Literal["csv", "json", "txt", "venu360", "rew", "minidsp"]
 
 
 class ReportIn(ProjectIn):
     baseline: Project | None = None
+    branding: Branding | None = None
 
 
 class ScanFitIn(BaseModel):
@@ -346,14 +347,26 @@ def create_app() -> FastAPI:
     # ---------------------------------------------------------------- export / report
     @app.post("/api/export")
     def api_export(body: ExportIn) -> Response:
-        fn, mime, ext = FORMATS[body.format]
+        fn, mime, ending = FORMATS[body.format]
         name = storage.slug(body.project.name)
         return Response(fn(body.project), media_type=mime,
-                        headers={"Content-Disposition": f'attachment; filename="{name}-dsp-settings.{ext}"'})
+                        headers={"Content-Disposition": f'attachment; filename="{name}-{ending}"'})
 
     @app.post("/api/report", response_class=HTMLResponse)
     def api_report(body: ReportIn) -> str:
-        return render_report(body.project, body.baseline)
+        return render_report(body.project, body.baseline, body.branding)
+
+    @app.get("/api/branding")
+    def api_branding() -> dict:
+        try:
+            return Branding.model_validate(storage.load_branding()).model_dump()
+        except ValueError:
+            return Branding().model_dump()
+
+    @app.put("/api/branding")
+    def api_branding_save(body: Branding) -> dict:
+        storage.save_branding(body.model_dump())
+        return body.model_dump()
 
     # --------------------------------------------------------------------- speakers
     def user_rows() -> list[SpeakerRow]:

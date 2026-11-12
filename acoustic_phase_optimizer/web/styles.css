@@ -507,3 +507,11 @@ kbd { font: 600 11px/1 var(--font); padding: 3px 6px; border-radius: 4px; border
 .find-what small { color: var(--ink-2); }
 .find-row select { width: 100%; min-width: 0; }
 @media (max-width: 560px) { .find-row { grid-template-columns: 22px 20px minmax(0, 1fr); } .find-row select { grid-column: 3; } }
+
+/* client report dialog */
+.report-dlg h4 { margin: 4px 0 8px; font-size: 12px; color: var(--ink-2); }
+.report-dlg h4:not(:first-child) { margin-top: 16px; }
+.report-dlg input[type="color"] { width: 100%; height: 32px; padding: 2px; }
+.logo-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.logo-preview { display: flex; align-items: center; gap: 8px; min-height: 48px; }
+.logo-preview img { max-width: 200px; max-height: 64px; object-fit: contain; background: #fff; border-radius: 4px; padding: 4px; }

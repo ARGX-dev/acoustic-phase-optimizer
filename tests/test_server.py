@@ -142,9 +142,56 @@ def test_report_is_self_contained_and_escapes_names(api):
     status, _, html = api("POST", "/api/report", {"project": project, "baseline": baseline}, raw=True)
     assert status == 200
     assert "<script>alert(1)</script>" not in html and "&lt;script&gt;" in html
-    assert html.count("data:image/png;base64,") == 6  # three maps, before and after
+    assert html.count("data:image/png;base64,") == 7  # three maps before and after, and the long section
     assert "Before optimization" in html and "DSP settings" in html
     assert "http://" not in html and "https://" not in html  # no external assets
+
+
+def test_branded_report(api):
+    import base64
+
+    import numpy as np
+
+    from acoustic_phase_optimizer.report import png
+
+    logo = "data:image/png;base64," + base64.b64encode(png(np.zeros((2, 3, 3), np.uint8))).decode()
+    project = small()
+    project["report"] = {"client": "Town <Council>", "reference": "Q-2026-17"}
+    project["mics"] = [{"id": "m1", "name": "Row 5 <centre>", "x": 6, "y": 8, "z": 1.2}, {"id": "m2", "name": "Back", "x": 6, "y": 14}]
+    freqs = list(np.geomspace(20, 20000, 200))
+    project["measurements"] = [{"name": "Sweep at row 5", "freqs": freqs, "spl": [80.0] * 200, "offset_db": -3, "mic_id": "m1"}]
+    branding = {"company": "Acme <Audio>", "engineer": "J. Doe", "contact": "hello@example.com", "accent": "#aa3300", "logo": logo}
+    status, _, html = api("POST", "/api/report", {"project": project, "branding": branding}, raw=True)
+    assert status == 200
+    assert "Acme &lt;Audio&gt;" in html and "Town &lt;Council&gt;" in html and "Q-2026-17" in html and "<Audio>" not in html
+    assert "--accent:#aa3300" in html and f'src="{logo}"' in html and "@page" in html
+    assert html.count('class="resp"') == 2  # one plot per mic
+    assert "Row 5 &lt;centre&gt;" in html and "Sweep at row 5 (measured)" in html and "stroke-dasharray" in html
+    assert 'href="#responses"' in html and 'id="responses"' in html
+    # values that would reach the HTML or CSS unchecked are refused
+    for bad in ({"accent": "red;}body{display:none"}, {"logo": "javascript:alert(1)"},
+                {"logo": "data:image/svg+xml;base64,PHN2Zz4="}, {"company": "x" * 500}):
+        assert api("POST", "/api/report", {"project": project, "branding": {**branding, **bad}}, raw=True)[0] == 422
+
+
+def test_branding_is_kept_app_wide(api):
+    assert api("GET", "/api/branding")["accent"] == "#256abf"
+    saved = api("PUT", "/api/branding", {"company": "Acme", "accent": "#123456"})
+    assert saved["company"] == "Acme"
+    assert api("GET", "/api/branding")["accent"] == "#123456"
+    assert api("PUT", "/api/branding", {"accent": "blue"}, raw=True)[0] == 422
+    (storage.data_dir() / "branding.json").write_text('{"accent": "nope"}', encoding="utf-8")
+    assert api("GET", "/api/branding")["accent"] == "#256abf"  # a broken file falls back
+
+
+def test_processor_exports(api):
+    project = small()
+    status, headers, txt = api("POST", "/api/export", {"project": project, "format": "venu360"}, raw=True)
+    assert status == 200 and 'filename="conference-room-venu360.txt"' in headers["content-disposition"]
+    assert "by hand" in txt
+    for fmt, ending in (("rew", "filters-rew-eqapo.zip"), ("minidsp", "minidsp-biquads.zip")):
+        status, headers, _ = api("POST", "/api/export", {"project": project, "format": fmt}, raw=True)
+        assert status == 200 and ending in headers["content-disposition"] and headers["content-type"] == "application/zip"
 
 
 def test_project_storage_round_trip(api):

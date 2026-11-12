@@ -44,8 +44,11 @@ acoustic_phase_optimizer/
     js/live.js     live sweep capture (getUserMedia + capture-worklet.js, which plays and records in one
                    audio callback); js/rta.js the real-time analyser and pink noise
     vendor/        three.js, web-ifc, occt-import-js, TRKY (see THIRD_PARTY.md)
-  export.py   DSP settings as CSV / TXT / JSON
-  report.py   self-contained printable HTML report
+  export.py   DSP settings as CSV / TXT / JSON, the VENU360 sheet, REW / Equalizer APO filter text and
+              miniDSP biquads (zipped, one file per output)
+  report.py   self-contained client report (cover, contents, plots; A4 print CSS); js/report-ui.js is
+              its dialog. Branding is app-wide (data folder, branding.json, GET/PUT /api/branding); the
+              job's client and reference live in the project (Project.report)
   __main__.py launcher (app window via Edge/Chrome --app, or --browser) and the `optimize` CLI
 ```
 
@@ -56,6 +59,12 @@ acoustic_phase_optimizer/
   project with `POST /api/projects/check` and stores the scan again (its id is the content hash).
 - Mesh repair never moves or deletes vertices; it only rewrites the triangle list, and it is deterministic,
   so a saved venue re-applies it on load (`ScanRef.repair`).
+
+- Processor exports are written from the same values as the model: LR24 crossovers are two Butterworth
+  biquads at Q 0.7071, PEQ bands use the RBJ cookbook (engine/eq.py), and flat bells or shelves are left out.
+  miniDSP's a1 and a2 are the negated denominator terms (checked against a published REW export).
+- Everything that reaches the report's HTML is escaped; the accent colour and logo are checked by pattern
+  (#rrggbb, a PNG or JPEG data URL), and the footer text is written as an escaped CSS string.
 
 - Coordinates: x across the room, y away from the stage wall, z up. On the plan the stage is on the left.
 - Yaw 0 faces the audience; pitch is negative downward.

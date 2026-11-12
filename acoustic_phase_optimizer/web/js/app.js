@@ -117,23 +117,6 @@ async function exportDsp(format) {
   } catch (e) { toast(`Export failed: ${e.message}`, { error: true }); }
 }
 
-async function openReport() {
-  commit();
-  const t = toast('Building the report…', { ms: 20000 });
-  try {
-    const html = await api.report(state.project, state.baseline);
-    const url = URL.createObjectURL(new Blob([html], { type: 'text/html' }));
-    const win = window.open(url, '_blank');
-    if (!win) download(`${state.project.name || 'venue'} report.html`, html, 'text/html');
-    setTimeout(() => URL.revokeObjectURL(url), 60000);
-    t.remove();
-    toast(win ? 'Report opened. Use Print to save it as a PDF.' : 'Report downloaded.');
-  } catch (e) {
-    t.remove();
-    toast(`Report failed: ${e.message}`, { error: true });
-  }
-}
-
 // -------------------------------------------------------------------- topbar
 function createTopbar(root) {
   const logo = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
@@ -178,8 +161,12 @@ function createTopbar(root) {
     item('Spreadsheet (CSV)', () => exportDsp('csv'), { hint: '.csv' }),
     item('Plain text sheet', () => exportDsp('txt'), { hint: '.txt' }),
     item('JSON', () => exportDsp('json'), { hint: '.json' }),
+    h('h4', { text: 'For a processor' }),
+    item('dbx DriveRack VENU360 sheet', () => exportDsp('venu360'), { hint: '.txt' }),
+    item('REW / Equalizer APO filters', () => exportDsp('rew'), { hint: '.zip' }),
+    item('miniDSP biquads', () => exportDsp('minidsp'), { hint: '.zip' }),
     h('hr'),
-    item('Printable report', openReport, { hint: 'HTML / PDF' }),
+    item('Client report…', () => import('./report-ui.js').then((m) => m.reportDialog()), { hint: 'PDF' }),
     h('hr'),
     h('h4', { text: 'Share the venue' }),
     item('Project archive, with the scan', () => import('./trky.js').then((m) => m.saveTrky()), { hint: '.trky' }),

@@ -106,7 +106,19 @@ strict Content-Security-Policy.
     weighted by your priorities. It is never worse than where it started.
   - *Auto EQ*: fits a few cut-biased parametric bands per speaker toward the target curve.
   - Locked values are never touched. Every run shows a before/after comparison and can be undone.
-- **Take it with you.** Export the processor settings as CSV, text or JSON, or open a printable report.
+- **Take it with you.** Export the processor settings as CSV, text or JSON, or in a form a processor takes:
+  - *dbx DriveRack VENU360 sheet*: every output's crossover, PEQ, alignment delay, gain and polarity, laid
+    out in the order VENU360 Control shows them, with checks against the unit's published limits (6 outputs,
+    1000 ms of alignment delay, PEQ Q up to 16). dbx publishes no settings file the VENU360 can import, so
+    this is a sheet to type in by hand.
+  - *REW / Equalizer APO filters*: one text file per output (`Filter 1: ON PK Fc 250 Hz Gain -4.5 dB Q 2`),
+    which Room EQ Wizard and Equalizer APO read, with the crossover written as two Butterworth sections.
+  - *miniDSP biquads*: coefficients for the "Advanced" biquad boxes at 48 and 96 kHz, crossover and PEQ in
+    separate files, in miniDSP's sign convention; delay, gain and polarity are listed in a README.
+- **Client report.** **Export > Client report** adds your logo, company, engineer and contact (kept for every
+  report) and the job's client and reference to a cover page, then the findings, coverage maps, a long section,
+  the response at each mic position with any measurements taken there, the DSP settings and the room. **Save as
+  PDF** opens Print with the report laid out for A4.
 
 Projects are saved as plain JSON in `%LOCALAPPDATA%\AcousticPhaseOptimizer` (set `APO_DATA_DIR` to change it).
 The last session is restored automatically.
@@ -162,7 +174,7 @@ ruff check acoustic_phase_optimizer tests tools
 | `acoustic_phase_optimizer/engine/` | Physics, metrics, optimizer, presets (numpy, scipy, pydantic) |
 | `acoustic_phase_optimizer/server/` | FastAPI app, background optimization jobs, project storage |
 | `acoustic_phase_optimizer/web/` | The interface: plain HTML, CSS and ES modules, no build step |
-| `acoustic_phase_optimizer/export.py`, `report.py` | Settings sheets and the HTML report |
+| `acoustic_phase_optimizer/export.py`, `report.py` | Settings sheets, processor exports and the client report |
 | `acoustic_phase_optimizer/web/vendor/` | Third-party code, unchanged unless noted (see `THIRD_PARTY.md`, `sha256.txt`) |
 | `tests/` | Engine, API and browser (Playwright) tests; `tests/js/` holds the Node tests |
 | `tools/vendor_trky.py` | Copies the TRKY code out of the converter page, or `--check`s the vendored copy |

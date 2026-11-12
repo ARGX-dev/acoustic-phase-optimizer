@@ -186,6 +186,20 @@ def save_user_speakers(rows: list[dict]) -> None:
     _write(_user_speakers_path(), json.dumps(rows, indent=1, ensure_ascii=False))
 
 
+# ------------------------------------------------------------ the user's company, for report covers
+def load_branding() -> dict:
+    path = data_dir() / "branding.json"
+    try:
+        doc = json.loads(path.read_text(encoding="utf-8"))
+        return doc if isinstance(doc, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def save_branding(doc: dict) -> None:
+    _write(data_dir() / "branding.json", json.dumps(doc, ensure_ascii=False))
+
+
 def save_session(payload: dict) -> None:
     _write(data_dir() / "session.json", json.dumps(payload))
 
