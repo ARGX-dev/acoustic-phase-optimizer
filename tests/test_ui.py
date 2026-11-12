@@ -1294,6 +1294,44 @@ def test_live_sweep_capture_and_arrivals(ui):
     page.wait_for_selector(".meas-row", state="detached")
 
 
+def test_rta_pink_noise_snapshot(ui):
+    """The RTA with the mic replaced by its own generator: pink noise reads flat, and a snapshot is kept."""
+    page = ui["page"]
+    page.evaluate("""() => {
+        navigator.mediaDevices.getUserMedia = async () => {
+            const g = (await import('/js/rta.js')).rtaGraph();
+            const dest = g.ctx.createMediaStreamDestination();
+            g.out.connect(dest);
+            return dest.stream;
+        };
+    }""")
+    page.get_by_role("tab", name="Mics").click()
+    page.get_by_role("button", name="RTA…", exact=True).click()
+    dlg = page.locator(".dialog")
+    page.wait_for_function("document.querySelector('.dialog .live .hint').textContent === 'Listening.'", timeout=15000)
+    dlg.get_by_role("button", name="Pink noise").click()
+    assert dlg.get_by_role("button", name="Pink noise").get_attribute("aria-pressed") == "true"
+    page.wait_for_timeout(800)  # let the analyser window fill with noise before averaging
+    dlg.get_by_role("button", name="Until reset").click()
+    page.wait_for_timeout(3000)
+    shot(page, "32-rta")
+    total = page.evaluate("async () => { const l = (await import('/js/rta.js')).rtaGraph().levels; return 10 * Math.log10(l.reduce((a, v) => a + 10 ** (v / 10), 0)); }")
+    assert total == pytest.approx(-20, abs=1.5), total  # the bands add up to the noise level in dBFS RMS
+    dlg.get_by_label("Mic position").select_option(index=1)
+    dlg.get_by_role("button", name="Keep snapshot").click()
+    m = page.evaluate("""async () => (await import('/js/store.js')).state.project.measurements.filter((m) => m.source === 'rta').at(-1)""")
+    assert m and m["mic_id"] and m["name"].startswith("RTA 1"), m
+    band = [v for f, v in zip(m["freqs"], m["spl"]) if 200 <= f <= 10000]
+    mean = sum(band) / len(band)
+    sd = (sum((v - mean) ** 2 for v in band) / len(band)) ** 0.5
+    assert sd < 1.5 and max(band) - min(band) < 6, (sd, min(band), max(band))
+    dlg.locator(".dialog-actions .btn", has_text="Close").click()
+    page.wait_for_selector(".dialog", state="detached")
+    assert page.evaluate("async () => (await import('/js/rta.js')).rtaGraph()") is None
+    page.get_by_role("button", name=f"Delete {m['name']}").click()
+    page.wait_for_selector(".meas-row", state="detached")
+
+
 def make_trky_list(path: Path) -> list[str]:
     """The entry names of a .trky (its index is plain or raw-deflated JSON after the header)."""
     import json

@@ -48,13 +48,16 @@ async function postBytes(url, body) {
 /** The measurement record for an analysed impulse response (from /api/measure/ir or /capture). */
 export function measurementFrom(name, res, extra = {}) {
   const a = res.analysis;
-  const m = {
-    id: `m${uid()}`, name: String(name).slice(0, 80) || 'Measurement', color: freeColor(), offset_db: 0,
+  return newMeasurement(name, {
     freqs: a.response.freqs, spl: a.response.spl, phase: a.response.phase,
     source: 'ir', ir_id: res.ir_id, start_ms: res.start_ms ?? 0, arrival_ms: a.arrival_ms, polarity: a.polarity,
-    bands: a.bands.map((b) => Object.fromEntries([['f', b.f], ...BAND_KEYS.map((k) => [k, b[k]])])),
-    taken: new Date().toISOString().slice(0, 19), ...extra,
-  };
+    bands: a.bands.map((b) => Object.fromEntries([['f', b.f], ...BAND_KEYS.map((k) => [k, b[k]])])), ...extra });
+}
+
+/** A new measurement record (not yet added): id, a free colour, the time, and its level lined up. */
+export function newMeasurement(name, fields) {
+  const m = { id: `m${uid()}`, name: String(name).slice(0, 80) || 'Measurement', color: freeColor(), offset_db: 0,
+    taken: new Date().toISOString().slice(0, 19), ...fields };
   alignLevel(m);
   return m;
 }

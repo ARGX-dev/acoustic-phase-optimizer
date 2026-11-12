@@ -11,6 +11,7 @@ import { api } from './api.js';
 import { matchOffset, parseResponse } from './measure.js';
 import { addImpulseResponse, alignLevel, arrivalsDialog, measuredRt, showIR } from './measure-ui.js';
 import { liveSweepDialog } from './live.js';
+import { rtaDialog } from './rta.js';
 import { seriesColor } from './theme.js';
 import { aimPatch } from './aim.js';
 import { area, dispStep, fromDisp, len, lenUnit, speed, toDisp, volume } from './units.js';
@@ -658,6 +659,7 @@ export function createLeftPanel(root) {
       h('div', { class: 'lib-actions wrap' },
         h('button', { class: 'btn small', onclick: importMeasurement }, icon('plus'), 'Import a measurement…'),
         h('button', { class: 'btn small', onclick: liveSweepDialog, title: 'Play a sweep and record it with a measurement mic on the audio interface of this computer' }, 'Measure…'),
+        h('button', { class: 'btn small', onclick: rtaDialog, title: 'Show the mic spectrum live, with pink noise, and keep snapshots to compare with the prediction' }, 'RTA…'),
         list.filter((m) => m.arrival_ms != null).length >= 2 ? h('button', { class: 'btn small ghost', onclick: arrivalsDialog, title: 'Compare when the sound of each speaker arrives and suggest delays' }, 'Compare arrivals…') : null),
       h('p', { class: 'hint', text: 'Overlay a measured response on the chart: REW "Export measurement as text", a Smaart ASCII export, any CSV of frequency, dB and phase, or an impulse response WAV (which also gives reverb time, clarity and arrival time). Shown dashed, smoothed to 1/6 octave like the prediction. Measurements are rarely calibrated, so the level is matched to the prediction on import.' }));
   }

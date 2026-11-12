@@ -91,6 +91,14 @@ strict Content-Security-Policy.
 - **Compare with a measurement.** Import a REW "Export measurement as text", a Smaart ASCII export or any
   CSV of frequency, level and phase. It is drawn dashed over the prediction, smoothed the same way, with its
   level matched to the prediction.
+- **Measure the room.** Import an impulse response WAV (REW, Smaart, ARTA…) or take one live: **Measure…**
+  plays a sine sweep through the computer's audio interface and records the measurement mic, with an
+  optional loopback on input 2 for an exact time reference. Each impulse response shows its energy-time and
+  decay curves with ISO 3382 values per octave (EDT, T20, T30, C50, C80, D50, centre time) beside the
+  predicted ones, and the measured reverb time is shown on the room. **Compare arrivals…** lines up takes of
+  different speakers at one mic and suggests delays. **RTA…** is a live 1/3-octave analyser with a pink-noise
+  generator; a snapshot is kept as a measurement over the prediction. The app window asks for the mic the
+  first time.
 - **Optimize.**
   - *Quick align* (under a second): time-aligns fills and delays to the mains, matches their levels, and
     sets sub delay and polarity.
@@ -159,7 +167,7 @@ ruff check acoustic_phase_optimizer tests tools
 | `tests/` | Engine, API and browser (Playwright) tests; `tests/js/` holds the Node tests |
 | `tools/vendor_trky.py` | Copies the TRKY code out of the converter page, or `--check`s the vendored copy |
 
-Version 1 (the PyQt desktop app with hardware measurement) is preserved at the git tag `v1-pyqt-final`.
+Version 1 (the PyQt desktop app) is preserved at the git tag `v1-pyqt-final`.
 
 ## Licence
 

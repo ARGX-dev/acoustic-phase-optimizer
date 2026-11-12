@@ -24,6 +24,7 @@ acoustic_phase_optimizer/
     simulate.py   maps, metrics, point response, room report for the UI
     presets.py    speaker types and example venues
     advice.py     plain-language findings
+    measure.py    sweeps, deconvolution, impulse response analysis (ISO 3382, Lundeby, Schroeder)
   server/     FastAPI: stateless API (the project travels with each request), background jobs, JSON storage
   web/        vanilla ES modules + canvas, no build step
     js/store.js    state, undo/redo, request pumps, autosave
@@ -39,6 +40,9 @@ acoustic_phase_optimizer/
     js/trky.js     .trky archives: open (project bundle or any archive) and save; trky-worker.js
                    runs the vendored coders (web/vendor/trky)
     js/drop.js     drag and drop onto the window
+    js/measure-ui.js  measurements: import, level match, the impulse response viewer, delay suggestions
+    js/live.js     live sweep capture (getUserMedia + capture-worklet.js, which plays and records in one
+                   audio callback); js/rta.js the real-time analyser and pink noise
     vendor/        three.js, web-ifc, occt-import-js, TRKY (see THIRD_PARTY.md)
   export.py   DSP settings as CSV / TXT / JSON
   report.py   self-contained printable HTML report
@@ -61,6 +65,6 @@ acoustic_phase_optimizer/
 
 ## Not carried over from v1
 
-Live measurement with an audio interface (sweeps, impulse response, RT60), the live FFT monitor, direct
-control of the dbx VENU360 / Dante devices and the weather lookup. (LiDAR scans came back: see js/scan.js.) v2 is prediction and
-settings export only. These could come back as separate modules on top of the engine.
+Direct control of the dbx VENU360 / Dante devices and the weather lookup. (LiDAR scans came back, see
+js/scan.js, and so did live measurement: sweeps, impulse responses, RT60 and the live analyser, see
+engine/measure.py and js/live.js.) Settings still leave the app as exports, not over the network.

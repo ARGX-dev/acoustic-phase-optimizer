@@ -39,6 +39,41 @@ const constraints = (deviceId, channels) => ({ audio: {
   ...(deviceId ? { deviceId: { exact: deviceId } } : {}),
   echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: { ideal: channels } } });
 
+/** Open an input for measuring, with the browser's voice processing off. Throws a readable message. */
+export async function openInput(deviceId, channels = 1) {
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia(constraints(deviceId, channels));
+  } catch (e) {
+    throw new Error(e.name === 'NotAllowedError' ? 'The microphone is blocked. Allow it for this app (the icon in the address bar, or the browser\'s site settings) and try again.'
+      : e.name === 'NotFoundError' || e.name === 'OverconstrainedError' ? 'That input is not available. Is the interface connected?' : `The input could not be opened (${e.message}).`);
+  }
+  const track = stream.getAudioTracks()[0];
+  const got = track?.getSettings?.() || {};
+  const warnings = [];
+  const on = [['echoCancellation', 'echo cancellation'], ['noiseSuppression', 'noise suppression'], ['autoGainControl', 'automatic gain']]
+    .filter(([k]) => got[k] === true).map(([, label]) => label);
+  if (on.length) warnings.push(`The browser kept ${on.join(' and ')} on for this input. The result can be wrong; choose the audio interface instead of a headset or webcam mic.`);
+  return { stream, track, got, warnings };
+}
+
+/** The input chooser shared by the sweep and the RTA. `opt.deviceId` follows the choice. */
+export function inputSelect(opt) {
+  const sel = h('select', { attrs: { 'aria-label': 'Input' }, onchange: (e) => { opt.deviceId = e.target.value; } });
+  sel.refresh = async () => {
+    let list = [];
+    try { list = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === 'audioinput'); } catch { /* none */ }
+    clear(sel).append(h('option', { value: '', text: 'Default input' }),
+      ...list.filter((d) => d.deviceId && d.deviceId !== 'default').map((d, i) => h('option', { value: d.deviceId, text: d.label || `Input ${i + 1}`, selected: d.deviceId === opt.deviceId })));
+    if (![...sel.options].some((o) => o.selected && o.value === opt.deviceId)) opt.deviceId = sel.value;
+  };
+  sel.refresh();
+  return sel;
+}
+
+export const livePrefs = prefs;
+export const saveLivePrefs = (patch) => savePrefs({ ...prefs(), ...patch });
+
 /** Play the sweep and record. Resolves with the raw takes; the caller sends them to the engine. */
 async function takeSweep({ deviceId, seconds, levelDb, loopback, onLevel }) {
   await stopLive();
@@ -55,21 +90,10 @@ async function takeSweep({ deviceId, seconds, levelDb, loopback, onLevel }) {
   mine.node = node;
   node.connect(ctx.destination);
 
-  let stream;
-  try {
-    stream = await navigator.mediaDevices.getUserMedia(constraints(deviceId, channels));
-  } catch (e) {
-    throw new Error(e.name === 'NotAllowedError' ? 'The microphone is blocked. Allow it for this app (the icon in the address bar, or the browser\'s site settings) and try again.'
-      : e.name === 'NotFoundError' || e.name === 'OverconstrainedError' ? 'That input is not available. Is the interface connected?' : `The input could not be opened (${e.message}).`);
-  }
+  const { stream, got, warnings } = await openInput(deviceId, channels);
   if (graph !== mine) { stream.getTracks().forEach((t) => t.stop()); throw new Error('Stopped.'); }
   mine.stream = stream;
   const track = stream.getAudioTracks()[0];
-  const got = track?.getSettings?.() || {};
-  const warnings = [];
-  const on = [['echoCancellation', 'echo cancellation'], ['noiseSuppression', 'noise suppression'], ['autoGainControl', 'automatic gain']]
-    .filter(([k]) => got[k] === true).map(([, label]) => label);
-  if (on.length) warnings.push(`The browser kept ${on.join(' and ')} on for this input. The result can be wrong; choose the audio interface instead of a headset or webcam mic.`);
   if (loopback && got.channelCount != null && got.channelCount < 2) {
     throw new Error('This input has only one channel, so there is no second input for the loopback. Turn the loopback off, or choose the interface\'s two-channel input.');
   }
@@ -138,15 +162,7 @@ export async function liveSweepDialog() {
     deviceId: pr.deviceId || '', seconds: pr.seconds || 3, levelDb: pr.levelDb ?? -12, loopback: !!pr.loopback,
     micId: state.selection?.kind === 'mic' ? state.selection.id : (P().mics[0]?.id || ''), speakerId: '',
   };
-  const devSel = h('select', { attrs: { 'aria-label': 'Input' }, onchange: (e) => { opt.deviceId = e.target.value; } });
-  const fillDevices = async () => {
-    let list = [];
-    try { list = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === 'audioinput'); } catch { /* none */ }
-    clear(devSel).append(h('option', { value: '', text: 'Default input' }),
-      ...list.filter((d) => d.deviceId && d.deviceId !== 'default').map((d, i) => h('option', { value: d.deviceId, text: d.label || `Input ${i + 1}`, selected: d.deviceId === opt.deviceId })));
-    if (![...devSel.options].some((o) => o.selected && o.value === opt.deviceId)) opt.deviceId = devSel.value;
-  };
-  fillDevices();
+  const devSel = inputSelect(opt);
   const seg = (items, key) => h('div', { class: 'seg' }, items.map(([v, label]) => h('button', { text: label, attrs: { 'aria-pressed': String(opt[key] === v) },
     onclick: (e) => { opt[key] = v; [...e.currentTarget.parentNode.children].forEach((b) => b.setAttribute('aria-pressed', String(b === e.currentTarget))); } })));
   const field = (label, el, title) => h('label', { class: 'field', title }, h('span', { text: label }), el);
@@ -183,7 +199,7 @@ export async function liveSweepDialog() {
     busy = true;
     const btn = currentDialog()?.buttons.find((b) => b.textContent === 'Measure');
     if (btn) btn.disabled = true;
-    savePrefs({ deviceId: opt.deviceId, seconds: opt.seconds, levelDb: opt.levelDb, loopback: opt.loopback });
+    saveLivePrefs({ deviceId: opt.deviceId, seconds: opt.seconds, levelDb: opt.levelDb, loopback: opt.loopback });
     clear(result);
     meterText.textContent = 'Starting…';
     try {
@@ -195,7 +211,7 @@ export async function liveSweepDialog() {
           meterText.textContent = `Mic ${db > -99 ? fmt(db, 0) : '–∞'} dBFS${peak[1] != null ? ` · loopback ${fmt(20 * Math.log10(Math.max(peak[1], 1e-6)), 0)} dBFS` : ''}`;
           bar.firstChild.style.width = `${Math.min(100, (t / total) * 100)}%`;
         } });
-      fillDevices(); // labels are only given once the mic is allowed
+      devSel.refresh(); // labels are only given once the mic is allowed
       meterText.textContent = 'Analysing…';
       const res = await analyse(take);
       const mic = P().mics.find((m) => m.id === opt.micId);
