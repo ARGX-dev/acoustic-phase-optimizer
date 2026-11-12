@@ -1325,6 +1325,12 @@ def test_rta_pink_noise_snapshot(ui):
     mean = sum(band) / len(band)
     sd = (sum((v - mean) ** 2 for v in band) / len(band)) ** 0.5
     assert sd < 1.5 and max(band) - min(band) < 6, (sd, min(band), max(band))
+    check = page.evaluate("""async () => { const s = (await import('/js/store.js')).state;
+        const r = await fetch('/api/projects/check', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({project: s.project})});
+        return [r.status, await r.text()]; }""")
+    assert check[0] == 200, check[1][:500]
+    dlg.get_by_role("button", name="Pink noise").click()
+    assert dlg.get_by_role("button", name="Pink noise").get_attribute("aria-pressed") == "false"
     dlg.locator(".dialog-actions .btn", has_text="Close").click()
     page.wait_for_selector(".dialog", state="detached")
     assert page.evaluate("async () => (await import('/js/rta.js')).rtaGraph()") is None

@@ -104,13 +104,13 @@ export async function rtaDialog() {
     return;
   }
   const pr = livePrefs();
-  const opt = { deviceId: pr.deviceId || '', noiseDb: pr.noiseDb ?? -20, avg: 'slow', micId: state.selection?.kind === 'mic' ? state.selection.id : (P().mics[0]?.id || '') };
+  const opt = { deviceId: pr.deviceId || '', noiseDb: clamp(pr.noiseDb ?? -20, -60, -15), avg: 'slow', micId: state.selection?.kind === 'mic' ? state.selection.id : (P().mics[0]?.id || '') };
   const devSel = inputSelect(opt);
   const cv = h('canvas', { class: 'ir-chart', width: 720, height: 240, attrs: { role: 'img', 'aria-label': 'Spectrum of the mic in 1/3-octave bands' } });
   const status = h('p', { class: 'hint', attrs: { 'aria-live': 'polite' }, text: 'Starting the input…' });
   const noiseBtn = h('button', { class: 'btn small', attrs: { 'aria-pressed': 'false' }, text: 'Pink noise' });
-  const level = h('input', { type: 'number', class: 'num', min: -60, max: -10, step: 1, value: opt.noiseDb, attrs: { 'aria-label': 'Noise level, dBFS RMS' },
-    onchange: () => { opt.noiseDb = clamp(Number(level.value) || -20, -60, -10); level.value = opt.noiseDb; if (graph?.out) graph.out.gain.value = 10 ** (opt.noiseDb / 20); } });
+  const level = h('input', { type: 'number', class: 'num', min: -60, max: -15, step: 1, value: opt.noiseDb, attrs: { 'aria-label': 'Noise level, dBFS RMS' },
+    onchange: () => { opt.noiseDb = clamp(Number(level.value) || -20, -60, -15); level.value = opt.noiseDb; if (graph?.out) graph.out.gain.value = 10 ** (opt.noiseDb / 20); } });
   let power = null, frames = 0, peak = null;
   const reset = () => { power = null; frames = 0; peak = null; };
   const avgSeg = h('div', { class: 'seg' }, AVERAGE.map(([k, label]) => h('button', { text: label, attrs: { 'aria-pressed': String(opt.avg === k) },
@@ -123,12 +123,14 @@ export async function rtaDialog() {
     h('div', { class: 'live-row' },
       h('div', { class: 'field' }, h('span', { text: 'Averaging' }), avgSeg),
       h('div', { class: 'field' }, h('span', { text: 'Generator' }), noiseBtn),
-      field('Noise level (dBFS)', level, 'RMS level of the pink noise at the output')),
+      field('Noise level (dBFS)', level, 'RMS level of the pink noise at the output. Its peaks are about 13 dB higher, so it stops at −15.')),
     cv, status,
     h('p', { class: 'hint', text: 'Bars: 1/3-octave levels of the mic, dB below full scale. Line: the highest each band reached. Pink noise reads flat through a flat system. Keep a snapshot to compare it with the prediction on the response chart.' }));
 
+  const showNoise = (on) => { noiseBtn.setAttribute('aria-pressed', String(on)); noiseBtn.classList.toggle('primary', on); };
   const start = async () => {
     await stopRta();
+    showNoise(false); // a new input starts a new audio graph, without the generator
     const ctx = new AudioContext({ latencyHint: 'interactive' });
     const g = { ctx };
     graph = g;
@@ -185,8 +187,7 @@ export async function rtaDialog() {
       g.noise.start();
       reset();
     }
-    noiseBtn.setAttribute('aria-pressed', String(!!g.noise));
-    noiseBtn.classList.toggle('primary', !!g.noise);
+    showNoise(!!g.noise);
   };
   devSel.addEventListener('change', () => { start().catch((e) => { status.textContent = e.message; }); });
 
@@ -196,6 +197,7 @@ export async function rtaDialog() {
     // 1/12-octave levels from 20 Hz to 20 kHz: fine enough to show the response, smooth enough to read
     const freqs = Array.from({ length: 121 }, (_, i) => Math.round(20 * 2 ** (i / 12) * 100) / 100).filter((f) => f <= Math.min(20000, graph.ctx.sampleRate * 0.45));
     const spl = bandLevels(power, graph.df, freqs, 12).map((v) => Math.round(v * 100) / 100);
+    if (Math.max(...spl) < -140) { toast('The input is silent. Check the mic and the input chosen.', { error: true }); return false; }
     const mic = P().mics.find((m) => m.id === opt.micId);
     const n = (P().measurements || []).filter((m) => m.source === 'rta').length + 1;
     const m = addMeasurementRecord(newMeasurement(`RTA ${n}${mic ? ` at ${mic.name}` : ''}`, { freqs, spl, source: 'rta', mic_id: mic?.id ?? null }));
