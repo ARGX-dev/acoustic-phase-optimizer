@@ -55,11 +55,21 @@ export function measurementFrom(name, res, extra = {}) {
     bands: a.bands.map((b) => Object.fromEntries([['f', b.f], ...BAND_KEYS.map((k) => [k, b[k]])])),
     taken: new Date().toISOString().slice(0, 19), ...extra,
   };
-  // An impulse response's level is digital (dBFS), often 100 dB away from the predicted SPL: line the curve itself
-  // up with the prediction, and leave the offset control at 0 for fine adjustment.
-  const pred = predictedCurve();
-  if (pred) { const k = matchOffset(m, pred.f, pred.v); m.spl = m.spl.map((v) => Math.round((v + k) * 100) / 100); }
+  alignLevel(m);
   return m;
+}
+
+/** Line a measurement's level up with the prediction (200 Hz–2 kHz). A file export in dB SPL gets an offset; a
+ *  level that is digital (an impulse response or a live take, in dBFS, often 100 dB away) has the match put into
+ *  the curve itself, so the offset control stays free for fine adjustment. Changes `m`; false with no prediction. */
+export function alignLevel(m) {
+  const pred = predictedCurve();
+  if (!pred) return false;
+  const k = matchOffset(m, pred.f, pred.v);
+  if ((m.source || 'file') === 'file' && Math.abs(k) <= 80) { m.offset_db = k; return true; }
+  m.spl = m.spl.map((v) => Math.round((v + k) * 100) / 100);
+  m.offset_db = 0;
+  return true;
 }
 
 export function addMeasurementRecord(m) {

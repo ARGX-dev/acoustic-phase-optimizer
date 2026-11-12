@@ -9,7 +9,7 @@ import { pickSpeakerType } from './picker.js';
 import { openDialog } from './dialog.js';
 import { api } from './api.js';
 import { matchOffset, parseResponse } from './measure.js';
-import { addImpulseResponse, arrivalsDialog, measuredRt, showIR } from './measure-ui.js';
+import { addImpulseResponse, alignLevel, arrivalsDialog, measuredRt, showIR } from './measure-ui.js';
 import { seriesColor } from './theme.js';
 import { aimPatch } from './aim.js';
 import { area, dispStep, fromDisp, len, lenUnit, speed, toDisp, volume } from './units.js';
@@ -41,7 +41,7 @@ export function addMeasurement(fileName, text) {
   const used = new Set([...list.map((x) => x.color), ...state.project.speakers.map((x) => x.color)]);
   const color = [5, 6, 7, 3, 2, 1, 0, 4].find((c) => !used.has(c)) ?? 5;
   const pred = predictedCurve();
-  const offset = pred ? matchOffset(m, pred.f, pred.v) : 0;
+  const offset = pred ? clamp(matchOffset(m, pred.f, pred.v), -80, 80) : 0; // the model's range
   const name = fileName.replace(/^.*[\\/]/, '').replace(/\.[^.]+$/, '').slice(0, 80) || 'Measurement';
   mutate((p) => { p.measurements = [...(p.measurements || []), { id: `m${uid()}`, name, ...m, offset_db: offset, color }]; }, { structural: true });
   return `Imported "${name}": ${m.freqs.length} points${m.phase ? ' with phase' : ''}, ${fmtHzRange(m.freqs)}.${offset ? ` Level offset ${fmt(offset, 1, true)} dB to line it up with the prediction (200 Hz–2 kHz).` : ''}`;
@@ -649,9 +649,8 @@ export function createLeftPanel(root) {
         num('Level offset', () => (P().measurements || []).find((x) => x.id === m.id)?.offset_db ?? 0, (v, o) => setM(m.id, (x) => { x.offset_db = v; }),
           { min: -80, max: 80, step: 0.5, nd: 1, bare: true, title: 'Level offset in dB added to the measured curve' }),
         h('button', { class: 'btn small ghost', title: 'Line the measured curve up with the prediction between 200 Hz and 2 kHz', onclick: () => {
-          const pred = predictedCurve();
-          if (!pred) { toast('No prediction to match yet.', { error: true }); return; }
-          setM(m.id, (x) => { x.offset_db = matchOffset(x, pred.f, pred.v); });
+          if (!predictedCurve()) { toast('No prediction to match yet.', { error: true }); return; }
+          setM(m.id, (x) => { alignLevel(x); });
         } }, 'Match'),
         h('button', { class: 'icon-btn small', attrs: { 'aria-label': `Delete ${m.name}` }, onclick: () => mutate((p) => { p.measurements = p.measurements.filter((x) => x.id !== m.id); }, { structural: true }) }, icon('trash')),
         m.ir_id ? irRow(m, setM) : null))) : null,

@@ -679,11 +679,11 @@ def create_app() -> FastAPI:
         data = await _read_body(request, storage.MAX_IR_BYTES, "file")
         try:
             ir, fs = measure.read_wav(data)
-            ir = measure.trim_ir(ir, fs)
-            an = await asyncio.to_thread(measure.analyse_ir, ir, fs, f1, f2)
+            ir, a = measure.trim_ir(ir, fs)
+            an = await asyncio.to_thread(measure.analyse_ir, ir, fs, f1, f2, a / fs)  # times from the file's start
         except measure.MeasureError as exc:
             raise HTTPException(422, str(exc)) from None
-        return _keep_ir(ir, fs, 0.0, an, [])
+        return _keep_ir(ir, fs, a / fs, an, [])
 
     @app.get("/api/irs/{ir_id}.wav")
     def api_ir_file(ir_id: str) -> FileResponse:

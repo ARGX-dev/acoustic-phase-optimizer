@@ -504,6 +504,12 @@ def test_measure_sweep_capture_and_ir_files(api):
     status, imp = _post_bytes(api, "/api/measure/ir", wav)
     assert status == 200 and imp["analysis"]["single"]["t30"] == pytest.approx(0.8, rel=0.08)
     assert _post_bytes(api, "/api/irs", wav) == (200, {"ir_id": res["ir_id"]})
+    # an imported file keeps its own time reference: silence before the sound is kept as arrival time
+    late = np.concatenate([np.zeros(int(0.2 * fs)), decay(0.8, 1.0, delay_s=0.0, direct=10)])
+    status, imp = _post_bytes(api, "/api/measure/ir", measure.write_wav(late / np.abs(late).max() * 0.5, fs))
+    assert status == 200 and imp["analysis"]["arrival_ms"] == pytest.approx(200.0, abs=0.1)
+    again = api("GET", f"/api/irs/{imp['ir_id']}/analysis?start_ms={imp['start_ms']}")
+    assert again["arrival_ms"] == pytest.approx(200.0, abs=0.1)
     # a project keeps the reference and the band values
     m = {"name": "Sweep 1", "freqs": an["response"]["freqs"], "spl": an["response"]["spl"],
          "phase": an["response"]["phase"], "source": "sweep", "ir_id": res["ir_id"], "start_ms": res["start_ms"],

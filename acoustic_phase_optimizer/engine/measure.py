@@ -393,9 +393,10 @@ def analyse_ir(ir: np.ndarray, fs: float, f_lo: float = 20.0, f_hi: float = 2000
     }
 
 
-def trim_ir(ir: np.ndarray, fs: float, max_s: float = 10.0) -> np.ndarray:
+def trim_ir(ir: np.ndarray, fs: float, max_s: float = 10.0) -> tuple[np.ndarray, int]:
     """The part of an impulse response worth keeping: from 50 ms before the onset to the broadband noise
-    crossing plus a quarter of that (at most max_s), with a short fade at the end."""
+    crossing plus a quarter of that (at most max_s), with a short fade at the end. Returns it and the index
+    of its first sample in `ir`, so times stay counted from the original start."""
     k0 = onset(ir, fs)
     a = max(0, k0 - int(0.05 * fs))
     x = ir[k0:]
@@ -405,7 +406,7 @@ def trim_ir(ir: np.ndarray, fs: float, max_s: float = 10.0) -> np.ndarray:
     k = min(len(y) // 8, int(0.01 * fs))
     if k:
         y[len(y) - k:] *= 0.5 + 0.5 * np.cos(np.pi * np.arange(k) / k)
-    return y
+    return y, a
 
 
 def capture(rec: np.ndarray, ref: np.ndarray, fs: float, f1: float, f2: float, loop: np.ndarray | None = None) -> dict:
@@ -428,11 +429,8 @@ def capture(rec: np.ndarray, ref: np.ndarray, fs: float, f1: float, f2: float, l
     if loop is not None:
         li = deconvolve(np.asarray(loop, dtype=np.float64), ref, fs, f1, f2)
         t0 = int(np.argmax(np.abs(li))) / fs
-    ir_t = trim_ir(ir, fs)
-    # time of the trimmed response's sample 0 relative to the sound leaving: shift by the trim
-    k0 = onset(ir, fs)
-    a = max(0, k0 - int(0.05 * fs))
-    start = a / fs - t0
+    ir_t, a = trim_ir(ir, fs)
+    start = a / fs - t0  # when the trimmed response's sample 0 happened, from when the sound left
     an = analyse_ir(ir_t, fs, f1, f2, start_s=start)
     if an["inr_db"] < 35:
         warnings.append(f"Only {an['inr_db']:.0f} dB above the noise: T30 needs 45 dB. Use a longer sweep, a higher "
