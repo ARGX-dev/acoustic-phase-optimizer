@@ -175,8 +175,22 @@ class Mic(BaseModel):
     z: float = 1.2
 
 
+class MeasuredBand(BaseModel):
+    """ISO 3382 values of one octave band of a measured impulse response (None: not measurable)."""
+
+    f: float
+    edt: float | None = None
+    t20: float | None = None
+    t30: float | None = None
+    c50: float | None = None
+    c80: float | None = None
+    d50: float | None = None
+    ts: float | None = None
+
+
 class Measurement(BaseModel):
-    """A measured response (REW / Smaart export) shown over the prediction. Display only."""
+    """A measured response shown over the prediction: imported (REW / Smaart export, an impulse response
+    WAV) or measured live (a sweep, an RTA snapshot). Display only: it never changes the prediction."""
 
     id: str = Field(default_factory=_id)
     name: str = Field("Measurement", max_length=80)
@@ -185,6 +199,18 @@ class Measurement(BaseModel):
     phase: list[float | None] | None = Field(None, max_length=2000)
     offset_db: float = Field(0.0, ge=-80, le=80)
     color: int = Field(5, ge=0, le=7)
+    source: Literal["file", "ir", "sweep", "rta"] = "file"
+    # the impulse response, kept as a WAV in the data folder (and in a project .trky); start_ms is when its
+    # first sample happened, counted from when the sound left the output
+    ir_id: str | None = Field(None, pattern=r"^[0-9a-f]{16,64}$")
+    start_ms: float = 0.0
+    arrival_ms: float | None = None  # the direct sound; absolute only when loopback is set
+    loopback: bool = False
+    polarity: Literal[-1, 1] | None = None
+    bands: list[MeasuredBand] | None = Field(None, max_length=8)
+    mic_id: str | None = None  # the measurement position it was taken at
+    speaker_ids: list[str] = Field(default_factory=list, max_length=64)  # what was playing
+    taken: str | None = Field(None, max_length=40)  # ISO date and time
 
     @model_validator(mode="after")
     def _same_length(self) -> Measurement:

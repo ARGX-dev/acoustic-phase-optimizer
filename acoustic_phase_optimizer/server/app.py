@@ -609,6 +609,118 @@ def create_app() -> FastAPI:
         storage.save_session(body.model_dump())
         return {"ok": True}
 
+    # ------------------------------------------------------------------ live measurement (engine/measure.py)
+    async def _read_body(request: Request, limit: int, what: str) -> bytes:
+        buf = bytearray()
+        async for chunk in request.stream():
+            buf += chunk
+            if len(buf) > limit:
+                raise HTTPException(413, f"The {what} is larger than {limit // 1_000_000} MB.")
+        return bytes(buf)
+
+    def _keep_ir(ir, fs: int, start_s: float, analysis: dict, warnings: list[str]) -> dict:
+        from ..engine import measure
+
+        ir_id = storage.save_ir(measure.write_wav(ir, fs))
+        return {"ir_id": ir_id, "start_ms": round(start_s * 1000, 3), "analysis": analysis, "warnings": warnings}
+
+    @app.get("/api/measure/sweep")
+    def api_measure_sweep(fs: int, seconds: float = 3.0, f1: float = 20.0, f2: float = 20000.0) -> Response:
+        """The sweep to play, as little-endian float32 at the audio device's rate (peak 1.0)."""
+        from ..engine import measure
+
+        if not 8000 <= fs <= 384000 or not 0.5 <= seconds <= 30 or not 5 <= f1 < f2:
+            raise HTTPException(422, "fs 8-384 kHz, 0.5-30 s, f1 < f2")
+        return Response(measure.sweep(fs, seconds, f1, f2).astype("<f4").tobytes(), media_type="application/octet-stream")
+
+    @app.post("/api/measure/capture")
+    async def api_measure_capture(request: Request) -> dict:
+        """Analyse one sweep take. Binary body, little-endian: u32 header length, JSON header
+        {fs, f1, f2, n, channels: ["mic", "ref"] or ["mic", "ref", "loop"]}, zero padding to a multiple of 4,
+        then float32 samples, one channel after the other (n each). "ref" is what was played, sample-aligned
+        with the mic; "loop" is the interface's output fed straight back into an input."""
+        import asyncio
+        import struct
+
+        import numpy as np
+
+        from ..engine import measure
+
+        buf = await _read_body(request, storage.MAX_IR_BYTES * 3, "recording")
+        try:
+            (hlen,) = struct.unpack_from("<I", buf, 0)
+            head = json.loads(buf[4:4 + hlen])
+            fs, n = int(head["fs"]), int(head["n"])
+            f1, f2 = float(head.get("f1", 20)), float(head.get("f2", 20000))
+            names = list(head["channels"])
+            off = (4 + hlen + 3) // 4 * 4
+            if names[:2] != ["mic", "ref"] or len(names) > 3 or not 8000 <= fs <= 384000 or n < fs // 4:
+                raise ValueError("bad header")
+            if len(buf) - off != 4 * n * len(names):
+                raise ValueError(f"expected {4 * n * len(names)} sample bytes, got {len(buf) - off}")
+            x = np.frombuffer(buf, dtype="<f4", count=n * len(names), offset=off).reshape(len(names), n).astype(np.float64)
+        except (ValueError, KeyError, TypeError, struct.error, json.JSONDecodeError) as exc:
+            raise HTTPException(422, f"Not a recording this app understands ({exc}).") from None
+        if not np.all(np.isfinite(x)):
+            raise HTTPException(422, "The recording holds invalid samples.")
+        try:
+            res = await asyncio.to_thread(measure.capture, x[0], x[1], fs, f1, f2, x[2] if len(names) == 3 else None)
+        except measure.MeasureError as exc:
+            raise HTTPException(422, str(exc)) from None
+        return _keep_ir(res["ir"], fs, res["start_s"], res["analysis"], res["warnings"])
+
+    @app.post("/api/measure/ir")
+    async def api_measure_ir(request: Request, f1: float = 20.0, f2: float = 20000.0) -> dict:
+        """Analyse an impulse response WAV (from REW, Smaart, ARTA, a convolution reverb...). The body is the file."""
+        import asyncio
+
+        from ..engine import measure
+
+        data = await _read_body(request, storage.MAX_IR_BYTES, "file")
+        try:
+            ir, fs = measure.read_wav(data)
+            ir = measure.trim_ir(ir, fs)
+            an = await asyncio.to_thread(measure.analyse_ir, ir, fs, f1, f2)
+        except measure.MeasureError as exc:
+            raise HTTPException(422, str(exc)) from None
+        return _keep_ir(ir, fs, 0.0, an, [])
+
+    @app.get("/api/irs/{ir_id}.wav")
+    def api_ir_file(ir_id: str) -> FileResponse:
+        try:
+            path = storage.ir_file(ir_id)
+        except (FileNotFoundError, ValueError):
+            raise HTTPException(404, "Impulse response not found. It may have been measured on another computer.") from None
+        return FileResponse(path, media_type="audio/wav", headers={"Cache-Control": "max-age=31536000, immutable"})
+
+    @app.post("/api/irs")
+    async def api_ir_upload(request: Request) -> dict:
+        """Store an impulse response WAV as it is (a project bundle bringing its measurements back)."""
+        from ..engine import measure
+
+        data = await _read_body(request, storage.MAX_IR_BYTES, "file")
+        try:
+            measure.read_wav(data)
+        except measure.MeasureError as exc:
+            raise HTTPException(422, str(exc)) from None
+        return {"ir_id": storage.save_ir(data)}
+
+    @app.get("/api/irs/{ir_id}/analysis")
+    async def api_ir_analysis(ir_id: str, start_ms: float = 0.0, f1: float = 20.0, f2: float = 20000.0) -> dict:
+        """The analysis of a stored impulse response again (curves for the viewer); start_ms as it was measured."""
+        import asyncio
+
+        from ..engine import measure
+
+        try:
+            ir, fs = measure.read_wav(storage.ir_file(ir_id).read_bytes())
+        except (FileNotFoundError, ValueError):
+            raise HTTPException(404, "Impulse response not found. It may have been measured on another computer.") from None
+        try:
+            return await asyncio.to_thread(measure.analyse_ir, ir, fs, f1, f2, start_ms / 1000)
+        except measure.MeasureError as exc:
+            raise HTTPException(422, str(exc)) from None
+
     # WebAssembly must be served as application/wasm; a Windows registry entry can say otherwise
     mimetypes.add_type("application/wasm", ".wasm")
     app.mount("/", StaticFiles(directory=WEB_DIR, html=True), name="web")

@@ -126,6 +126,40 @@ def scan_file(scan_id: str, ext: str) -> Path:
     return path
 
 
+# ------------------------------------------------------------ measured impulse responses (WAV, content-hashed)
+
+MAX_IR_BYTES = 64 * 1024 * 1024
+
+
+def irs_dir() -> Path:
+    folder = data_dir() / "irs"
+    folder.mkdir(exist_ok=True)
+    return folder
+
+
+def _ir_path(ir_id: str) -> Path:
+    if not re.fullmatch(r"[0-9a-f]{16,64}", ir_id):
+        raise ValueError("bad impulse response reference")
+    return irs_dir() / f"{ir_id}.wav"
+
+
+def save_ir(wav: bytes) -> str:
+    import hashlib
+
+    ir_id = hashlib.sha256(wav).hexdigest()[:32]
+    path = _ir_path(ir_id)
+    if not path.exists():
+        _write_bytes(path, wav)
+    return ir_id
+
+
+def ir_file(ir_id: str) -> Path:
+    path = _ir_path(ir_id)
+    if not path.exists():
+        raise FileNotFoundError(ir_id)
+    return path
+
+
 def _write_bytes(path: Path, data: bytes) -> None:
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_bytes(data)

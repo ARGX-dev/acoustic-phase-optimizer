@@ -452,3 +452,70 @@ def test_room_shape_from_triangles(api):
     bad = T.copy()
     bad[0, 0] = 10**6
     assert post(body(V, bad, tag, names))[0] == 422
+
+
+def _post_bytes(api, path: str, body: bytes):
+    req = urllib.request.Request(f"http://127.0.0.1:{api.port}{path}", data=body, method="POST",
+                                 headers={"Content-Type": "application/octet-stream"})
+    try:
+        with urllib.request.urlopen(req, timeout=60) as r:
+            return r.status, json.loads(r.read())
+    except urllib.error.HTTPError as e:
+        return e.code, json.loads(e.read())
+
+
+def _get_bytes(api, path: str) -> tuple[int, bytes]:
+    with urllib.request.urlopen(f"http://127.0.0.1:{api.port}{path}", timeout=60) as r:
+        return r.status, r.read()
+
+
+def test_measure_sweep_capture_and_ir_files(api):
+    import struct
+
+    import numpy as np
+    from scipy.signal import fftconvolve
+
+    from acoustic_phase_optimizer.engine import measure
+    from tests.test_measure import decay
+
+    fs = 48000
+    status, raw = _get_bytes(api, f"/api/measure/sweep?fs={fs}&seconds=1.5&f1=20&f2=20000")
+    s = np.frombuffer(raw, dtype="<f4").astype(float)
+    assert status == 200 and len(s) == int(1.5 * fs) and abs(np.abs(s).max() - 1) < 1e-3
+    ref = np.concatenate([np.zeros(fs // 10), s, np.zeros(fs)])
+    room = decay(0.8, 1.0, delay_s=0.008, direct=10)
+    rec = fftconvolve(ref, room)[: len(ref)]
+    rec = rec / np.abs(rec).max() * 0.3 + np.random.default_rng(1).standard_normal(len(ref)) * 1e-5
+    head = json.dumps({"fs": fs, "f1": 20, "f2": 20000, "n": len(ref), "channels": ["mic", "ref"]}).encode()
+    pad = b"\0" * ((-(4 + len(head))) % 4)
+    body = struct.pack("<I", len(head)) + head + pad + rec.astype("<f4").tobytes() + ref.astype("<f4").tobytes()
+    status, res = _post_bytes(api, "/api/measure/capture", body)
+    assert status == 200, res
+    an = res["analysis"]
+    assert an["arrival_ms"] == pytest.approx(8.0, abs=0.05) and an["polarity"] == 1
+    assert an["single"]["t30"] == pytest.approx(0.8, rel=0.08)
+    assert len(an["response"]["freqs"]) <= 2000 and an["curves"]["etc"]
+    # the impulse response is kept, and reads back with the same times
+    status, wav = _get_bytes(api, f"/api/irs/{res['ir_id']}.wav")
+    assert status == 200 and wav[:4] == b"RIFF"
+    again = api("GET", f"/api/irs/{res['ir_id']}/analysis?start_ms={res['start_ms']}")
+    assert again["arrival_ms"] == pytest.approx(an["arrival_ms"], abs=0.01)
+    # the same file imported as an impulse response; uploading it as-is keeps its id
+    status, imp = _post_bytes(api, "/api/measure/ir", wav)
+    assert status == 200 and imp["analysis"]["single"]["t30"] == pytest.approx(0.8, rel=0.08)
+    assert _post_bytes(api, "/api/irs", wav) == (200, {"ir_id": res["ir_id"]})
+    # a project keeps the reference and the band values
+    m = {"name": "Sweep 1", "freqs": an["response"]["freqs"], "spl": an["response"]["spl"],
+         "phase": an["response"]["phase"], "source": "sweep", "ir_id": res["ir_id"], "start_ms": res["start_ms"],
+         "arrival_ms": an["arrival_ms"], "polarity": 1, "bands": [{k: b[k] for k in ("f", "edt", "t20", "t30", "c50", "c80", "d50", "ts")} for b in an["bands"]]}
+    p = small()
+    p["measurements"] = [m]
+    assert api("POST", "/api/projects/check", {"project": p})
+    # bad takes: silence, a broken header, a file that is not a WAV, a path that is not an id
+    bad = struct.pack("<I", len(head)) + head + pad + (np.zeros(len(ref)) + 1e-7).astype("<f4").tobytes() + ref.astype("<f4").tobytes()
+    status, err = _post_bytes(api, "/api/measure/capture", bad)
+    assert status == 422 and "almost nothing" in err["detail"]
+    assert _post_bytes(api, "/api/measure/capture", b"\x05\0\0\0{bad}")[0] == 422
+    assert _post_bytes(api, "/api/measure/ir", b"RIFF0000WAVEnope")[0] == 422
+    assert api("GET", "/api/irs/..%2Fsession/analysis", raw=True)[0] == 404
+    assert measure.read_wav(wav)[1] == fs
