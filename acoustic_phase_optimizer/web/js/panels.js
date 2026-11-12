@@ -9,6 +9,7 @@ import { pickSpeakerType } from './picker.js';
 import { openDialog } from './dialog.js';
 import { api } from './api.js';
 import { matchOffset, parseResponse } from './measure.js';
+import { addImpulseResponse, arrivalsDialog, measuredRt, showIR } from './measure-ui.js';
 import { seriesColor } from './theme.js';
 import { aimPatch } from './aim.js';
 import { area, dispStep, fromDisp, len, lenUnit, speed, toDisp, volume } from './units.js';
@@ -29,6 +30,7 @@ function predictedCurve() {
   if (state.ui.source === 'average') return state.sim?.average ? { f: state.sim.freqs, v: state.sim.average.spl } : null;
   return state.point ? { f: state.point.freqs, v: state.point.spl_smooth } : null;
 }
+const MEAS_BANDS = [63, 125, 250, 500, 1000, 2000, 4000, 8000];
 const fmtHzRange = (f) => `${Math.round(f[0])} Hz–${f.at(-1) >= 1000 ? `${fmt(f.at(-1) / 1000, 1)} kHz` : `${Math.round(f.at(-1))} Hz`}`;
 
 /** Add a measured response (REW / Smaart text or CSV) to the venue. Throws with a readable message. */
@@ -374,13 +376,18 @@ export function createLeftPanel(root) {
       cell('Speed of sound', r ? speed(r.speed_of_sound) : '–'),
       cell('Schroeder frequency', r ? `${Math.round(r.schroeder_hz)} Hz` : '–', 'Below this, room modes dominate'),
       cell('Air loss at 8 kHz', r && r.air_loss_8k_30m_db != null ? `${fmt(r.air_loss_8k_30m_db, 1)} dB / ${len(30, 0)}` : '–', `Extra treble the air absorbs over ${len(30, 0)}`));
+    const meas = measuredRt();
+    const mAt = (f) => { const i = MEAS_BANDS.indexOf(f); return meas && i >= 0 ? meas[i] : null; };
+    const mMid = meas && mAt(500) != null && mAt(1000) != null ? (mAt(500) + mAt(1000)) / 2 : null;
+    if (mMid != null) statsBox.append(cell('Measured (mid)', `${fmt(mMid, 2)} s`, 'T30 (or T20) from the impulse-response measurements, average of 500 Hz and 1 kHz. Marked on the bars below'));
     if (r) {
       const rt = r.rt60 || r.rt60_eyring;
-      const max = Math.max(...rt, 0.1);
+      const max = Math.max(...rt, ...r.bands.map(mAt).filter((x) => x != null), 0.1);
       statsBox.append(h('div', { class: 'rt-bands', attrs: { role: 'img', 'aria-label': 'Reverb time per octave band: ' + r.bands.map((b, i) => `${fmtHz(b)} ${fmt(rt[i], 2)} s`).join(', ') } },
-        r.bands.map((b, i) => h('div', { class: 'rt-band', title: `${fmtHz(b)}: ${fmt(rt[i], 2)} s` },
+        r.bands.map((b, i) => h('div', { class: 'rt-band', title: `${fmtHz(b)}: ${fmt(rt[i], 2)} s predicted${mAt(b) != null ? `, ${fmt(mAt(b), 2)} s measured` : ''}` },
           h('b', { text: fmt(rt[i], 1) }),
-          h('i', { style: { height: `${Math.max(4, (rt[i] / max) * 56)}px` } }),
+          h('i', { style: { height: `${Math.max(4, (rt[i] / max) * 56)}px` } },
+            mAt(b) != null ? h('em', { class: 'measured', style: { bottom: `${Math.max(4, (mAt(b) / max) * 56) - 1}px` } }) : null),
           h('span', { text: fmtHz(b).replace(' kHz', 'k').replace(' Hz', '') })))));
     }
   }
@@ -618,14 +625,15 @@ export function createLeftPanel(root) {
 
   // ------------------------------------------------------------------ measurements
   function importMeasurement() {
-    const input = h('input', { type: 'file', accept: '.txt,.csv,.tsv,.frd,.dat,text/plain,text/csv', style: { display: 'none' },
+    const input = h('input', { type: 'file', accept: '.txt,.csv,.tsv,.frd,.dat,.wav,text/plain,text/csv,audio/wav', style: { display: 'none' },
       onchange: async () => {
         const f = input.files?.[0];
         input.remove();
         if (!f) return;
-        if (f.size > 20_000_000) { toast('That file is larger than 20 MB.', { error: true }); return; }
+        const wav = /\.wav$/i.test(f.name);
+        if (f.size > (wav ? 64 : 20) * 1_000_000) { toast(`That file is larger than ${wav ? 64 : 20} MB.`, { error: true }); return; }
         try {
-          toast(addMeasurement(f.name, await f.text()), { ms: 8000 });
+          toast(wav ? await addImpulseResponse(f.name, await f.arrayBuffer()) : addMeasurement(f.name, await f.text()), { ms: 8000 });
         } catch (e) { toast(e.message, { error: true }); }
       } });
     document.body.append(input);
@@ -645,9 +653,23 @@ export function createLeftPanel(root) {
           if (!pred) { toast('No prediction to match yet.', { error: true }); return; }
           setM(m.id, (x) => { x.offset_db = matchOffset(x, pred.f, pred.v); });
         } }, 'Match'),
-        h('button', { class: 'icon-btn small', attrs: { 'aria-label': `Delete ${m.name}` }, onclick: () => mutate((p) => { p.measurements = p.measurements.filter((x) => x.id !== m.id); }, { structural: true }) }, icon('trash'))))) : null,
-      h('button', { class: 'btn small', style: { marginTop: '8px' }, onclick: importMeasurement }, icon('plus'), 'Import a measurement…'),
-      h('p', { class: 'hint', text: 'Overlay a measured response on the chart: REW "Export measurement as text", a Smaart ASCII export, or any CSV of frequency, dB and phase. Shown dashed, smoothed to 1/6 octave like the prediction. Measurements are rarely calibrated, so the level is matched to the prediction on import.' }));
+        h('button', { class: 'icon-btn small', attrs: { 'aria-label': `Delete ${m.name}` }, onclick: () => mutate((p) => { p.measurements = p.measurements.filter((x) => x.id !== m.id); }, { structural: true }) }, icon('trash')),
+        m.ir_id ? irRow(m, setM) : null))) : null,
+      h('div', { class: 'lib-actions' },
+        h('button', { class: 'btn small', onclick: importMeasurement }, icon('plus'), 'Import a measurement…'),
+        list.filter((m) => m.arrival_ms != null).length >= 2 ? h('button', { class: 'btn small ghost', onclick: arrivalsDialog, title: 'Compare when the sound of each speaker arrives and suggest delays' }, 'Compare arrivals…') : null),
+      h('p', { class: 'hint', text: 'Overlay a measured response on the chart: REW "Export measurement as text", a Smaart ASCII export, any CSV of frequency, dB and phase, or an impulse response WAV (which also gives reverb time, clarity and arrival time). Shown dashed, smoothed to 1/6 octave like the prediction. Measurements are rarely calibrated, so the level is matched to the prediction on import.' }));
+  }
+  function irRow(m, setM) {
+    const t = m.bands?.find((b) => b.f === 1000) || {};
+    const rt = t.t30 ?? t.t20;
+    return h('div', { class: 'ir-row' },
+      h('button', { class: 'btn small ghost', onclick: () => showIR(m), title: 'Impulse response, decay per octave and the ISO 3382 values' }, 'IR'),
+      h('span', { class: 'hint', text: [m.arrival_ms != null ? `${fmt(m.arrival_ms, 1)} ms` : null, rt != null ? `T30 ${fmt(rt, 2)} s @1k` : null, t.c80 != null ? `C80 ${fmt(t.c80, 1)} dB` : null].filter(Boolean).join(' · ') }),
+      h('select', { class: 'bare', attrs: { 'aria-label': `Speaker playing in ${m.name}` }, title: 'Which speaker played in this take (for comparing arrivals)',
+        onchange: (e) => setM(m.id, (x) => { x.speaker_ids = e.target.value ? [e.target.value] : []; }) },
+      h('option', { value: '', text: 'Speaker…' }),
+      P().speakers.map((s) => h('option', { value: s.id, text: s.name, selected: m.speaker_ids?.[0] === s.id }))));
   }
 
   // ------------------------------------------------------------------ mics

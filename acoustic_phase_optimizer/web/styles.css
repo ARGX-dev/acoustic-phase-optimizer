@@ -424,6 +424,24 @@ a.link:hover { text-decoration: underline; }
 .rt-band i { width: 70%; background: var(--accent); border-radius: 4px 4px 0 0; }
 .rt-band b { font-size: 11px; font-variant-numeric: tabular-nums; }
 .rt-band span { font-size: 10.5px; color: var(--muted); }
+.rt-band i { position: relative; }
+.rt-band i em.measured { position: absolute; left: -15%; right: -15%; height: 2px; background: var(--ink); border-radius: 1px; }
+
+/* ------------------------------------------------------------- impulse responses */
+.meas-row .ir-row { grid-column: 2 / -1; display: flex; align-items: center; gap: 8px; min-width: 0; }
+.meas-row .ir-row .hint { margin: 0; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.meas-row .ir-row select { max-width: 120px; }
+.ir-view { display: flex; flex-direction: column; gap: 8px; }
+.ir-tools { display: flex; flex-wrap: wrap; gap: 8px; justify-content: space-between; }
+.ir-chart { width: 100%; height: auto; aspect-ratio: 720 / 260; border: 1px solid var(--line); border-radius: 6px; }
+.ir-table { border-collapse: collapse; width: 100%; font-size: 12px; font-variant-numeric: tabular-nums; }
+.ir-table th, .ir-table td { padding: 4px 6px; text-align: right; border-bottom: 1px solid var(--line); white-space: nowrap; }
+.ir-table th:first-child { text-align: left; font-weight: 600; color: var(--ink-2); }
+.ir-table thead th { color: var(--muted); font-weight: 600; }
+.ir-table td.na { color: var(--muted); }
+.ir-table td.single { font-weight: 650; color: var(--ink); }
+.ir-table tr.pred td, .ir-table tr.pred th { color: var(--accent); }
+.ir-notes { margin: 0; padding-left: 18px; font-size: 12px; color: var(--ink-2); }
 
 .lib-actions { display: flex; align-items: center; gap: 6px; margin-top: 8px; }
 .lib-actions a.btn { text-decoration: none; }

@@ -123,6 +123,17 @@ async function openBundle(job, manifest, entries, archiveName) {
       toast('The archive does not contain the scan this project uses; the room keeps its measured size.', { ms: 8000 });
     }
   }
+  // impulse responses: stored under their content hash, so re-uploading gives back the same id
+  let missing = 0;
+  for (const m of raw?.measurements || []) {
+    if (!m.ir_id) continue;
+    const path = `irs/${m.ir_id}.wav`;
+    if (!entries.some((e) => e.name === path)) { missing++; continue; }
+    const res = await fetch('/api/irs', { method: 'POST', body: await job.extract(path), headers: { 'Content-Type': 'application/octet-stream' } });
+    if (!res.ok) { missing++; continue; }
+    m.ir_id = (await res.json()).ir_id;
+  }
+  if (missing) toast(`${missing} impulse response${missing === 1 ? ' is' : 's are'} missing from the archive; ${missing === 1 ? 'its' : 'their'} curves and values are kept.`, { ms: 8000 });
   const project = await api.checkProject(raw);
   loadProject(project, { dirty: true });
   toast(`Opened ${project.name} from ${archiveName}. Press Save to keep it with your venues.`, { ms: 6000 });
@@ -131,7 +142,7 @@ async function openBundle(job, manifest, entries, archiveName) {
 /** Any other archive: offer what this app can use. A single model is imported straight away. */
 async function openContents(job, entries, archiveName) {
   const models = entries.filter((e) => MODEL_EXTS.includes(extOf(e.name)));
-  const texts = entries.filter((e) => MEASURE_EXTS.includes(extOf(e.name)) || extOf(e.name) === 'json');
+  const texts = entries.filter((e) => MEASURE_EXTS.includes(extOf(e.name)) || ['json', 'wav'].includes(extOf(e.name)));
   const projects = entries.filter((e) => e.name.toLowerCase().endsWith('.apo.json'));
   if (!models.length && !texts.length) {
     toast(`${archiveName} holds ${entries.length} file${entries.length === 1 ? '' : 's'}, none of them a model, measurement or speaker list this app reads.`, { error: true, ms: 9000 });
@@ -149,7 +160,7 @@ async function openContents(job, entries, archiveName) {
     h('p', { class: 'hint', text: `${entries.length} file${entries.length === 1 ? '' : 's'} in ${archiveName}, each checked as it is unpacked. Choose one to use:` }),
     ...models.map((e) => row(e, pick('Use as the room', e, () => useModel(job, e, entries)))),
     ...texts.filter((e) => !projects.includes(e)).map((e) => row(e,
-      MEASURE_EXTS.includes(extOf(e.name)) ? pick('Add as a measurement', e, () => useMeasurement(job, e)) : null,
+      MEASURE_EXTS.includes(extOf(e.name)) || extOf(e.name) === 'wav' ? pick('Add as a measurement', e, () => useMeasurement(job, e)) : null,
       ['csv', 'json'].includes(extOf(e.name)) ? pick('Add to my speakers', e, () => useSpeakers(job, e)) : null)));
   await openDialog({ title: `Open ${archiveName}`, body, wide: true, actions: [{ label: 'Close' }] });
   if (!chosen) return;
@@ -177,6 +188,11 @@ async function useModel(job, e, entries) {
 }
 
 async function useMeasurement(job, e) {
+  if (extOf(e.name) === 'wav') {
+    const { addImpulseResponse } = await import('./measure-ui.js');
+    toast(await addImpulseResponse(baseName(e.name), await job.extract(e.name)), { ms: 8000 });
+    return;
+  }
   const text = new TextDecoder().decode(await job.extract(e.name));
   const { addMeasurement } = await import('./panels.js');
   toast(addMeasurement(e.name, text), { ms: 8000 });
@@ -191,7 +207,7 @@ async function useSpeakers(job, e) {
 
 // --------------------------------------------------------------------- save
 
-/** The files of a project bundle: manifest, project and the scan's original bytes. */
+/** The files of a project bundle: manifest, project, the scan's original bytes and the measured impulse responses. */
 export async function bundleFiles(project, appVersion) {
   const enc = new TextEncoder();
   const manifest = { kind: 'apo-project', app: 'Acoustic Phase Optimizer', app_version: appVersion || null, schema: project.version ?? 2, created: new Date().toISOString(), name: project.name };
@@ -201,6 +217,10 @@ export async function bundleFiles(project, appVersion) {
     if (!res.ok) throw new Error('the scan file of this venue is missing from this computer');
     manifest.scan = `scan/${project.scan.id}.${project.scan.ext}`;
     files.push({ name: manifest.scan, data: await res.arrayBuffer() });
+  }
+  for (const id of new Set((project.measurements || []).map((m) => m.ir_id).filter(Boolean))) {
+    const res = await fetch(`/api/irs/${id}.wav`);
+    if (res.ok) files.push({ name: `irs/${id}.wav`, data: await res.arrayBuffer() }); // a missing one keeps its curves
   }
   files.unshift(
     { name: MANIFEST, data: enc.encode(JSON.stringify(manifest, null, 2)).buffer },

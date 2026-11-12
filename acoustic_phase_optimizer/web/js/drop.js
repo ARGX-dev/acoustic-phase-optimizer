@@ -57,18 +57,20 @@ export async function routeFiles(files) {
     return;
   }
   if (files.some((f) => SCAN_EXTS.includes(extOf(f.name)) || extOf(f.name) === 'gltf')) { await importFiles(files); return; }
-  const texts = files.filter((f) => MEASURE_EXTS.includes(extOf(f.name)));
+  const texts = files.filter((f) => MEASURE_EXTS.includes(extOf(f.name)) || extOf(f.name) === 'wav');
   if (texts.length) {
     const { addMeasurement } = await import('./panels.js');
+    const { addImpulseResponse } = await import('./measure-ui.js');
     for (const f of texts.slice(0, 8)) {
       try {
-        if (f.size > 20_000_000) throw new Error('larger than 20 MB');
-        toast(addMeasurement(f.name, await f.text()), { ms: 8000 });
+        const wav = extOf(f.name) === 'wav';
+        if (f.size > (wav ? 64 : 20) * 1_000_000) throw new Error(`larger than ${wav ? 64 : 20} MB`);
+        toast(wav ? await addImpulseResponse(f.name, await f.arrayBuffer()) : addMeasurement(f.name, await f.text()), { ms: 8000 });
       } catch (e) { toast(`${f.name}: ${e.message}`, { error: true }); }
     }
     return;
   }
-  toast(`${files.length === 1 ? `${files[0].name} cannot` : `None of these ${files.length} files can`} be opened here. Drop a .trky archive, a 3D scan or model, a project (.apo.json) or a measurement export.`, { error: true, ms: 8000 });
+  toast(`${files.length === 1 ? `${files[0].name} cannot` : `None of these ${files.length} files can`} be opened here. Drop a .trky archive, a 3D scan or model, a project (.apo.json), a measurement export or an impulse response (.wav).`, { error: true, ms: 8000 });
 }
 
 /** Turn on dropping for the whole window. */

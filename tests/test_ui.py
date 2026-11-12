@@ -1145,6 +1145,99 @@ def test_drop_a_trky_with_a_model_and_a_measurement(ui, tmp_path):
     page.wait_for_selector(".meas-row", state="detached")
 
 
+def ir_wav(path: Path, t60=1.2, delay_ms=20.0, fs=48000) -> Path:
+    """A synthetic room impulse response: a click after `delay_ms`, then an exponential noise decay."""
+    import numpy as np
+    from scipy.io import wavfile
+
+    rng = np.random.default_rng(3)
+    n = int(fs * 2.5)
+    t = np.arange(n) / fs
+    ir = rng.standard_normal(n) * 10 ** (-3 * t / t60) * 0.05 + rng.standard_normal(n) * 1e-5
+    d = int(fs * delay_ms / 1000)
+    ir[:d] = rng.standard_normal(d) * 1e-5
+    ir[d] = 1.0
+    ir[d + 1 :] = np.concatenate([np.zeros(int(fs * 0.003)), ir[d + 1 : n - int(fs * 0.003)]])
+    wavfile.write(path, fs, (ir / np.abs(ir).max() * 0.8).astype(np.float32))
+    return path
+
+
+def test_impulse_response_import_viewer_and_trky(ui, tmp_path):
+    page = ui["page"]
+    wav = ir_wav(tmp_path / "Row 10 seat 4.wav")
+    page.get_by_role("tab", name="Mics").click()
+    with page.expect_file_chooser() as fc:
+        page.get_by_role("button", name="Import a measurement…").click()
+    fc.value.set_files(str(wav))
+    page.wait_for_selector(".toast:has-text('as an impulse response')", timeout=30000)
+    row = page.locator(".meas-row", has_text="").filter(has=page.locator(".ir-row"))
+    assert row.count() == 1
+    assert "20.0 ms" in row.locator(".ir-row .hint").inner_text()
+    check = page.evaluate("""async () => { const s = (await import('/js/store.js')).state;
+        const r = await fetch('/api/projects/check', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({project: s.project})});
+        return [r.status, await r.text()]; }""")
+    assert check[0] == 200, check[1][:500]  # an IR's dBFS level must not push the offset out of range
+
+    row.get_by_role("button", name="IR").click()
+    page.wait_for_selector(".dialog .ir-table", timeout=30000)
+    table = page.locator(".dialog .ir-table")
+    t30 = table.locator("tr", has_text="T30").locator("td.single").inner_text()
+    assert abs(float(t30) - 1.2) < 0.12, t30
+    assert table.locator("tr.pred").count() == 1  # the prediction, beside the measurement
+    page.get_by_role("button", name="First 100 ms").click()
+    page.get_by_role("button", name="250").click()
+    shot(page, "30-ir-viewer")
+    with page.expect_download() as dl:
+        page.get_by_role("button", name="Download WAV").click()
+    assert dl.value.suggested_filename == "Row 10 seat 4.wav"
+    page.locator(".dialog .btn", has_text="Close").click()
+    page.wait_for_selector(".dialog", state="detached")
+
+    # the measured reverb time marks the room's reverb bars
+    page.get_by_role("tab", name="Room").click()
+    page.wait_for_selector(".rt-band em.measured", timeout=10000)
+    assert "Measured (mid)" in page.locator(".stat-grid").inner_text()
+
+    # the WAV travels inside a project .trky and comes back
+    page.get_by_role("button", name="Export").click()
+    with page.expect_download(timeout=60000) as dl:
+        page.get_by_role("menuitem", name=re.compile("Project archive")).click()
+    saved = tmp_path / dl.value.suggested_filename
+    dl.value.save_as(saved)
+    page.wait_for_selector(".toast:has-text('.trky')", timeout=10000)
+    ir_id = page.evaluate("async () => (await import('/js/store.js')).state.project.measurements.find((m) => m.ir_id).ir_id")
+    names = make_trky_list(saved)
+    assert f"irs/{ir_id}.wav" in names, names
+    page.locator(".venue-name").fill("Changed after saving")
+    page.locator(".venue-name").press("Enter")
+    page.get_by_role("button", name="Open").click()
+    with page.expect_file_chooser() as fc:
+        page.get_by_role("menuitem", name=re.compile("Open a .trky archive")).click()
+    fc.value.set_files(str(saved))
+    page.get_by_role("button", name="Discard changes").click()
+    page.wait_for_function("document.querySelector('.venue-name').value !== 'Changed after saving'", timeout=30000)
+    page.get_by_role("tab", name="Mics").click()
+    page.locator(".meas-row .ir-row").get_by_role("button", name="IR").click()
+    page.wait_for_selector(".dialog .ir-table", timeout=30000)
+    page.locator(".dialog .btn", has_text="Close").click()
+    page.get_by_role("button", name="Delete Row 10 seat 4").click()
+    page.wait_for_selector(".meas-row", state="detached")
+
+
+def make_trky_list(path: Path) -> list[str]:
+    """The entry names of a .trky (its index is plain or raw-deflated JSON after the header)."""
+    import json
+    import struct
+    import zlib
+
+    b = path.read_bytes()
+    flag, n = b[8], struct.unpack_from("<I", b, 9)[0]
+    raw = b[13 : 13 + n]
+    idx = json.loads(zlib.decompress(raw, -15) if flag == 1 else raw)
+    entries = idx["files"] if isinstance(idx, dict) else idx
+    return [e["n"] for e in entries]
+
+
 def test_dropping_an_unknown_file_says_so(ui, tmp_path):
     page = ui["page"]
     junk = tmp_path / "notes.docx"
