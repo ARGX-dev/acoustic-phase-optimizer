@@ -556,6 +556,8 @@ function applyScan(name, ext, id, choice) {
   }, { structural: true, source: 'scan' });
   setUI({ view: '3d' });
   toast(`Room set from the scan: ${lenNum(d.length)} × ${lenNum(d.width)} × ${len(d.height)}.`);
+  // then offer any speakers the scan shows (only when some look likely; nothing is added without the user)
+  setTimeout(() => import('./speakerfind-ui.js').then((m) => m.findSpeakersInScan({ auto: true })).catch(() => {}), 0);
 }
 
 /** Pick a file and import it. */

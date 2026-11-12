@@ -374,12 +374,14 @@ def test_import_mvr_venue(ui, tmp_path):
         const hb = new THREE.Box3().setFromObject(g.children[0].children[0]);
         const hall = [...hb.min.toArray(), ...hb.max.toArray()].map((v) => +v.toFixed(3));
         const sizes = [];
-        g.children[0].children.forEach((o) => { const b = new THREE.Box3().setFromObject(o); const s = b.getSize(new THREE.Vector3()); sizes.push([s.x, s.y, s.z].map((v) => +v.toFixed(2))); });
+        g.children[0].children.filter((o) => !o.userData.fixture).forEach((o) => { const b = new THREE.Box3().setFromObject(o); const s = b.getSize(new THREE.Vector3()); sizes.push([s.x, s.y, s.z].map((v) => +v.toFixed(2))); });
         let bad = null;
         try { await (await import('/js/mvr.js')).parseMvr(new Uint8Array(300).buffer); } catch (e) { bad = e.message; }
-        return { mvr: g.userData.mvr, sizes, bad, hall };
+        const marks = g.children[0].children.filter((o) => o.userData.fixture).map((o) => o.userData.fixture);
+        return { mvr: g.userData.mvr, sizes, bad, hall, marks };
     }""", base64.b64encode(path.read_bytes()).decode())
     assert info["mvr"]["instances"] == 3 and info["mvr"]["fixtures"] == 1 and info["mvr"]["missing"] == []
+    assert info["marks"] == [{"name": "Spot 1", "spec": "Spot.gdtf"}]  # fixtures kept as empty markers for the speaker finder
     props = sorted(info["sizes"])[:2]
     assert all(sorted(p_)[1:] == pytest.approx([4.0, 6.0], abs=0.01) for p_ in props), info  # a 4 x 6 m glTF quad stays 4 x 6 m
     assert "not an MVR file" in info["bad"]
@@ -406,6 +408,7 @@ def test_import_mvr_venue(ui, tmp_path):
     page.keyboard.press("Control+z")
     page.wait_for_function("!document.querySelector('.scan-card')", timeout=5000)
     page.keyboard.press("Control+y")
+    shot(page, "zz-debug")
     page.wait_for_selector(".scan-card", timeout=5000)
     time.sleep(1.5)  # autosave
     page.reload()
@@ -543,6 +546,174 @@ def test_import_scan_sets_the_room(ui, tmp_path):
     shot(page, "11b-scan-shape")
     page.get_by_role("radio", name="Fitted box").click()
     page.wait_for_selector(".surf-row", state="detached", timeout=10000)
+    page.locator("#stage-toolbar .seg button", has_text="Plan").click()
+
+
+def speakers_room_obj(path: Path, w=12.0, l=20.0, h=5.0, yaw_deg=30.0) -> Path:
+    """A room scan with things in it, as separate parts: two named objects (a speaker, a sub), two unnamed speaker-
+    shaped boxes high on the side walls, and two decoys (a wide flat AC unit, a tall low cabinet). Rotated, y-up."""
+    import math
+
+    a = math.radians(yaw_deg)
+
+    def place(p):
+        x, y, z = p
+        xr, yr = x * math.cos(a) - y * math.sin(a), x * math.sin(a) + y * math.cos(a)
+        return xr + 2, z, -(yr - 3)
+
+    lines, n = [], 0
+
+    def box(lo, size, name=None, inward=False):
+        nonlocal n
+        if name:
+            lines.append(f"o {name}")
+        cs = [(lo[0] + i * size[0], lo[1] + j * size[1], lo[2] + k * size[2]) for k in (0, 1) for j in (0, 1) for i in (0, 1)]
+        lines.extend("v {:.4f} {:.4f} {:.4f}".format(*place(c)) for c in cs)
+        quads = [(1, 2, 4, 3), (5, 7, 8, 6), (1, 5, 6, 2), (3, 4, 8, 7), (1, 3, 7, 5), (2, 6, 8, 4)]
+        for q in quads:
+            q = [n + v for v in (q if inward else q[::-1])]
+            lines.extend((f"f {q[0]} {q[1]} {q[2]}", f"f {q[0]} {q[2]} {q[3]}"))
+        n += 8
+
+    box((0, 0, 0), (w, l, h), name="Hall", inward=True)  # the room (OBJLoader would name leading faces after the next o)
+    lines.append("o")  # the boxes below are parts of one unnamed object
+    box((0.05, 6, 3), (0.4, 0.4, 0.65))  # unnamed, high on the left wall
+    box((w - 0.45, 6, 3), (0.4, 0.4, 0.65))  # unnamed, high on the right wall
+    box((0.02, 12, 4.2), (0.25, 0.9, 0.3))  # AC unit: wide and flat
+    box((9, l - 0.6, 0), (1.0, 0.5, 1.1))  # cabinet
+    box((5.8, 0.3, 3.5), (0.4, 0.4, 0.6), name="Speaker_C")  # named
+    box((4, 0.4, 0), (0.9, 0.75, 0.55), name="SUB 1")  # named
+    path.write_text("\n".join(lines) + "\n")
+    return path
+
+
+def speaker_gltf() -> str:
+    """A glTF with one box mesh used by three nodes: two named like line-array hangs, one plain wall."""
+    import base64
+    import json
+    import struct
+
+    s = 0.3
+    vs = [(x, y, z) for z in (-s, s) for y in (-s, s) for x in (-s, s)]
+    idx = [0, 1, 3, 0, 3, 2, 4, 6, 7, 4, 7, 5, 0, 4, 5, 0, 5, 1, 2, 3, 7, 2, 7, 6, 0, 2, 6, 0, 6, 4, 1, 5, 7, 1, 7, 3]
+    blob = b"".join(struct.pack("<3f", *v) for v in vs) + struct.pack(f"<{len(idx)}H", *idx)
+    doc = {
+        "asset": {"version": "2.0"},
+        "buffers": [{"byteLength": len(blob), "uri": "data:application/octet-stream;base64," + base64.b64encode(blob).decode()}],
+        "bufferViews": [{"buffer": 0, "byteOffset": 0, "byteLength": 96}, {"buffer": 0, "byteOffset": 96, "byteLength": 72}],
+        "accessors": [{"bufferView": 0, "componentType": 5126, "count": 8, "type": "VEC3", "min": [-s] * 3, "max": [s] * 3},
+                      {"bufferView": 1, "componentType": 5123, "count": 36, "type": "SCALAR"}],
+        "meshes": [{"primitives": [{"attributes": {"POSITION": 0}, "indices": 1}]}],
+        # glTF is y up; placed with up = y, room (x, y, z) = glTF (x, -z, y)
+        "nodes": [{"name": "KARA_II hang L", "mesh": 0, "translation": [3, 4, -2]},
+                  {"name": "KARA_II hang R", "mesh": 0, "translation": [3, 4, -10]},
+                  {"name": "Wall_03", "mesh": 0, "translation": [6, 1, -15]}],
+        "scenes": [{"nodes": [0, 1, 2]}], "scene": 0,
+    }
+    return json.dumps(doc)
+
+
+def speakers_mvr(path) -> Path:
+    """An MVR with a room and three fixtures: a loudspeaker hung and aimed down, a sub on the floor, and a light."""
+    import zipfile
+
+    xml = """<?xml version="1.0" encoding="UTF-8" standalone="no" ?>
+<GeneralSceneDescription verMajor="1" verMinor="6" provider="test">
+  <Scene><Layers><Layer name="Venue" uuid="L1"><ChildList>
+    <SceneObject name="Hall" uuid="O1"><Geometries><Geometry3D fileName="hall"/></Geometries></SceneObject>
+    <Fixture name="Main L" uuid="F1"><GDTFSpec>L-Acoustics@Kara II.gdtf</GDTFSpec><GDTFMode>Std</GDTFMode>
+      <Matrix>{1,0,0}{0,1,0}{0,0,1}{2000,4000,4000}</Matrix></Fixture>
+    <Fixture name="Sub 1" uuid="F2"><GDTFSpec>L-Acoustics@KS28.gdtf</GDTFSpec><GDTFMode>Std</GDTFMode>
+      <Matrix>{1,0,0}{0,0,1}{0,-1,0}{6000,1000,400}</Matrix></Fixture>
+    <Fixture name="Spot 1" uuid="F3"><GDTFSpec>Robe@Robin_MegaPointe.gdtf</GDTFSpec><GDTFMode>Std</GDTFMode>
+      <Matrix>{1,0,0}{0,1,0}{0,0,1}{6000,8000,4500}</Matrix></Fixture>
+  </ChildList></Layer></Layers></Scene>
+</GeneralSceneDescription>"""
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("GeneralSceneDescription.xml", xml)
+        z.writestr("hall.3ds", room_3ds())
+    return path
+
+
+def test_find_speakers_in_scans(ui, tmp_path):
+    import base64
+
+    page = ui["page"]
+    # 1. MVR fixtures and a glTF with named nodes, through the reader and the finder (room metres, z up)
+    out = page.evaluate("""async ([mvr, gltf]) => {
+        const THREE = await import('three');
+        const { scanMatrix } = await import('/js/scan.js');
+        const { extractFound } = await import('/js/speakerfind-three.js');
+        const { findSpeakers } = await import('/js/speakerfind.js');
+        const { state } = await import('/js/store.js');
+        const place = (obj, up) => { const g = new THREE.Group(); g.add(obj); g.matrixAutoUpdate = false;
+          g.matrix.copy(scanMatrix({ unit_scale: 1, up, yaw_deg: 0, t: [0, 0, 0] })); return g; };
+        const ctx = { room: { width: 12, length: 20, height: 5 }, audience: { x0: 1, x1: 11, y0: 4, y1: 19, ear_height: 1.2 },
+          types: state.meta.speaker_types };
+        const bytes = Uint8Array.from(atob(mvr), (c) => c.charCodeAt(0));
+        const m = extractFound(place(await (await import('/js/mvr.js')).parseMvr(bytes.buffer), 'z'));
+        const fm = findSpeakers(m, ctx);
+        const g = extractFound(place(await (await import('/js/formats.js')).parseGltf(gltf, new THREE.LoadingManager()), 'y'));
+        const fg = findSpeakers(g, ctx);
+        const r = (v) => v.map((x) => +x.toFixed(2));
+        return { fixtures: m.fixtures.map((f) => ({ name: f.name, pos: r(f.pos), fwd: r(f.fwd) })),
+          mvr: fm.candidates.map((c) => ({ name: c.name, role: c.role, pitch: c.pitch, source: c.source })), skipped: fm.skippedFixtures,
+          gltf: fg.candidates.map((c) => ({ name: c.name, x: c.x, y: c.y, z: c.z, source: c.source, checked: c.checked })) };
+    }""", [base64.b64encode(speakers_mvr(tmp_path / "rig.mvr").read_bytes()).decode(), speaker_gltf()])
+    main = next(f for f in out["fixtures"] if f["name"] == "Main L")
+    assert main["pos"] == pytest.approx([2, 4, 4], abs=0.01) and main["fwd"] == pytest.approx([0, 0, -1], abs=0.01), out
+    sub = next(f for f in out["fixtures"] if f["name"] == "Sub 1")
+    assert sub["pos"] == pytest.approx([6, 1, 0.4], abs=0.01) and sub["fwd"] == pytest.approx([0, 1, 0], abs=0.01), out
+    assert out["skipped"] == 1 and sorted(c["name"] for c in out["mvr"]) == ["Main L", "Sub 1"], out
+    assert next(c for c in out["mvr"] if c["name"] == "Main L")["pitch"] < 0
+    assert next(c for c in out["mvr"] if c["name"] == "Sub 1")["role"] == "sub"
+    # the hangs at glTF (3, 4, -2) and (3, 4, -10) are room (3, 2, 4) and (3, 10, 4); the wall is not a speaker
+    hangs = sorted((c for c in out["gltf"] if c["source"] == "name"), key=lambda c: c["y"])
+    assert [c["name"].replace("_", " ") for c in hangs] == ["KARA II hang L", "KARA II hang R"], out  # three.js turns spaces into _
+    assert [v for c in hangs for v in (c["x"], c["y"], c["z"])] == pytest.approx([3, 2, 4, 3, 10, 4], abs=0.05), hangs
+    assert all(c["checked"] for c in hangs) and not any("Wall" in (c["name"] or "") for c in out["gltf"])
+
+    # 2. a scan with speakers and decoys, through the import: the finder opens by itself and adds only what is ticked
+    count = "async () => (await import('/js/store.js')).state.project.speakers.length"
+    before = page.evaluate(count)
+    page.get_by_role("tab", name="Room").click()
+    with page.expect_file_chooser() as fc:
+        page.get_by_role("button", name=re.compile("Import a 3D scan…|Replace…")).click()
+    fc.value.set_files(str(speakers_room_obj(tmp_path / "club.obj")))
+    page.wait_for_selector(".dialog .scan-preview", timeout=20000)
+    page.wait_for_function("document.querySelector('.dialog [aria-label=\"Stage to back\"]').value !== ''", timeout=20000)
+    page.locator(".dialog .btn.primary").click()
+    page.wait_for_selector(".dialog .find-row", timeout=30000)
+    assert re.match(r"Found \d+ possible speakers", page.locator(".dialog h2").inner_text())
+    rows = page.locator(".dialog .find-row")
+    texts = rows.locator(".find-what").all_inner_texts()
+    checks = [rows.nth(i).locator("input[type=checkbox]").is_checked() for i in range(rows.count())]
+    ticked = [t for t, c in zip(texts, checks) if c]
+    assert len(ticked) == 4, texts
+    assert sum("Speaker_C" in t for t in ticked) == 1 and sum("SUB 1" in t for t in ticked) == 1, ticked
+    assert sum("Speaker-shaped box" in t for t in ticked) == 2, ticked
+    assert page.locator(".dialog .find-plan").count() == 1
+    shot(page, "29-found-speakers")
+    page.get_by_role("button", name="Add the ticked speakers").click()
+    page.wait_for_selector(".dialog", state="detached", timeout=10000)
+    after = page.evaluate("""async () => (await import('/js/store.js')).state.project.speakers.slice(-4)
+        .map((s) => ({ name: s.name, role: s.role, x: s.x, y: s.y, z: s.z }))""")
+    assert page.evaluate(count) == before + 4
+    assert sum(s["role"] == "sub" for s in after) == 1, after
+    assert any(s["name"].startswith("Speaker_C") for s in after), after
+    assert all(s["z"] > 2.5 for s in after if s["role"] != "sub"), after  # the high boxes, not the cabinet
+    # one undo takes all four back out
+    page.locator("body").click(position={"x": 700, "y": 20})
+    page.keyboard.press("Control+z")
+    page.wait_for_function(f"(async () => (await import('/js/store.js')).state.project.speakers.length === {before})()", timeout=5000)
+    # and the panel button finds them again on demand
+    page.get_by_role("tab", name="Room").click()
+    page.wait_for_selector(".scan-card", timeout=5000)
+    page.get_by_role("button", name="Find speakers in the scan…").click()
+    page.wait_for_selector(".dialog .find-row", timeout=30000)
+    page.get_by_role("button", name="Not now").click()
+    page.wait_for_selector(".dialog", state="detached", timeout=5000)
+    assert page.evaluate(count) == before  # the scan stays: later tests save it inside a .trky
     page.locator("#stage-toolbar .seg button", has_text="Plan").click()
 
 

@@ -1,7 +1,7 @@
 // Application state, undo history and the request pumps that keep results in step with the model.
 
 import { api } from './api.js';
-import { clone, debounce, round, toast, uid } from './util.js';
+import { clamp, clone, debounce, round, toast, uid } from './util.js';
 
 const listeners = new Map();
 export function on(events, fn) {
@@ -297,6 +297,33 @@ export function addSpeaker(typeId) {
   }, { structural: true });
   select('speaker', id);
   return id;
+}
+
+/**
+ * Add the speakers the user accepted from the scan (speakerfind.js candidates with a chosen model), as one undo step.
+ * items: [{ name, typeId, x, y, z, yaw, pitch, boxes }]. Returns the new ids.
+ */
+export function addFoundSpeakers(items) {
+  const ids = [];
+  mutate((p) => {
+    for (const it of items) {
+      const type = speakerType(it.typeId) || state.meta.speaker_types[0];
+      const acoustic = typeFields(type);
+      if (it.boxes > 1 && type.spec?.box_spl) Object.assign(acoustic, hangFields(type, Math.min(32, it.boxes), acoustic.array_splay || 3));
+      const sub = acoustic.role === 'sub';
+      const id = uid();
+      ids.push(id);
+      p.speakers.push({
+        id, name: uniqueName(p, it.name || (sub ? 'Sub' : acoustic.role === 'main' ? 'Main' : 'Fill')), model: type.id,
+        x: round(clamp(it.x, 0.1, p.room.width - 0.1), 2), y: round(clamp(it.y, 0.1, p.room.length - 0.1), 2),
+        z: round(clamp(it.z, 0.1, p.room.height - 0.1), 2), yaw: round(it.yaw, 1), pitch: round(it.pitch, 1),
+        ...acoustic, delay_ms: 0, gain_db: 0, invert: false, mute: false, peq: [],
+        lock_delay: false, lock_gain: false, color: freeColor(p),
+      });
+    }
+  }, { structural: true, source: 'scan' });
+  if (ids.length) select('speaker', ids[0]);
+  return ids;
 }
 
 export function duplicateSpeaker(id) {

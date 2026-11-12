@@ -48,6 +48,12 @@ strict Content-Security-Policy.
   faces and unjoined seams are fixed before the room is measured. Doorways and other large openings are
   left open. The import dialog lists what was fixed, and **Use the repaired model** switches back to the
   file exactly as it is. The file itself is never changed; the choice is saved with the venue.
+- **Speakers found in the scan.** **Room > Find speakers in the scan…** looks for loudspeakers: rigged MVR
+  fixtures (lights are left out), objects named like speakers or like a library model (KARA, KS28…), and
+  separate speaker-sized boxes on walls, under the ceiling, stacked as a line array or on the floor as subs.
+  A plan shows each one with how sure the app is; tick the ones to keep and choose a model for each. Nothing
+  is added until you say so, and one undo takes them all back out. Rigs and named speakers are offered right
+  after an import. A speaker that is part of one continuous scanned surface cannot be told apart.
 - **Share a whole venue as one .trky file.** **Export > Project archive** packs the venue and its scan into
   a lossless .trky archive (the TRKY format, which shrinks audio and text well and checks every file with
   SHA-256 when it is unpacked). **Open > Open a .trky archive** brings it back on any computer. Other .trky
@@ -139,7 +145,7 @@ confirm delays and EQ with a measurement on site.
 ```bash
 pip install -e ".[dev]"
 pytest                    # the browser tests need: playwright install chromium
-node --test tests/js      # mesh repair and .trky (Node 18 or newer)
+node --test tests/js      # mesh repair, .trky and the speaker finder (Node 18 or newer)
 ruff check acoustic_phase_optimizer tests tools
 ```
 

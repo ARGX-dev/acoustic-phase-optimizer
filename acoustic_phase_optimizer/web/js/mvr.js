@@ -1,7 +1,7 @@
 // MVR (My Virtual Rig, DIN SPEC 15801): a ZIP archive with GeneralSceneDescription.xml and the 3D files it
 // places. We read the venue geometry (scene objects, trusses, screens and their symbols) into one three.js
 // group in metres, Z up. Fixtures carry no geometry in MVR (it lives in their GDTF files), so they are
-// counted, not drawn.
+// counted and kept as empty markers (userData.fixture) for the speaker finder, not drawn.
 //
 // Everything is parsed here in the browser: a small ZIP reader (STORE and DEFLATE, the only methods MVR
 // allows) with hard limits, DOMParser for the XML (no external entities are ever fetched), and three.js
@@ -156,6 +156,7 @@ export async function parseMvr(buffer) {
   const out = new THREE.Group();
   const info = { objects: 0, instances: 0, fixtures: 0, files: 0, missing: [] };
   const placed = [];
+  const fixtures = [];
 
   async function addGeometries(owner, world, depth) {
     for (const g of kids(kid(owner, 'Geometries'))) await addGeometryNode(g, world, depth);
@@ -180,7 +181,17 @@ export async function parseMvr(buffer) {
     if (depth > MAX_DEPTH) return;
     for (const el of kids(list)) {
       const m = world.clone().multiply(matrixOf(el));
-      if (el.tagName === 'Fixture') info.fixtures++;
+      if (el.tagName === 'Fixture') {
+        info.fixtures++;
+        // no shape, but a place and an aim: an empty marker the speaker finder reads (GDTF beams point along -Z)
+        if (fixtures.length < MAX_INSTANCES) {
+          const mark = new THREE.Object3D();
+          mark.matrixAutoUpdate = false;
+          mark.matrix.copy(m);
+          mark.userData.fixture = { name: el.getAttribute('name') || '', spec: kid(el, 'GDTFSpec')?.textContent.trim() || '' };
+          fixtures.push(mark);
+        }
+      }
       if (GEOMETRY_OWNERS.has(el.tagName)) { info.objects++; await addGeometries(el, m, depth); }
       await walk(kid(el, 'ChildList'), m, depth + 1); // groups (and anything else) nest in their parent's frame
     }
@@ -198,6 +209,7 @@ export async function parseMvr(buffer) {
   const mm = new THREE.Group();
   mm.scale.setScalar(0.001);
   for (const inst of placed) mm.add(inst);
+  for (const mark of fixtures) mm.add(mark);
   out.add(mm);
   out.updateMatrixWorld(true);
   info.files = [...files.keys()].length;

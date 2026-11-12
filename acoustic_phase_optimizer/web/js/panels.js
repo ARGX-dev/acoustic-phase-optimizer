@@ -265,6 +265,9 @@ export function createLeftPanel(root) {
         h('button', { class: 'btn small', title: MVR_FOLDER_TIP, onclick: pickFolder }, 'Folder…'),
         h('span', { style: { flex: 1 } }),
         h('button', { class: 'btn small danger', onclick: () => mutate((p) => { p.scan = null; p.room.model = 'box'; p.room.shape = null; }, { structural: true }) }, icon('trash'), 'Remove scan')),
+      h('button', { class: 'btn small block', style: { marginTop: '6px' }, title: 'Look for loudspeakers in the scan: MVR fixtures, objects named like speakers, and speaker-shaped boxes. You choose which to add.',
+        onclick: () => import('./speakerfind-ui.js').then((m) => m.findSpeakersInScan()).catch((e) => toast(`Speaker search is unavailable: ${e.message}`, { error: true })) },
+      icon('search'), 'Find speakers in the scan…'),
       predictionModel(sc));
   }
 
@@ -729,7 +732,7 @@ export function createLeftPanel(root) {
     if (d.structural && !(d.source === 'panel' && document.activeElement && body.contains(document.activeElement) && document.activeElement.tagName === 'INPUT' && document.activeElement.type !== 'checkbox')) render();
     else { sync(); renderList(); }
   });
-  on('selection', render);
+  on('selection', () => { lastTab = state.ui.tab; render(); }); // selecting may switch the tab itself
   on('ui', () => {
     // Fields capture their unit when built, so a change of units (including a restored session) rebuilds them.
     if (state.ui.tab !== lastTab || state.ui.units !== lastDisp) { if (state.ui.tab !== lastTab) body.scrollTop = 0; lastTab = state.ui.tab; lastDisp = state.ui.units; render(); } else renderList();
