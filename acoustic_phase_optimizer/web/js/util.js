@@ -30,6 +30,9 @@ function append(el, children) {
 export function clear(el) { while (el.firstChild) el.removeChild(el.firstChild); return el; }
 export const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 export const round = (v, nd = 0) => { const k = 10 ** nd; return Math.round(v * k) / k; };
+/** Where a scan's room shape came from: the file and how it was placed. A different value means the shape is out of date. */
+export const scanPlacement = (ref) => [ref.id, ref.repair !== false, ref.up, ref.unit_scale, round(ref.yaw_deg, 3),
+  ...(ref.t || []).map((v) => round(v, 3))].join(':').slice(0, 200);
 export const clone = (o) => JSON.parse(JSON.stringify(o));
 export const uid = () => Math.random().toString(16).slice(2, 10);
 

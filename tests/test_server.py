@@ -404,3 +404,51 @@ def test_dwg_goes_through_a_local_converter(api, tmp_path, monkeypatch):
     assert status == 422 and b"ERROR 0x800" in body
     status, _ = post(b"AC1032" + b"\0" * 100, {"Origin": "http://evil.example"})
     assert status == 403
+
+
+def test_room_shape_from_triangles(api):
+    """POST /api/shape: the browser's binary triangle upload becomes a shape that simulates."""
+    import struct
+
+    import numpy as np
+
+    from tests.roomshapes import box_mesh
+
+    V, T = box_mesh(12, 20, 5, step=1.0)
+    names = ["Glass curtain wall", "Concrete"]
+    tag = np.where(V[T][:, :, 0].max(axis=1) < 1e-6, 0, 0xFFFFFFFF).astype("<u4")  # the x = 0 wall is glass
+
+    def body(V, T, tag, names, dims=(12, 20, 5)):
+        head = json.dumps({"dims": dims, "names": names, "nv": len(V), "nt": len(T)}).encode()
+        off = (4 + len(head) + 3) // 4 * 4
+        return (struct.pack("<I", len(head)) + head + b"\0" * (off - 4 - len(head)) + V.astype("<f4").tobytes()
+                + T.astype("<u4").tobytes() + tag.tobytes())
+
+    def post(data):
+        req = urllib.request.Request(f"http://127.0.0.1:{api.port}/api/shape", data=data, method="POST",
+                                     headers={"Content-Type": "application/octet-stream"})
+        try:
+            with urllib.request.urlopen(req, timeout=60) as r:
+                return r.status, json.loads(r.read())
+        except urllib.error.HTTPError as e:
+            return e.code, json.loads(e.read())
+
+    status, sh = post(body(V, T, tag, names))
+    assert status == 200, sh
+    roles = {s["role"]: s for s in sh["surfaces"]}
+    assert {"floor", "ceiling", "front", "back", "left", "right"} <= set(roles)
+    assert roles["left"]["material"] == "glass" and roles["right"]["material"] is None
+    assert sh["stats"]["input_triangles"] == len(T)
+
+    from acoustic_phase_optimizer.engine.model import RoomShape
+    from tests.test_geometry import project
+
+    p = project("shape", RoomShape(**{k: v for k, v in sh.items() if k != "stats"})).model_dump(mode="json")
+    rep = api("POST", "/api/simulate", {"project": p, "preview": True})
+    assert rep["room"]["model"] == "shape" and rep["room"]["rt60_rays"] is not None
+
+    assert post(body(V, T, tag, names)[:-7])[0] == 422  # cut short
+    assert post(body(V, T[:2], tag[:2], names))[0] == 422  # too little left to be a room
+    bad = T.copy()
+    bad[0, 0] = 10**6
+    assert post(body(V, bad, tag, names))[0] == 422

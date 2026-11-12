@@ -528,6 +528,21 @@ def test_import_scan_sets_the_room(ui, tmp_path):
     page.keyboard.press("Control+y")
     time.sleep(0.8)
     assert page.locator(".scan-card").count() == 1
+    # the scanned shape: made from the placed scan, with its surfaces and their materials listed
+    page.get_by_role("radio", name="Scanned shape").click()
+    page.wait_for_selector(".surf-row", timeout=60000)
+    names = page.locator(".surf-row .name").all_inner_texts()
+    assert {"Floor", "Ceiling"} <= set(names) and len(names) >= 6
+    assert page.get_by_role("radio", name="Scanned shape").get_attribute("aria-checked") == "true"
+    page.wait_for_function("[...document.querySelectorAll('.stat-grid [title]')].some((e) => e.title.startsWith('Ray-traced'))",
+                           timeout=60000)
+    first = page.locator(".surf-row select").first
+    first.select_option("glass")
+    time.sleep(0.5)
+    assert page.locator(".surf-row select").first.input_value() == "glass"
+    shot(page, "11b-scan-shape")
+    page.get_by_role("radio", name="Fitted box").click()
+    page.wait_for_selector(".surf-row", state="detached", timeout=10000)
     page.locator("#stage-toolbar .seg button", has_text="Plan").click()
 
 

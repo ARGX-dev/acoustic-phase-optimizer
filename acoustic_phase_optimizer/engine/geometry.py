@@ -104,6 +104,13 @@ def _compact(V: np.ndarray, T: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     return V[used], inv.reshape(-1, 3)
 
 
+def weld(V: np.ndarray, T: np.ndarray, tol: float = 1e-3) -> tuple[np.ndarray, np.ndarray]:
+    """Merge corners closer than `tol` metres, so triangles that were exported apart (OBJ, STL) share edges again."""
+    key = np.round(np.nan_to_num(V, nan=1e9, posinf=1e9, neginf=-1e9) / tol)  # unusable corners are no triangle's
+    _, first, inv = np.unique(key, axis=0, return_index=True, return_inverse=True)
+    return V[first], inv.reshape(-1)[T]
+
+
 def decimate(V: np.ndarray, T: np.ndarray, tag: np.ndarray | None = None, max_tris: int = MAX_TRIS):
     """Vertex clustering: snap vertices to a grid, growing the cell until at most `max_tris` remain.
 
@@ -284,6 +291,7 @@ def build_shape(positions, indices, dims: tuple[float, float, float], tri_names=
     if tag is not None:
         tag = tag[np.all(good[np.asarray(indices, np.int64).reshape(-1, 3)], axis=1)]
     n_in = len(T)
+    V, T = weld(V, T)
     V, T, tag = decimate(V, T, tag, max_tris)
     if len(T) < 4:
         raise ValueError("the model has too few surfaces left after cleaning")

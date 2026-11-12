@@ -6,7 +6,7 @@ import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
 import { PLYLoader } from 'three/addons/loaders/PLYLoader.js';
 import { api } from './api.js';
 import { mutate, setUI } from './store.js';
-import { clamp, fmt, h, round, toast } from './util.js';
+import { clamp, fmt, h, round, scanPlacement, toast } from './util.js';
 import { cssVar } from './theme.js';
 import { openDialog } from './dialog.js';
 import { fromDisp, len, lenNum, lenUnit, toDisp } from './units.js';
@@ -266,6 +266,61 @@ export async function scanObject(ref) {
   return holder;
 }
 
+// ------------------------------------------------- the room's real shape
+/** The placed scan's triangles in room metres (z up), with a material name per triangle. */
+export function roomTriangles(root) {
+  root.updateMatrixWorld(true);
+  const pos = [], idx = [], tag = [], names = [], nameIx = new Map();
+  const w = new THREE.Vector3();
+  const nameOf = (s) => {
+    if (!s) return 0xffffffff;
+    if (!nameIx.has(s)) { if (names.length >= 4096) return 0xffffffff; nameIx.set(s, names.length); names.push(s); }
+    return nameIx.get(s);
+  };
+  root.traverse((o) => {
+    const g = o.geometry, p = g?.attributes?.position;
+    if (!o.isMesh || !p) return;
+    const base = pos.length / 3;
+    for (let i = 0; i < p.count; i++) {
+      w.fromBufferAttribute(p, i).applyMatrix4(o.matrixWorld);
+      pos.push(w.z, w.x, w.y); // three.js (x, y, z) shows room (y, z, x)
+    }
+    const index = g.index, n = index ? index.count / 3 : p.count / 3;
+    const mats = Array.isArray(o.material) ? o.material : [o.material];
+    const groups = Array.isArray(o.material) && g.groups.length ? g.groups : [{ start: 0, count: 3 * n, materialIndex: 0 }];
+    for (const gr of groups) {
+      const label = nameOf(mats[gr.materialIndex]?.name || o.name || '');
+      const end = Math.min(3 * n, gr.start + gr.count);
+      for (let k = gr.start; k + 2 < end; k += 3) {
+        idx.push(base + (index ? index.getX(k) : k), base + (index ? index.getX(k + 1) : k + 1), base + (index ? index.getX(k + 2) : k + 2));
+        tag.push(label);
+      }
+    }
+  });
+  return { positions: Float32Array.from(pos), indices: Uint32Array.from(idx), tags: Uint32Array.from(tag), names };
+}
+
+/** Make the room's acoustic shape from the placed scan (engine/geometry.py:build_shape). Returns {shape, stats}. */
+export async function buildShape(ref, dims) {
+  const { positions, indices, tags, names } = roomTriangles(await scanObject(ref));
+  if (!indices.length) throw new Error('the scan has no surfaces (a point cloud or drawing cannot be used as the shape)');
+  const head = new TextEncoder().encode(JSON.stringify({ dims, names, nv: positions.length / 3, nt: indices.length / 3 }));
+  const off = Math.ceil((4 + head.length) / 4) * 4;
+  const body = new Uint8Array(off + positions.byteLength + indices.byteLength + tags.byteLength);
+  new DataView(body.buffer).setUint32(0, head.length, true);
+  body.set(head, 4);
+  body.set(new Uint8Array(positions.buffer), off); // typed arrays are little-endian on every machine this runs on
+  body.set(new Uint8Array(indices.buffer), off + positions.byteLength);
+  body.set(new Uint8Array(tags.buffer), off + positions.byteLength + indices.byteLength);
+  let res;
+  try {
+    res = await fetch('/api/shape', { method: 'POST', body, headers: { 'Content-Type': 'application/octet-stream' } });
+  } catch (e) { throw new Error('The engine is not responding. Is the app still running?'); }
+  if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || res.statusText);
+  const { stats, ...shape } = await res.json();
+  return { shape: { ...shape, source: scanPlacement(ref) }, stats };
+}
+
 // ------------------------------------------------------------- the import
 const extOf = (f) => (f.name.split('.').pop() || '').toLowerCase();
 
@@ -494,6 +549,8 @@ function applyScan(name, ext, id, choice) {
       o.z = round(clamp(o.z * Math.min(1, fz), 0.1, d.height - 0.1), 2);
     }
     Object.assign(r, { width: d.width, length: d.length, height: d.height });
+    r.model = 'box'; // a new scan: the shape of the old one no longer applies
+    r.shape = null;
     p.scan = { id, ext, name: name.replace(/\.[^.]+$/, ''), up: choice.up, unit_scale: Number(choice.unit),
       yaw_deg: opt.yaw_deg, t: opt.t, visible: true, opacity: 1, repair: choice.repair };
   }, { structural: true, source: 'scan' });

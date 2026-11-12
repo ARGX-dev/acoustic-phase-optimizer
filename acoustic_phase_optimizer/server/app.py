@@ -35,6 +35,7 @@ from . import storage
 from .jobs import Job, JobManager
 
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
+MAX_SHAPE_BYTES = 64_000_000  # triangles sent to /api/shape (about 4M; the reduction takes ~10 us each)
 
 
 class ProjectIn(BaseModel):
@@ -527,6 +528,48 @@ def create_app() -> FastAPI:
             return fit_box(pts.reshape(-1, 3), nrm)
         except ValueError as exc:
             raise HTTPException(422, str(exc)) from None
+
+    @app.post("/api/shape")
+    async def api_shape(request: Request) -> dict:
+        """The scanned room's acoustic shape (engine/geometry.py:build_shape) from the placed model's triangles.
+
+        Binary body, little-endian: u32 header length, a JSON header {dims: [w, l, h], names: [...], nv, nt},
+        zero padding to a multiple of 4, then float32 positions (nv x 3, room metres, z up), uint32 indices
+        (nt x 3) and uint32 material-name indices per triangle (nt; 0xffffffff for none).
+        """
+        import asyncio
+        import json
+        import struct
+
+        import numpy as np
+
+        from ..engine import geometry
+
+        buf = bytearray()
+        async for chunk in request.stream():
+            buf += chunk
+            if len(buf) > MAX_SHAPE_BYTES:
+                raise HTTPException(413, "The model is too detailed to use as the room's shape "
+                                         f"(over {MAX_SHAPE_BYTES // 1_000_000} MB of triangles).")
+        try:
+            (hlen,) = struct.unpack_from("<I", buf, 0)
+            head = json.loads(bytes(buf[4:4 + hlen]))
+            nv, nt = int(head["nv"]), int(head["nt"])
+            dims = tuple(float(d) for d in head["dims"])
+            names = [str(n)[:120] for n in head.get("names", [])][:4096]
+            off = (4 + hlen + 3) // 4 * 4
+            if len(dims) != 3 or nv < 3 or nt < 1 or len(buf) != off + 12 * nv + 16 * nt:
+                raise ValueError
+        except (ValueError, KeyError, TypeError, struct.error):
+            raise HTTPException(422, "The model data could not be read.") from None
+        V = np.frombuffer(buf, "<f4", 3 * nv, off).reshape(-1, 3)
+        T = np.frombuffer(buf, "<u4", 3 * nt, off + 12 * nv).reshape(-1, 3).astype(np.int64)
+        tag = np.frombuffer(buf, "<u4", nt, off + 12 * nv + 12 * nt).astype(np.int64)
+        tag[tag >= len(names)] = len(names)  # "no name" sorts past the names and picks no material
+        try:
+            return await asyncio.to_thread(geometry.build_shape, V, T, dims, tag, names)
+        except ValueError as exc:
+            raise HTTPException(422, f"The room's shape could not be made: {exc}.") from None
 
     # ---------------------------------------------------------------------- storage
     @app.get("/api/projects")

@@ -4,7 +4,7 @@ import {
   addMic, addSpeaker, DEFAULT_WEIGHTS, duplicateSpeaker, editSpeaker, mirrorSpeaker, mutate, on, partnerOf,
   hangFields, loadSpeakerLibrary, removeMic, removeSpeaker, select, setUI, speakerById, speakerType, state, typeFields,
 } from './store.js';
-import { clamp, clear, fmt, fmtHz, h, icon, toast, uid } from './util.js';
+import { clamp, clear, fmt, fmtHz, h, icon, scanPlacement, toast, uid } from './util.js';
 import { pickSpeakerType } from './picker.js';
 import { openDialog } from './dialog.js';
 import { api } from './api.js';
@@ -18,6 +18,7 @@ const ROLES = [['main', 'Main'], ['fill', 'Fill'], ['front_fill', 'Front fill'],
 const ROLE_NAME = Object.fromEntries(ROLES);
 const SURFACES = [['floor', 'Floor'], ['ceiling', 'Ceiling'], ['front', 'Stage wall'], ['back', 'Back wall'],
   ['left', 'Side wall, top of plan'], ['right', 'Side wall, bottom of plan']];
+const ROLE_LABEL = { floor: 'floor', ceiling: 'ceiling', front: 'stage wall', back: 'back wall', left: 'side walls', right: 'side walls', other: 'side walls' };
 const FILTERS = [['bell', 'Bell'], ['low_shelf', 'Low shelf'], ['high_shelf', 'High shelf'], ['highpass', 'High-pass'], ['lowpass', 'Low-pass']];
 const PRIORITIES = [['coverage', 'Even coverage'], ['interference', 'Summation'], ['clarity', 'Clarity'], ['timing', 'Tight timing'], ['tonal', 'Tonal balance']];
 const LIVE = { commit: false, interacting: true, source: 'panel' };
@@ -207,7 +208,7 @@ export function createLeftPanel(root) {
       group('Surfaces', h('div', { class: 'grid2' }, SURFACES.map(([k, label]) => (openSurface(k)
         ? h('div', { class: 'field' }, h('span', { text: label }), h('div', { class: 'open-surface', text: kind === 'outdoor' && k !== 'ceiling' ? 'Open side' : 'Open sky' }))
         : choice(label, mats, () => P().room.materials[k], setIn(['room', 'materials', k]))))),
-      h('p', { class: 'hint', text: 'Each surface sets how strongly reflections come back, band by band, and the reverb time. ★ marks your own materials.' })),
+      h('p', { class: 'hint', text: P().room.model === 'shape' && P().room.shape ? 'With the scanned shape, these set every scanned surface that has no material of its own (small parts follow the side walls). ★ marks your own materials.' : 'Each surface sets how strongly reflections come back, band by band, and the reverb time. ★ marks your own materials.' })),
       customMaterialsGroup(),
       group('Audience area',
         h('div', { class: 'grid2' },
@@ -263,8 +264,67 @@ export function createLeftPanel(root) {
         h('button', { class: 'btn small', onclick: pick }, 'Replace…'),
         h('button', { class: 'btn small', title: MVR_FOLDER_TIP, onclick: pickFolder }, 'Folder…'),
         h('span', { style: { flex: 1 } }),
-        h('button', { class: 'btn small danger', onclick: () => mutate((p) => { p.scan = null; }, { structural: true }) }, icon('trash'), 'Remove scan')),
-      h('p', { class: 'hint', text: 'The prediction uses the box below; adjust it if the scan was measured oddly.' }));
+        h('button', { class: 'btn small danger', onclick: () => mutate((p) => { p.scan = null; p.room.model = 'box'; p.room.shape = null; }, { structural: true }) }, icon('trash'), 'Remove scan')),
+      predictionModel(sc));
+  }
+
+  let shapeBusy = false;
+  /** Fitted box (fast) or the scan's real shape, and the scanned surfaces' materials. */
+  function predictionModel(sc) {
+    const room = P().room;
+    const shaped = room.model === 'shape' && room.shape;
+    const stale = room.shape && room.shape.source !== scanPlacement(sc);
+    const make = async () => {
+      if (shapeBusy) return;
+      shapeBusy = true;
+      render();
+      try {
+        const m = await import('./scan.js');
+        const r = P().room;
+        const { shape, stats } = await m.buildShape(P().scan, [r.width, r.length, r.height]);
+        mutate((p) => { p.room.shape = shape; p.room.model = 'shape'; }, { ...DONE, structural: true });
+        const flat = Math.round(stats.flat_share * 100);
+        toast(`Room shape made: ${stats.surfaces} surfaces from ${stats.input_triangles.toLocaleString()} triangles (${flat}% flat).`);
+      } catch (e) {
+        toast(`Could not make the room's shape: ${e.message}`, { error: true });
+      } finally { shapeBusy = false; render(); }
+    };
+    const pickModel = (id) => {
+      if (id === 'box') mutate((p) => { p.room.model = 'box'; }, { ...DONE, structural: true });
+      else if (room.shape && !stale) mutate((p) => { p.room.model = 'shape'; }, { ...DONE, structural: true });
+      else make();
+    };
+    const MODELS = [['box', 'Fitted box', 'Fast: a shoebox with the size below and one material per wall'],
+      ['shape', 'Scanned shape', "The scan's real surfaces: reflections off each one, reverb traced with rays. Slower."]];
+    const cur = shaped ? 'shape' : 'box';
+    const seg = h('div', { class: 'seg block', attrs: { role: 'radiogroup', 'aria-label': 'Sound prediction uses' } }, MODELS.map(([id, label, tip]) =>
+      h('button', { class: cur === id ? 'on' : '', title: tip, disabled: shapeBusy, attrs: { role: 'radio', 'aria-checked': String(cur === id) },
+        onclick: () => pickModel(id) }, label)));
+    const parts = [h('div', { class: 'field', style: { marginTop: '10px' } }, h('span', { text: 'Sound prediction uses' }), seg)];
+    if (shapeBusy) parts.push(h('p', { class: 'hint', text: "Making the room's shape from the scan…" }));
+    else if (shaped && stale) {
+      parts.push(h('p', { class: 'hint warn', text: 'The scan has changed since its shape was made. ' },
+        h('button', { class: 'btn small', onclick: make }, 'Update the shape')));
+    } else if (!shaped) {
+      parts.push(h('p', { class: 'hint', text: 'The prediction uses the box below; adjust it if the scan was measured oddly. Choose the scanned shape for balconies, slopes and odd walls.' }));
+    }
+    if (shaped) parts.push(shapeSurfaces(room.shape));
+    return parts;
+  }
+
+  function shapeSurfaces(shape) {
+    const mats = [...state.meta.materials.map((m) => [m.id, m.name]), ...(P().custom_materials || []).map((m) => [m.id, `★ ${m.name}`])];
+    const nameOf = (id) => (mats.find((m) => m[0] === id) || [id, id])[1];
+    const roleMat = (role) => P().room.materials[role === 'other' ? 'left' : role];
+    const rows = shape.surfaces.map((sf, i) => {
+      const opts = [['', `As the ${ROLE_LABEL[sf.role] || 'side walls'} (${nameOf(roleMat(sf.role))})`], ...mats];
+      const el = choice(sf.name, opts, () => P().room.shape?.surfaces[i]?.material || '',
+        (v, o) => mutate((p) => { const x = p.room.shape?.surfaces[i]; if (x) x.material = v || null; }, o), { bare: true });
+      return h('div', { class: 'surf-row' }, h('span', { class: 'name', text: sf.name, title: `${area(sf.area)}` }),
+        h('small', { text: area(sf.area) }), el);
+    });
+    return h('div', { class: 'surf-list' }, h('div', { class: 'field' }, h('span', { text: 'Scanned surfaces' })), rows,
+      h('p', { class: 'hint', text: "Materials found in the model's names (glass, concrete, carpet, seats…) are filled in. The rest follow the wall they stand for, set under Surfaces below." }));
   }
 
   function customMaterialsGroup() {
@@ -305,18 +365,19 @@ export function createLeftPanel(root) {
       return;
     }
     clear(statsBox).append(
-      cell('Reverb time (mid)', r ? `${fmt(r.rt60_mid, 2)} s` : '–', room.kind === 'stadium' ? 'Eyring, with the roof open: walls and stands still reflect' : 'Eyring, average of 500 Hz and 1 kHz'),
+      cell('Reverb time (mid)', r ? `${fmt(r.rt60_mid, 2)} s` : '–', r?.model === 'shape' ? `Ray-traced in the scanned shape, average of 500 Hz and 1 kHz${r.escaped > 0.05 ? `; ${Math.round(r.escaped * 100)}% of the sound left through openings in the model` : ''}` : room.kind === 'stadium' ? 'Eyring, with the roof open: walls and stands still reflect' : 'Eyring, average of 500 Hz and 1 kHz'),
       cell('Critical distance', r ? len(r.critical_distance_m[3]) : '–', 'Where direct and reverberant sound are equal, for an omni source at 1 kHz'),
       cell('Volume', r ? volume(r.volume_m3) : '–'),
       cell('Speed of sound', r ? speed(r.speed_of_sound) : '–'),
       cell('Schroeder frequency', r ? `${Math.round(r.schroeder_hz)} Hz` : '–', 'Below this, room modes dominate'),
       cell('Air loss at 8 kHz', r && r.air_loss_8k_30m_db != null ? `${fmt(r.air_loss_8k_30m_db, 1)} dB / ${len(30, 0)}` : '–', `Extra treble the air absorbs over ${len(30, 0)}`));
     if (r) {
-      const max = Math.max(...r.rt60_eyring, 0.1);
-      statsBox.append(h('div', { class: 'rt-bands', attrs: { role: 'img', 'aria-label': 'Reverb time per octave band: ' + r.bands.map((b, i) => `${fmtHz(b)} ${fmt(r.rt60_eyring[i], 2)} s`).join(', ') } },
-        r.bands.map((b, i) => h('div', { class: 'rt-band', title: `${fmtHz(b)}: ${fmt(r.rt60_eyring[i], 2)} s` },
-          h('b', { text: fmt(r.rt60_eyring[i], 1) }),
-          h('i', { style: { height: `${Math.max(4, (r.rt60_eyring[i] / max) * 56)}px` } }),
+      const rt = r.rt60 || r.rt60_eyring;
+      const max = Math.max(...rt, 0.1);
+      statsBox.append(h('div', { class: 'rt-bands', attrs: { role: 'img', 'aria-label': 'Reverb time per octave band: ' + r.bands.map((b, i) => `${fmtHz(b)} ${fmt(rt[i], 2)} s`).join(', ') } },
+        r.bands.map((b, i) => h('div', { class: 'rt-band', title: `${fmtHz(b)}: ${fmt(rt[i], 2)} s` },
+          h('b', { text: fmt(rt[i], 1) }),
+          h('i', { style: { height: `${Math.max(4, (rt[i] / max) * 56)}px` } }),
           h('span', { text: fmtHz(b).replace(' kHz', 'k').replace(' Hz', '') })))));
     }
   }
@@ -643,7 +704,7 @@ export function createLeftPanel(root) {
           choice('Reflections', [['0', 'None (free field)'], ['1', '1st order'], ['2', '2nd order'], ['3', '3rd order (slower)'], ['4', '4th order (slow)']],
             () => String(P().settings.reflection_order), (v, o) => setIn(['settings', 'reflection_order'])(Number(v), o)),
           num('Map resolution', st('grid_resolution'), setIn(['settings', 'grid_resolution']), { min: 0.2, max: 3, step: 0.1, unit: 'm' })),
-        h('p', { class: 'hint', text: 'This is a prediction from a box-shaped room and generic loudspeaker patterns. Use it to plan and to get close; confirm delays and EQ with a measurement on site.' })),
+        h('p', { class: 'hint', text: 'This is a prediction from a box-shaped room (or the scanned shape, if chosen under Room) and generic loudspeaker patterns. Use it to plan and to get close; confirm delays and EQ with a measurement on site.' })),
     ];
   }
 

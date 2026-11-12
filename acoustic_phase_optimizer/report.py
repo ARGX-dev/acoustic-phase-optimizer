@@ -199,11 +199,27 @@ svg.plan{{width:100%;height:auto;display:block}}
     add(f"<tr><td>Predicted RT60 (500 Hz – 1 kHz)</td><td class='r'>{room['rt60_mid']:.2f} s</td>"
         f"<td>Critical distance at 1 kHz (omni source)</td><td class='r'>{room['critical_distance_m'][3]:.1f} m</td></tr></table>")
     add("<br><table><tr><th>Octave band</th>" + "".join(f"<th class='r'>{int(b)} Hz</th>" for b in room["bands"]) + "</tr>")
-    add("<tr><td>RT60, Eyring (s)</td>" + "".join(f"<td class='r'>{v:.2f}</td>" for v in room["rt60_eyring"]) + "</tr></table>")
+    shaped = room.get("model") == "shape"
+    rt_label = "RT60, ray-traced in the scanned shape (s)" if shaped else "RT60, Eyring (s)"
+    add(f"<tr><td>{rt_label}</td>" + "".join(f"<td class='r'>{v:.2f}</td>" for v in room.get("rt60", room["rt60_eyring"]))
+        + "</tr></table>")
     mats = project.room.materials.model_dump()
-    add("<br><table><tr><th>Surface</th><th>Material</th></tr>" + "".join(
-        f"<tr><td>{WALL_NAMES[s]}</td><td>{e(MATERIALS[mats[s]].name if mats[s] in MATERIALS else mats[s])}</td></tr>"
-        for s in SURFACES) + "</table>")
+
+    def mat_name(m: str) -> str:
+        return MATERIALS[m].name if m in MATERIALS else m
+
+    if shaped and project.room.shape is not None:
+        if room.get("escaped", 0) > 0.05:
+            add(f"<p>{room['escaped'] * 100:.0f}% of the traced sound left the model through openings.</p>")
+        rows = []
+        for s in project.room.shape.surfaces:
+            base = mats["left"] if s.role == "other" else mats[s.role]
+            rows.append(f"<tr><td>{e(s.name)}</td><td class='r'>{s.area:,.0f} m²</td><td>{e(mat_name(s.material or base))}</td></tr>")
+        add("<br><table><tr><th>Surface (scanned shape)</th><th class='r'>Area</th><th>Material</th></tr>" + "".join(rows)
+            + "</table>")
+    else:
+        add("<br><table><tr><th>Surface</th><th>Material</th></tr>" + "".join(
+            f"<tr><td>{WALL_NAMES[s]}</td><td>{e(mat_name(mats[s]))}</td></tr>" for s in SURFACES) + "</table>")
 
     if project.notes.strip():
         add(f"<h2>Notes</h2><p>{e(project.notes).replace(chr(10), '<br>')}</p>")
